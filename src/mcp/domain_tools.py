@@ -7,6 +7,7 @@ from fastmcp import FastMCP
 
 from src.schemas.domain_schemas import DomainCreate, DomainListResponse, DomainResponse
 from src.services.domain_service import DomainService
+from src.services.import_export_service import ImportExportService
 from src.services.workspace_service import WorkspaceService
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,6 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool()
     def domain_import(workspace: str, file_path: str) -> dict[str, Any]:
-        """Importa domain de ZIP."""
-        # TODO: T5 (import_export_service completo)
-        return {"status": "not_implemented"}
+        """Importa domain de ZIP para o workspace (falha se o domain já existe nele)."""
+        dm = ImportExportService().import_domain(_workspace_id(workspace), file_path)
+        return {"status": "ok", **DomainResponse.model_validate(dm).model_dump(mode="json")}

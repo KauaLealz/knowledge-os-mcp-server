@@ -54,4 +54,5 @@ def test_fluxo_tools_ponta_a_ponta(test_engine, monkeypatch):
     assert "not_found" in call("workspace_delete", {"name": "w1"})[0].text
     with pytest.raises(NotFoundError):
         call("workspace_get", {"name": "w1"})
-    assert "not_implemented" in call("workspace_import", {"file_path": "x"})[0].text
+    with pytest.raises(NotFoundError):
+        call("workspace_import", {"file_path": "arquivo-inexistente.zip"})

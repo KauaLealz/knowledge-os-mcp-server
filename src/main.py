@@ -49,18 +49,25 @@ def health_check() -> dict[str, str]:
 
 def register_all_tools() -> None:
     """Registra todos os tools no FastMCP."""
-    from src.mcp import domain_tools, workspace_tools
+    from src.mcp import (
+        artifact_tools,
+        domain_tools,
+        item_tools,
+        label_tools,
+        memory_tools,
+        relation_tools,
+        tag_tools,
+        workspace_tools,
+    )
 
     workspace_tools.register(mcp)
     domain_tools.register(mcp)
-
-    from src.mcp import label_tools, memory_tools, relation_tools, tag_tools
-
+    item_tools.register(mcp)
     relation_tools.register(mcp)
     memory_tools.register(mcp)
     tag_tools.register(mcp)
     label_tools.register(mcp)
-    # T3+ completarão isso depois
+    artifact_tools.register(mcp)
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:

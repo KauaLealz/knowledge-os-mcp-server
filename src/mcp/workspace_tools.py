@@ -10,6 +10,7 @@ from src.schemas.workspace_schemas import (
     WorkspaceListResponse,
     WorkspaceResponse,
 )
+from src.services.import_export_service import ImportExportService
 from src.services.workspace_service import WorkspaceService
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,6 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool()
     def workspace_import(file_path: str) -> dict[str, Any]:
-        """Importa workspace de ZIP."""
-        # TODO: T5 (import_export_service completo)
-        return {"status": "not_implemented"}
+        """Importa workspace de ZIP (cria workspace novo; falha se o nome já existe)."""
+        ws = ImportExportService().import_workspace(file_path)
+        return {"status": "ok", **WorkspaceResponse.model_validate(ws).model_dump(mode="json")}
