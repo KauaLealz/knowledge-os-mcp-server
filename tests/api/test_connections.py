@@ -1,6 +1,4 @@
-from sqlalchemy.orm import Session
-
-from src.db.models import Connection
+from src.config import ConfigManager, ConnectionConfig
 
 
 def _create(client, auth, tmp_path, name="extra"):
@@ -11,16 +9,17 @@ def _create(client, auth, tmp_path, name="extra"):
 def test_list_has_default(client, auth):
     r = client.get("/api/connections", headers=auth)
     assert r.status_code == 200
-    assert [c["id"] for c in r.json()] == ["default"]
+    assert [c["id"] for c in r.json()][0] == "default"
 
 
 def test_create_get(client, auth, tmp_path):
+    before = len(client.get("/api/connections", headers=auth).json())
     r = _create(client, auth, tmp_path)
     assert r.status_code == 201
     c = r.json()
     assert c["name"] == "extra" and c["db_type"] == "sqlite"
     assert client.get(f"/api/connections/{c['id']}", headers=auth).json()["name"] == "extra"
-    assert len(client.get("/api/connections", headers=auth).json()) == 2
+    assert len(client.get("/api/connections", headers=auth).json()) == before + 1
 
 
 def test_create_duplicate_is_422(client, auth, tmp_path):
@@ -44,11 +43,13 @@ def test_get_missing_is_404(client, auth):
     assert client.get("/api/connections/nope", headers=auth).status_code == 404
 
 
-def test_password_never_exposed(client, auth, engine):
-    with Session(engine) as s:
-        s.add(Connection(id="c1", name="pg", db_type="postgresql",
-                         db_url="postgresql://u:secret@h:5432/db"))
-        s.commit()
+def test_password_never_exposed(client, auth, monkeypatch):
+    monkeypatch.setenv("KOS_API_PW", "secret")
+    config = ConfigManager.load_or_create()
+    config.connections.append(ConnectionConfig(
+        id="c1", name="pg", db_type="postgresql", host="h", port=5432, database="db",
+        username="u", password_env="KOS_API_PW"))
+    ConfigManager.save(config)
     r = client.get("/api/connections/c1", headers=auth)
     assert r.status_code == 200
     assert "secret" not in r.text

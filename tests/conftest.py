@@ -8,8 +8,17 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from src.config import ConfigManager
 from src.db.models import Base, Domain, Item, Label, Tag, Workspace
 from src.db.session import create_fts_trigger
+
+
+@pytest.fixture(autouse=True)
+def _isolated_connections_file(tmp_path, monkeypatch):
+    """O connections.json de cada teste vive em tmp_path: a suíte não toca o repo."""
+    monkeypatch.setattr(
+        ConfigManager, "CONNECTIONS_FILE", tmp_path / ".knowledge" / "connections.json"
+    )
 
 
 @pytest.fixture

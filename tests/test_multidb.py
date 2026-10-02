@@ -181,6 +181,7 @@ def test_startup_importa_conexoes_legadas_do_catalogo_uma_vez(catalog, tmp_path)
 
 
 CONNECTION_FREE = {"health_check"}
+CONNECTION_REQUIRED = {"schema_sync"}  # alvo explícito: connection_id é obrigatório
 
 
 def _all_tools():
@@ -195,7 +196,7 @@ def test_server_expoe_40_tools():
     assert len(tools) == 40
     assert {n for n in tools if n.startswith("connection_")} == {
         f"connection_{a}"
-        for a in ("create", "list", "get", "delete", "test", "update", "init_db")}
+        for a in ("create", "list", "get", "delete", "test", "update")}
     assert "migrate_workspaces" in tools
 
 
@@ -203,6 +204,9 @@ def test_tools_receive_connection_id():
     tools = _all_tools()
     for name, tool in tools.items():
         if name.startswith("connection_") or name in CONNECTION_FREE | {"migrate_workspaces"}:
+            continue
+        if name in CONNECTION_REQUIRED:
+            assert "connection_id" in tool.parameters["required"], name
             continue
         props = tool.parameters["properties"]
         assert "connection_id" in props, name
