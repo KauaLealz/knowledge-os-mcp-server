@@ -5,7 +5,6 @@ espelho exigido pela FK de workspaces.
 """
 
 import logging
-import re
 import threading
 import time
 import uuid
@@ -29,7 +28,6 @@ logger = logging.getLogger(__name__)
 UPDATABLE_FIELDS = ("name", "is_active")
 _PROBE_TABLE = "_kos_connection_probe"
 _DEFAULT_PORTS = {"postgresql": 5432, "mysql": 3306}
-_ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _json_lock = threading.RLock()  # protege o ciclo carregar -> alterar -> gravar do JSON
 
 
@@ -64,8 +62,11 @@ def _url_of(conn: ConnectionConfig) -> str:
 
 
 def _to_row(conn: ConnectionConfig, result: tuple[bool, str, int] | None = None) -> Connection:
-    """Connection transiente (fora de qualquer sessão) para serialização. URL sem senha."""
-    return Connection(
+    """Connection transiente (fora de qualquer sessão) para serialização. URL sem senha.
+
+    `password_set` é um atributo transiente (não é coluna): diz só se há senha, nunca qual.
+    """
+    row = Connection(
         id=conn.id,
         name=conn.name,
         db_type=conn.db_type,
@@ -79,6 +80,8 @@ def _to_row(conn: ConnectionConfig, result: tuple[bool, str, int] | None = None)
         test_result=result[1] if result else None,
         created_at=conn.created_at,
     )
+    row.password_set = bool(conn.password)  # type: ignore[attr-defined]
+    return row
 
 
 def _load() -> ConnectionsFile:
@@ -122,11 +125,11 @@ class ConnectionService:
         db_type: str,
         db_url: str,
         test: bool = True,
-        password_env: str | None = None,
+        password: str | None = None,
     ) -> Connection:
         """Cria a conexão no connections.json. Com test=True testa a URL e sincroniza o schema.
 
-        A senha nunca vai na URL: use `password_env` (nome da variável de ambiente).
+        A senha nunca vai na URL: entra em `password` (uso da UI/API; as tools MCP não a recebem).
         ValidationError se o nome/tipo/URL são inválidos, o nome já existe ou o teste falha.
         """
         name = (name or "").strip()
@@ -140,11 +143,9 @@ class ConnectionService:
         parsed = make_url(normalize_url(db_url))
         if parsed.password:
             raise ValidationError(
-                "A URL não pode conter senha: guarde a senha numa variável de ambiente "
-                "e informe o nome dela em password_env"
+                "A URL não pode conter senha: informe-a no campo password "
+                "(pela UI ou editando o connections.json)"
             )
-        if password_env is not None and not _ENV_NAME.fullmatch(password_env):
-            raise ValidationError("password_env deve ser um nome de variável de ambiente")
 
         if db_type == "sqlite":
             if not parsed.database or parsed.database == ":memory:":
@@ -158,7 +159,7 @@ class ConnectionService:
                 "port": parsed.port or _DEFAULT_PORTS[db_type],
                 "database": parsed.database,
                 "username": parsed.username,
-                "password_env": password_env,
+                "password": password or None,
             }
         try:
             conn = ConnectionConfig(

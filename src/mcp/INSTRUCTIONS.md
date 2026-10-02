@@ -28,8 +28,13 @@ Connection  (qual banco)
 
 ### Connection
 - Aponta para um banco de dados: SQLite local, PostgreSQL ou MySQL.
-- A connection **default** é `sqlite_local` e existe desde a primeira execução.
-- Registrada em `.knowledge/connections.json`; criada/consultada via `connection_*`.
+- A connection **default** é o **catálogo** (id `default`): o SQLite `knowledge.db`
+  no home de dados. Existe desde a primeira execução, é reservada (não aparece em
+  `connections` no JSON, não se remove nem se edita) e aceita `MCP_DB_PATH` como override.
+- Os dados vivem no **home** (`KNOWLEDGE_OS_HOME`, padrão `~/.knowledge-os`):
+  `connections.json`, `knowledge.db`, `artifacts/`, `exports/` e `backups/`.
+  Não dependem do diretório onde o servidor foi iniciado.
+- As demais connections ficam em `<home>/connections.json`; criadas/consultadas via `connection_*`.
 - Quase todo tool aceita `connection_id` opcional. **Sem ele, usa a default.**
 - Ids de connection: minúsculas, números, `-` e `_` (ex.: `postgres_prod`).
 
@@ -93,7 +98,8 @@ Ao sair de `ephemeral`, o `ttl_days` é removido.
 
 ## Configurar conexões
 
-As connections vivem em `.knowledge/connections.json`. Você pode editar o arquivo
+As connections vivem em `<home>/connections.json` (`~/.knowledge-os/connections.json`
+por padrão). Você pode editar o arquivo
 à mão ou usar `connection_create`; os tools leem o arquivo do disco a cada
 chamada, então **não é preciso reiniciar o servidor**.
 
@@ -102,13 +108,13 @@ chamada, então **não é preciso reiniciar o servidor**.
 ```json
 {
   "version": "1.0",
-  "default": "sqlite_local",
+  "default": "default",
   "connections": [
     {
-      "id": "sqlite_local",
-      "name": "Local SQLite",
+      "id": "sqlite_extra",
+      "name": "SQLite extra",
       "db_type": "sqlite",
-      "path": "./knowledge.db",
+      "path": "extra.db",
       "enabled": true
     },
     {
@@ -119,7 +125,7 @@ chamada, então **não é preciso reiniciar o servidor**.
       "port": 5432,
       "database": "knowledge_db",
       "username": "dbuser",
-      "password_env": "POSTGRES_PASSWORD",
+      "password": "<senha>",
       "enabled": true
     },
     {
@@ -130,7 +136,7 @@ chamada, então **não é preciso reiniciar o servidor**.
       "port": 3306,
       "database": "knowledge",
       "username": "root",
-      "password_env": "MYSQL_PASSWORD",
+      "password": "<senha>",
       "enabled": false
     }
   ]
@@ -144,19 +150,21 @@ JSON não aceita comentários: não os coloque no arquivo.
 - `id`: único; minúsculas, números, `-` e `_`.
 - `name`: nome amigável.
 - `db_type`: `sqlite`, `postgresql` ou `mysql`.
-- SQLite usa `path`; PostgreSQL e MySQL usam `host`, `port`, `database`,
-  `username` e `password_env`.
-- `password_env`: **nome** da variável de ambiente que guarda a senha (ex.:
-  `POSTGRES_PASSWORD`, definida no `.env`). **Nunca grave a senha no JSON.**
+- SQLite usa `path`: relativo, resolve contra o home; absoluto não muda. PostgreSQL e MySQL usam `host`, `port`, `database`,
+  `username` e `password`.
+- `password`: a senha da connection, em texto no JSON (que fica no home, fora do
+  repositório). Os tools nunca a devolvem: `connection_get`/`connection_list` só
+  informam `password_set` (true/false).
 - `enabled`: `false` desativa a connection sem apagá-la.
 - `default` (raiz do arquivo): `id` da connection usada quando o tool é chamado
-  sem `connection_id`. Precisa existir na lista.
+  sem `connection_id`. `"default"` (o catálogo) ou um `id` da lista.
 
 ### Passo a passo
 
-1. Adicione a connection em `.knowledge/connections.json` (ou chame
-   `connection_create`, que não aceita senha: depois defina `password_env` no JSON).
-2. Defina a senha no `.env` (git-ignored), ex.: `POSTGRES_PASSWORD=...`.
+1. Adicione a connection em `<home>/connections.json` (ou chame
+   `connection_create`, que não aceita senha).
+2. A senha é informada pelo usuário na UI ou editando o campo `password` no JSON.
+   Nunca peça nem repita a senha na conversa.
 3. Valide com `connection_test` e prepare o banco com `schema_sync`
    (ou `connection_init_db`).
 4. Use: `workspace_create(name="Shared", connection_id="postgres_prod")`.
@@ -255,11 +263,12 @@ para operar nela. A connection default não muda sozinha.
 
 ## Segurança
 
-- **Senhas de banco** ficam em variáveis de ambiente (`.env`), referenciadas por
-  `password_env` na connection. Nunca peça, cole ou repita uma senha na conversa
-  quando houver alternativa. Os tools nunca devolvem a senha (a URL volta redigida).
+- **Senhas de banco** ficam no campo `password` da connection, no
+  `<home>/connections.json` (fora do repositório). Nunca peça, cole ou repita uma senha
+  na conversa: o usuário a informa na UI ou no JSON. Os tools nunca devolvem a senha
+  (a URL volta redigida; use `password_set` para saber se existe).
 - **URLs e configuração** das connections são persistidas em texto puro em
-  `.knowledge/connections.json`, localmente. Não versione esse arquivo.
+  `<home>/connections.json`, localmente. Não versione esse arquivo.
 - **Operações destrutivas** (`*_delete`, `migrate_workspaces` com `mode="replace"`):
   confirme com o usuário antes e, se houver dúvida, faça `workspace_export`
   primeiro. Deletar workspace ou domain leva os items junto.
@@ -274,7 +283,7 @@ para operar nela. A connection default não muda sozinha.
 |---------|---------------|
 | Connection não encontrada | `connection_list` e use o id exato |
 | Workspace/domain não encontrado | `workspace_list` / `domain_list` e use o nome exato |
-| Não conecta ao banco | `connection_test`; confira `.env` e a URL |
+| Não conecta ao banco | `connection_test`; confira a URL e a senha (`password_set`) |
 | Tabelas ausentes / erro de schema | `connection_init_db`, depois `health_check` |
 | Nome duplicado ao criar | Já existe: use `*_get` / `*_list` e reaproveite |
 | `ephemeral` rejeitado | Faltou `ttl_days` |

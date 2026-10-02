@@ -155,32 +155,8 @@ def test_conexao_desabilitada_ou_removida_do_json_e_recusada(catalog, tmp_path):
         get_engine("c")
 
 
-def test_startup_importa_conexoes_legadas_do_catalogo_uma_vez(catalog, tmp_path):  # noqa: F811
-    from src.main import import_legacy_connections
-
-    with session_scope(None) as s:
-        s.add_all([
-            Connection(id="velha", name="Velha", db_type="sqlite",
-                       db_url=f"sqlite:///{(tmp_path / 'velha.db').as_posix()}"),
-            Connection(id="off", name="Off", db_type="sqlite", is_active=False,
-                       db_url=f"sqlite:///{(tmp_path / 'off.db').as_posix()}"),
-            Connection(id="pg", name="Pg", db_type="postgresql", host="h", port=5433,
-                       database="d", username="u",
-                       db_url="postgresql+psycopg://u:***@h:5433/d"),
-        ])
-        s.commit()
-    assert import_legacy_connections() == 3
-    config = ConfigManager.load_or_create()
-    assert config.get_connection("velha").path == (tmp_path / "velha.db").as_posix()
-    assert config.get_connection("off").enabled is False
-    pg = config.get_connection("pg")
-    assert (pg.host, pg.port, pg.database, pg.username) == ("h", 5433, "d", "u")
-    assert import_legacy_connections() == 0
-    assert len(ConfigManager.load_or_create().connections) == 4  # sqlite_local + 3
-    assert WorkspaceService(connection_id="velha").create("W").connection_id == "velha"
-
-
 CONNECTION_FREE = {"health_check"}
+CONNECTION_REQUIRED = {"schema_sync"}  # alvo explícito: connection_id é obrigatório
 
 
 def _all_tools():
@@ -195,7 +171,7 @@ def test_server_expoe_40_tools():
     assert len(tools) == 40
     assert {n for n in tools if n.startswith("connection_")} == {
         f"connection_{a}"
-        for a in ("create", "list", "get", "delete", "test", "update", "init_db")}
+        for a in ("create", "list", "get", "delete", "test", "update")}
     assert "migrate_workspaces" in tools
 
 
@@ -203,6 +179,9 @@ def test_tools_receive_connection_id():
     tools = _all_tools()
     for name, tool in tools.items():
         if name.startswith("connection_") or name in CONNECTION_FREE | {"migrate_workspaces"}:
+            continue
+        if name in CONNECTION_REQUIRED:
+            assert "connection_id" in tool.parameters["required"], name
             continue
         props = tool.parameters["properties"]
         assert "connection_id" in props, name

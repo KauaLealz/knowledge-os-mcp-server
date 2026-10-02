@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -30,12 +30,10 @@ app = FastAPI(
     openapi_url="/api/openapi.json",
 )
 
+# Sem CORS: a UI é servida pela mesma origem. TrustedHost barra DNS rebinding (Host forjado);
+# "testserver" é o host do TestClient.
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # v0.1: permissivo; v0.2: lista de hosts
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"]
 )
 
 
@@ -76,8 +74,3 @@ _STATIC_DIR = Path(__file__).parent / "static"
 if _STATIC_DIR.is_dir():
     app.mount("/ui", StaticFiles(directory=_STATIC_DIR, html=True), name="ui")
 
-
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8000)

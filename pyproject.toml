@@ -45,6 +45,10 @@ knowledge-mcp = "src.main:main"
 where = ["."]
 include = ["src*"]
 
+[tool.setuptools.package-data]
+"src.mcp" = ["INSTRUCTIONS.md"]
+"src.api" = ["static/**/*"]
+
 [tool.black]
 line-length = 100
 target-version = ["py312"]

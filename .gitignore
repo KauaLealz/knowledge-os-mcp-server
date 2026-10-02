@@ -53,6 +53,9 @@ database/
 *.sqlite
 *.sqlite3
 
+# Dados locais (o home de dados fica em ~/.knowledge-os)
+.knowledge/
+
 # Artefatos
 artifacts/
 exports/

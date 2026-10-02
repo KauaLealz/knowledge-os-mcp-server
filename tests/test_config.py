@@ -1,23 +1,14 @@
-"""Testes do config de conexões (.knowledge/connections.json)."""
-
-from pathlib import Path
+"""Testes do config de conexões (connections.json no home)."""
 
 import pytest
 
 from src.config import ConfigManager, ConnectionConfig, ConnectionsFile
 
 
-@pytest.fixture
-def workdir(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    return tmp_path
-
-
-def test_connection_config_valid():
-    conn = ConnectionConfig(
-        id="sqlite_local", name="Local", db_type="sqlite", path="./knowledge.db"
-    )
-    assert conn.get_url() == "sqlite:///./knowledge.db"
+def test_connection_config_valid(tmp_path):
+    path = (tmp_path / "knowledge.db").as_posix()
+    conn = ConnectionConfig(id="local", name="Local", db_type="sqlite", path=path)
+    assert conn.get_url() == f"sqlite:///{path}"
 
 
 def test_connection_config_id_invalid():
@@ -35,15 +26,34 @@ def test_connections_file_default_exists():
         ConnectionsFile(version="1.0", default="nonexistent", connections=[])
 
 
-def test_get_url_postgres_with_and_without_password(monkeypatch):
-    conn = ConnectionConfig(
+def _pg(**kw):
+    return ConnectionConfig(
         id="pg", name="PG", db_type="postgresql", host="h", port=5432,
-        database="d", username="u", password_env="KOS_TEST_PW",
+        database="d", username="u", **kw,
     )
-    monkeypatch.delenv("KOS_TEST_PW", raising=False)
-    assert conn.get_url() == "postgresql://u@h:5432/d"
-    monkeypatch.setenv("KOS_TEST_PW", "p@ss")
-    assert conn.get_url() == "postgresql://u:p%40ss@h:5432/d"
+
+
+def test_get_url_postgres_with_and_without_password():
+    assert _pg().get_url() == "postgresql://u@h:5432/d"
+    assert _pg(password="p@ss").get_url() == "postgresql://u:p%40ss@h:5432/d"
+
+
+def test_password_nunca_aparece_em_repr_str_ou_erro():
+    conn = _pg(password="topsecret")
+    cfg = ConnectionsFile(default="default", connections=[conn])
+    for text in (repr(conn), str(conn), repr(cfg), str(cfg)):
+        assert "topsecret" not in text
+    bad = _pg(password="topsecret")
+    bad.port = 1  # inalcançável
+    msg = ConfigManager.validate_connection(bad)["message"]
+    assert "topsecret" not in msg
+
+
+def test_password_vai_para_o_json_e_password_env_saiu():
+    conn = _pg(password="topsecret")
+    assert conn.model_dump(mode="json")["password"] == "topsecret"
+    assert not hasattr(conn, "password_env")
+    assert "password_env" not in conn.model_dump()
 
 
 def test_get_url_mysql():
@@ -55,18 +65,17 @@ def test_get_url_mysql():
 
 def test_create_default_config():
     config = ConfigManager.create_default_config()
-    assert config.default == "sqlite_local"
-    assert len(config.connections) == 1
-    assert config.connections[0].db_type == "sqlite"
+    assert config.default == "default"
+    assert config.connections == []
 
 
-def test_load_or_create_creates_default(workdir):
+def test_load_or_create_creates_default(_isolated_home):
     config = ConfigManager.load_or_create()
-    assert Path(".knowledge/connections.json").exists()
-    assert config.default == "sqlite_local"
+    assert (_isolated_home / "connections.json").exists()
+    assert config.default == "default"
 
 
-def test_load_existing_config(workdir):
+def test_load_existing_config():
     config = ConfigManager.create_default_config()
     ConfigManager.save(config)
     loaded = ConfigManager.load_or_create()
@@ -74,12 +83,14 @@ def test_load_existing_config(workdir):
     assert len(loaded.connections) == len(config.connections)
 
 
-def test_validate_connection_sqlite(workdir):
-    conn = ConfigManager.create_default_config().connections[0]
+def test_validate_connection_sqlite(tmp_path):
+    conn = ConnectionConfig(
+        id="local", name="Local", db_type="sqlite", path=(tmp_path / "v.db").as_posix()
+    )
     assert ConfigManager.validate_connection(conn)["status"] == "ok"
 
 
-def test_validate_connection_error(workdir):
+def test_validate_connection_error():
     conn = ConnectionConfig(
         id="bad", name="Bad", db_type="postgresql", host="127.0.0.1", port=1,
         database="d", username="u",

@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from src.api import auth as auth_mod
 from src.api.deps import get_artifacts_dir, get_engine_dep
 from src.api.main import app
 from src.db.migrations import bootstrap_labels
@@ -20,17 +21,19 @@ def engine(tmp_path):
 
 
 @pytest.fixture
-def client(engine, tmp_path):
-    art_dir = tmp_path / "artifacts"
-    app.dependency_overrides[get_engine_dep] = lambda: engine
-    app.dependency_overrides[get_artifacts_dir] = lambda: art_dir
-    yield TestClient(app)
-    app.dependency_overrides.clear()
+def token():
+    return "test-token"
 
 
 @pytest.fixture
-def token():
-    return "test-token"
+def client(engine, tmp_path, token):
+    art_dir = tmp_path / "artifacts"
+    app.dependency_overrides[get_engine_dep] = lambda: engine
+    app.dependency_overrides[get_artifacts_dir] = lambda: art_dir
+    auth_mod.set_token(token)
+    yield TestClient(app)
+    auth_mod.set_token(None)
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture

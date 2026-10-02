@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import secrets
 import sys
 from pathlib import Path
 
@@ -11,23 +12,22 @@ if __name__ == "__main__":
     sys.path[0] = str(Path(__file__).resolve().parent.parent)
 
 from fastmcp import FastMCP  # noqa: E402
-from sqlalchemy import inspect, select, text  # noqa: E402
-from sqlalchemy.engine import make_url  # noqa: E402
-from sqlalchemy.orm import Session  # noqa: E402
+from sqlalchemy import inspect, text  # noqa: E402
 
 from src.config import (  # noqa: E402
     LOG_LEVEL,
     ConfigManager,
-    ConnectionConfig,
+    ensure_home,
     validate_and_init_config,
     validate_config,
 )
-from src.db.models import DEFAULT_CONNECTION_ID, Base, Connection  # noqa: E402
+from src.db.models import Base  # noqa: E402
 from src.db.session import FTS_TABLE, close_engines, get_engine  # noqa: E402
 from src.exceptions import ConfigError, DatabaseError  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
+UI_DEFAULT_PORT = 8765
 INSTRUCTIONS_FILE = Path(__file__).resolve().parent / "mcp" / "INSTRUCTIONS.md"
 
 # Inicializar FastMCP (as instructions chegam ao agente no handshake do protocolo)
@@ -88,68 +88,11 @@ def register_all_tools() -> None:
     connection_tools.register(mcp)  # schema_sync, migrate_workspaces e 6 de connection
 
 
-def import_legacy_connections() -> int:
-    """Copia para o connections.json as conexões que só existem na tabela `connections`.
-
-    Catálogos anteriores ao JSON único guardavam as conexões nessa tabela. A importação é
-    idempotente (pula id ou nome já presentes) e devolve quantas conexões entraram. A senha
-    não é migrada: o JSON só aceita `password_env`.
-    """
-    engine = get_engine()
-    if not inspect(engine).has_table(Connection.__tablename__):
-        return 0
-    config = ConfigManager.load_or_create()
-    known_ids = {c.id for c in config.connections}
-    known_names = {c.name for c in config.connections}
-    imported = 0
-    with Session(engine) as s:
-        rows = s.scalars(select(Connection).where(Connection.id != DEFAULT_CONNECTION_ID))
-        for row in rows:
-            if row.id in known_ids or row.name in known_names:
-                continue
-            url = make_url(row.db_url)
-            fields = (
-                {"path": url.database}
-                if row.db_type == "sqlite"
-                else {
-                    "host": row.host or url.host,
-                    "port": row.port or url.port,
-                    "database": row.database or url.database,
-                    "username": row.username or url.username,
-                }
-            )
-            try:
-                conn = ConnectionConfig(
-                    id=row.id,
-                    name=row.name,
-                    db_type=row.db_type,
-                    enabled=bool(row.is_active),
-                    created_at=row.created_at,
-                    **fields,
-                )
-            except ValueError as exc:
-                logger.warning("Conexão legada %r ignorada: %s", row.name, exc)
-                continue
-            if url.password and url.password != "***":
-                logger.warning(
-                    "Conexão legada %r importada sem senha: defina password_env no JSON", row.name
-                )
-            config.connections.append(conn)
-            known_ids.add(conn.id)
-            known_names.add(conn.name)
-            imported += 1
-    if imported:
-        ConfigManager.save(config)
-        logger.info("%d conexão(ões) legada(s) importada(s) para o connections.json", imported)
-    return imported
-
-
 def report_connections() -> None:
-    """Carrega (ou cria) .knowledge/connections.json e testa as conexões ativas.
+    """Carrega (ou cria) o connections.json do home e testa as conexões ativas.
 
     Escreve em stderr: o stdout é o canal do protocolo MCP.
     """
-    import_legacy_connections()
     config = ConfigManager.load_or_create()
     print(f"Loaded: {ConfigManager.CONNECTIONS_FILE}", file=sys.stderr)
     for conn in config.connections:
@@ -171,7 +114,29 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     group.add_argument(
         "--bootstrap", action="store_true", help="cria schema e labels padrão e sai"
     )
+    sub = parser.add_subparsers(dest="command")
+    ui = sub.add_parser("ui", help="sobe a UI web local (somente 127.0.0.1) com token por start")
+    ui.add_argument("--port", type=int, default=UI_DEFAULT_PORT, help="porta (padrão: 8765)")
+    ui.add_argument("--no-browser", action="store_true", help="não abre o navegador")
     return parser.parse_args(argv)
+
+
+def run_ui(port: int, open_browser: bool) -> None:
+    """Sobe a UI/API em 127.0.0.1 com um token novo. A URL vai ao stdout (não é modo MCP)."""
+    import uvicorn
+
+    from src.api import auth
+    from src.api.main import app
+
+    token = secrets.token_urlsafe(32)
+    auth.set_token(token)
+    url = f"http://127.0.0.1:{port}/ui/#token={token}"
+    print(url, flush=True)
+    if open_browser:
+        import webbrowser
+
+        webbrowser.open(url)
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -179,6 +144,12 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     logging.basicConfig(level=LOG_LEVEL, stream=sys.stderr)
     try:
+        ensure_home()
+        if args.command == "ui":
+            validate_and_init_config()
+            run_ui(args.port, open_browser=not args.no_browser)
+            return 0
+
         if args.bootstrap:
             validate_and_init_config()
             print("bootstrap: OK")
