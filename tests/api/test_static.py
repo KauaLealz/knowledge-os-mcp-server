@@ -1,13 +1,85 @@
-def test_dashboard_servido_em_ui(client):
-    resp = client.get("/ui/")
+"""Front estático em /ui/: servido sem autenticação, sem build step e sem Tailwind."""
+
+import re
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+
+from src.api.main import app
+
+STATIC = Path(__file__).resolve().parents[2] / "src" / "api" / "static"
+
+ASSETS = [
+    "css/tokens.css",
+    "css/app.css",
+    "js/main.js",
+    "js/api.js",
+    "js/router.js",
+    "js/store.js",
+    "js/util.js",
+    "js/views/sidebar.js",
+    "js/views/workspace.js",
+    "js/views/domain.js",
+]
+
+
+@pytest.fixture(scope="module")
+def ui():
+    return TestClient(app)
+
+
+def test_index_servido_em_ui(ui):
+    resp = ui.get("/ui/")
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
     assert "Knowledge OS" in resp.text
+    assert 'type="importmap"' in resp.text
 
 
-def test_health_continua_em_raiz(client):
-    assert client.get("/").json()["status"] == "ok"
+def test_health_continua_em_raiz(ui):
+    assert ui.get("/").json()["status"] == "ok"
 
 
-def test_api_nao_e_engolida_pelo_mount(client, auth):
-    assert client.get("/api/workspaces", headers=auth).status_code == 200
+def test_api_nao_e_engolida_pelo_mount(ui):
+    # Sem token: a rota existe e responde 401 (não 404 do mount estático).
+    assert ui.get("/api/workspaces").status_code == 401
+
+
+@pytest.mark.parametrize("path", ASSETS)
+def test_assets_prometidos_sao_servidos(ui, path):
+    resp = ui.get(f"/ui/{path}")
+    assert resp.status_code == 200, path
+    assert len(resp.text) > 20
+
+
+def test_sem_tailwind_e_sem_build_step():
+    for f in STATIC.rglob("*"):
+        if f.is_file():
+            text = f.read_text(encoding="utf-8").lower()
+            assert "tailwind" not in text, f
+    assert not (STATIC / "package.json").exists()
+
+
+def test_html_sem_campo_de_senha():
+    assert 'type="password"' not in (STATIC / "index.html").read_text(encoding="utf-8")
+
+
+def test_index_referencia_apenas_arquivos_locais_existentes():
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    refs = re.findall(r'(?<![:\w-])(?:src|href)="((?!https?:|#|data:)[^"]+)"', html)
+    assert any(r.endswith("main.js") for r in refs)
+    for ref in refs:
+        assert (STATIC / ref).is_file(), ref
+
+
+def test_imports_relativos_dos_modulos_existem():
+    for f in (STATIC / "js").rglob("*.js"):
+        for rel in re.findall(r"from\s+'(\.[^']+)'", f.read_text(encoding="utf-8")):
+            assert (f.parent / rel).resolve().is_file(), f"{f.name} -> {rel}"
+
+
+def test_token_e_lido_do_fragmento_e_nao_do_storage_persistente():
+    api_js = (STATIC / "js" / "api.js").read_text(encoding="utf-8")
+    assert "sessionStorage" in api_js and "replaceState" in api_js
+    assert "localStorage" not in api_js
