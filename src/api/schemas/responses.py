@@ -24,14 +24,38 @@ __all__ = [
     "RelationResponse",
     "SearchResponse",
     "TagResponse",
+    "TreeDomain",
+    "TreeItem",
     "WorkspaceResponse",
     "WorkspaceStats",
+    "WorkspaceTree",
 ]
 
 
 class WorkspaceStats(BaseModel):
     domains: int
     items: int
+
+
+class TreeItem(BaseModel):
+    id: str
+    title: str
+    type: str
+    memory_class: str
+    confidence: int | None
+    updated_at: datetime | None
+
+
+class TreeDomain(BaseModel):
+    id: str
+    name: str
+    description: str | None
+    item_count: int
+    items: list[TreeItem]
+
+
+class WorkspaceTree(BaseModel):
+    domains: list[TreeDomain]
 
 
 class DomainStats(BaseModel):

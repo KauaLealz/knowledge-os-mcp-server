@@ -96,3 +96,29 @@ def test_import_invalid_zip_is_422(client, auth):
     r = client.post("/api/workspaces/import", headers=auth,
                     files={"file": ("x.zip", b"not a zip", "application/zip")})
     assert r.status_code == 422
+
+
+def test_tree(client, auth, mk):
+    ws = mk.ws("Tree")
+    zeta = mk.domain(ws["id"], "Zeta")
+    alfa = mk.domain(ws["id"], "Alfa")
+    mk.domain(ws["id"], "Vazio")
+    mk.item(ws["id"], zeta["id"], "B item")
+    mk.item(ws["id"], zeta["id"], "A item", confidence=40)
+    mk.item(ws["id"], alfa["id"], "Solo")
+    r = client.get(f"/api/workspaces/{ws['id']}/tree", headers=auth)
+    assert r.status_code == 200
+    domains = r.json()["domains"]
+    assert [d["name"] for d in domains] == ["Alfa", "Vazio", "Zeta"]
+    assert [d["item_count"] for d in domains] == [1, 0, 2]
+    zeta_items = domains[2]["items"]
+    assert [i["title"] for i in zeta_items] == ["A item", "B item"]
+    assert set(zeta_items[0]) == {
+        "id", "title", "type", "memory_class", "confidence", "updated_at"
+    }
+    assert zeta_items[0]["confidence"] == 40
+    assert domains[1]["items"] == []
+
+
+def test_tree_missing_is_404(client, auth):
+    assert client.get("/api/workspaces/nope/tree", headers=auth).status_code == 404

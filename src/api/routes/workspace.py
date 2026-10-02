@@ -12,7 +12,13 @@ from src.api.auth import verify_token
 from src.api.deps import get_artifacts_dir, get_session_dep
 from src.api.routes._helpers import get_or_404
 from src.api.schemas.requests import WorkspaceCreate, WorkspaceUpdate
-from src.api.schemas.responses import WorkspaceResponse, WorkspaceStats
+from src.api.schemas.responses import (
+    TreeDomain,
+    TreeItem,
+    WorkspaceResponse,
+    WorkspaceStats,
+    WorkspaceTree,
+)
 from src.db.models import DEFAULT_CONNECTION_ID, Domain, Item, Workspace
 from src.exceptions import ValidationError
 from src.services.import_export_service import ImportExportService
@@ -86,6 +92,41 @@ def workspace_stats(id: str, session: Session = Depends(get_session_dep)):
     )
     items = session.scalar(select(func.count()).select_from(Item).where(Item.workspace_id == id))
     return WorkspaceStats(domains=domains or 0, items=items or 0)
+
+
+@router.get("/workspaces/{id}/tree", response_model=WorkspaceTree)
+def workspace_tree(id: str, session: Session = Depends(get_session_dep)):
+    """Domains (por nome) com seus items (por título), em duas queries."""
+    get_or_404(session, Workspace, id, "Workspace")
+    domains = session.scalars(
+        select(Domain).where(Domain.workspace_id == id).order_by(Domain.name)
+    ).all()
+    rows = session.execute(
+        select(
+            Item.id, Item.domain_id, Item.title, Item.type, Item.memory_class,
+            Item.confidence, Item.updated_at,
+        )
+        .where(Item.workspace_id == id)
+        .order_by(Item.title, Item.id)
+    ).all()
+    by_domain: dict[str, list[TreeItem]] = {d.id: [] for d in domains}
+    for row in rows:
+        if row.domain_id in by_domain:
+            by_domain[row.domain_id].append(
+                TreeItem(
+                    id=row.id, title=row.title, type=row.type, memory_class=row.memory_class,
+                    confidence=row.confidence, updated_at=row.updated_at,
+                )
+            )
+    return WorkspaceTree(
+        domains=[
+            TreeDomain(
+                id=d.id, name=d.name, description=d.description,
+                item_count=len(by_domain[d.id]), items=by_domain[d.id],
+            )
+            for d in domains
+        ]
+    )
 
 
 @router.post("/workspaces/{id}/export")
