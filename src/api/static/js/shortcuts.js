@@ -11,6 +11,8 @@ export const isMac = /Mac|iPhone|iPad/.test(navigator.platform || '');
 /** Lista exibida na ajuda (`?`). */
 export const SHORTCUTS = [
   { keys: [isMac ? '⌘ K' : 'Ctrl K', '/'], label: 'Abrir a busca e os comandos' },
+  { keys: ['e'], label: 'Alternar entre Ler e Editar (na página de um item)' },
+  { keys: [isMac ? '⌘ S' : 'Ctrl S'], label: 'Salvar a edição' },
   { keys: ['?'], label: 'Mostrar esta ajuda' },
   { keys: ['Esc'], label: 'Fechar painel, paleta ou modal' },
   { keys: ['↑', '↓', 'Enter'], label: 'Navegar e escolher na paleta' },
@@ -27,11 +29,18 @@ export function registerShortcuts(app) {
       return;
     }
 
+    if (mod && !e.altKey && e.key.toLowerCase() === 's' && app.route.params.edit) {
+      e.preventDefault();
+      app.saveHook?.();
+      return;
+    }
+
     if (e.key === 'Escape') {
       if (app.paletteOpen) app.paletteOpen = false;
       else if (app.helpOpen) app.helpOpen = false;
       else if (app.modal) app.modal = null;
       else if (app.drawer) app.drawer = false;
+      else if (app.route.params.edit) app.toggleEdit();
       return;
     }
 
@@ -40,6 +49,9 @@ export function registerShortcuts(app) {
     if (e.key === '?') {
       e.preventDefault();
       app.helpOpen = !app.helpOpen;
+    } else if (e.key === 'e' && app.route.name === 'item' && !app.modal) {
+      e.preventDefault();
+      app.toggleEdit();
     } else if (e.key === '/') {
       e.preventDefault();
       app.paletteOpen = true;

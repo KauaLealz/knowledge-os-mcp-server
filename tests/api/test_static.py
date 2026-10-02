@@ -25,6 +25,7 @@ ASSETS = [
     "js/views/item.js",
     "js/views/palette.js",
     "js/shortcuts.js",
+    "js/views/editor.js",
 ]
 
 
@@ -123,3 +124,15 @@ def test_paleta_e_atalhos():
     for needle in ("Escape", "metaKey", "'?'", "registerShortcuts"):
         assert needle in sc, needle
     assert "registerShortcuts" in _js("main.js")
+
+
+def test_edicao_inline_e_modais_de_criacao():
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    for needle in ("itemEditor", "newModal", "Novo item", "Novo workspace", "Novo domain"):
+        assert needle in html, needle
+    ed = _js("views/editor.js")
+    assert "beforeunload" in ed and "'PUT'" in ed and "'POST'" in ed
+    assert "/workspaces" in ed and "/domains" in ed and "/items" in ed
+    sc = _js("shortcuts.js")
+    assert "saveHook" in sc and "toggleEdit" in sc
+    assert "Ctrl S" in sc or "⌘ S" in sc

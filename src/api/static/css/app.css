@@ -328,3 +328,31 @@ kbd {
   .search-btn kbd { display: none; }
   .overlay { padding-top: 8vh; }
 }
+
+/* ===== Edição e formulários ===== */
+.page.editing { --content-w: 1180px; }
+.section-title .btn { text-transform: none; letter-spacing: 0; font-weight: 500; }
+.dd-menu.right { left: auto; right: 0; min-width: 190px; }
+.topbar .dd { position: relative; }
+.field.grow { flex: 1; min-width: 220px; }
+.input.num { width: 110px; }
+.textarea { resize: vertical; line-height: 1.55; }
+.textarea.mono, .editor-ta { font-family: var(--mono); font-size: 13.5px; }
+.form-row { display: flex; flex-wrap: wrap; gap: 0 12px; }
+.form-row .field { flex: 1 1 150px; min-width: 0; }
+.form-error { color: var(--danger); font-size: 13.5px; margin: 8px 0 0; }
+.form-hint { color: var(--warn-text); background: var(--warn-bg); border: 1px solid var(--warn-border); border-radius: var(--radius); padding: 6px 10px; font-size: 13px; margin: 0 0 14px; }
+.dialog.wide .dialog-body { max-height: 70vh; overflow: auto; }
+.editor-meta { display: flex; flex-wrap: wrap; gap: 0 14px; align-items: flex-end; margin-bottom: 4px; }
+.editor-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.editor-col { min-width: 0; display: flex; flex-direction: column; }
+.editor-label { font-size: 12.5px; font-weight: 600; color: var(--text-2); margin-bottom: 4px; }
+.editor-ta { min-height: 62vh; flex: 1; tab-size: 2; }
+.editor-prev { min-height: 62vh; max-height: 75vh; overflow: auto; padding: 4px 16px 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-soft); font-size: 15px; }
+.editor-bar { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px 0; margin-top: 12px; background: var(--bg); border-top: 1px solid var(--border); }
+.editor-bar .grow { flex: 1; }
+.editor-bar .form-error { margin: 0; }
+@media (max-width: 900px) {
+  .editor-grid { grid-template-columns: minmax(0, 1fr); }
+  .editor-ta, .editor-prev { min-height: 40vh; }
+}

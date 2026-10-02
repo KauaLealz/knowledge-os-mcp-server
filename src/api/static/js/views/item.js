@@ -204,6 +204,9 @@ export function register(Alpine) {
     humanSize,
 
     // ---- ações ----
+    applyUpdate(updated) {
+      this.item = updated;
+    },
     async copyMarkdown() {
       try {
         await copyText(`# ${this.item.title}\n\n${this.item.content}`);

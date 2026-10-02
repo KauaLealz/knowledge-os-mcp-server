@@ -210,6 +210,19 @@
           <kbd x-text="$store.app.isMac ? '⌘K' : 'Ctrl K'"></kbd>
         </button>
         <div class="spacer"></div>
+        <div class="dd" x-data="dropdown" @click.outside="close()" @keydown.escape.window="close()">
+          <button class="btn" @click="toggle()" :aria-expanded="open" aria-haspopup="menu">
+            <svg class="ic"><use href="#i-plus"/></svg> Novo
+          </button>
+          <div class="dd-menu right" x-show="open" x-cloak role="menu">
+            <button class="dd-item" role="menuitem" :disabled="!$store.app.route.params.ws" @click="close(); $store.app.openModal('item')">
+              <svg class="ic"><use href="#i-knowledge"/></svg><span class="grow">Novo item</span></button>
+            <button class="dd-item" role="menuitem" :disabled="!$store.app.workspaces.length" @click="close(); $store.app.openModal('domain')">
+              <svg class="ic"><use href="#i-folder"/></svg><span class="grow">Novo domain</span></button>
+            <button class="dd-item" role="menuitem" @click="close(); $store.app.openModal('workspace')">
+              <svg class="ic"><use href="#i-box"/></svg><span class="grow">Novo workspace</span></button>
+          </div>
+        </div>
         <button class="btn icon ghost" @click="$store.app.toggleWide()" :aria-pressed="$store.app.wide"
                 title="Largura do conteúdo" aria-label="Alternar largura do conteúdo">
           <svg class="ic"><use href="#i-expand"/></svg>
@@ -234,6 +247,7 @@
               <nav class="crumbs"><span x-text="$store.app.connName"></span></nav>
               <h1 class="page-title">Workspaces</h1>
               <p class="page-lead">Escolha um workspace para navegar pelo conhecimento.</p>
+              <div class="toolbar"><button class="btn primary" @click="$store.app.openModal('workspace')"><svg class="ic"><use href="#i-plus"/></svg> Novo workspace</button></div>
               <div class="state error" x-show="$store.app.wsError" role="alert">
                 <svg class="ic"><use href="#i-alert"/></svg>
                 <h3>Não foi possível listar os workspaces</h3>
@@ -277,7 +291,8 @@
                     <span>criado <b x-text="$ago($store.app.workspace.created_at)"></b></span>
                   </div>
 
-                  <div class="section-title">Domains</div>
+                  <div class="section-title"><span>Domains</span>
+                    <button class="btn" @click="$store.app.openModal('domain')"><svg class="ic"><use href="#i-plus"/></svg> Novo domain</button></div>
                   <div class="card-grid">
                     <template x-for="d in $store.app.tree?.domains || []" :key="d.id">
                       <a class="card" :href="$store.app.hDomain(d.id)">
@@ -339,6 +354,7 @@
                   <h1 class="page-title" x-text="$store.app.domain.name"></h1>
                   <p class="page-lead" x-show="$store.app.domain.description" x-text="$store.app.domain.description"></p>
                   <div class="page-meta"><span><b x-text="$store.app.domain.item_count"></b> itens</span></div>
+                  <div class="toolbar"><button class="btn primary" @click="$store.app.openModal('item')"><svg class="ic"><use href="#i-plus"/></svg> Novo item</button></div>
 
                   <div class="toolbar" x-show="items.length">
                     <select class="select sm" x-model="typeFilter" aria-label="Filtrar por type">
@@ -396,7 +412,7 @@
 
           <!-- Item -->
           <template x-if="$store.app.route.name === 'item'">
-            <div class="page" :class="{ 'has-toc': item && headings.length }" x-data="itemView">
+            <div class="page" :class="{ 'has-toc': item && headings.length && !$store.app.route.params.edit, editing: $store.app.route.params.edit }" x-data="itemView">
               <div class="doc">
                 <div class="skeleton" x-show="loading && !item" style="height:30px;width:50%;margin:0 0 16px"></div>
 
@@ -412,8 +428,12 @@
                     <div class="item-head">
                       <h1 class="page-title" x-text="item.title"></h1>
                       <div class="item-actions">
-                        <button class="btn" @click="copyMarkdown()"><svg class="ic"><use href="#i-copy"/></svg> Copiar como Markdown</button>
-                        <button class="btn" :aria-pressed="showRaw" @click="showRaw = !showRaw">
+                        <button class="btn" @click="$store.app.toggleEdit()" title="Atalho: e">
+                          <svg class="ic"><use :href="'#i-' + ($store.app.route.params.edit ? 'eye' : 'edit')"/></svg>
+                          <span x-text="$store.app.route.params.edit ? 'Ler' : 'Editar'"></span> <kbd>e</kbd>
+                        </button>
+                        <button class="btn" x-show="!$store.app.route.params.edit" @click="copyMarkdown()"><svg class="ic"><use href="#i-copy"/></svg> Copiar como Markdown</button>
+                        <button class="btn" x-show="!$store.app.route.params.edit" :aria-pressed="showRaw" @click="showRaw = !showRaw">
                           <svg class="ic"><use href="#i-eye"/></svg> <span x-text="showRaw ? 'Ver renderizado' : 'Ver Markdown'"></span>
                         </button>
                       </div>
@@ -441,9 +461,47 @@
                       </div>
                     </template>
 
-                    <div class="prose" x-show="!showRaw" @click="onProseClick($event)"
-                         x-effect="renderInto($el, item.content)"></div>
-                    <pre class="raw" x-show="showRaw" x-text="item.content"></pre>
+                    <template x-if="!$store.app.route.params.edit">
+                      <div>
+                        <div class="prose" x-show="!showRaw" @click="onProseClick($event)"
+                             x-effect="renderInto($el, item.content)"></div>
+                        <pre class="raw" x-show="showRaw" x-text="item.content"></pre>
+                      </div>
+                    </template>
+
+                    <template x-if="$store.app.route.params.edit">
+                      <div class="editor" x-data="itemEditor(item, (u) => applyUpdate(u))">
+                        <div class="editor-meta">
+                          <div class="field grow"><label for="ed-summary">Summary</label>
+                            <input id="ed-summary" class="input" type="text" x-model="draft.summary"></div>
+                          <div class="field"><label for="ed-conf">Confiança (0–100)</label>
+                            <input id="ed-conf" class="input num" type="number" min="0" max="100" x-model.number="draft.confidence"></div>
+                          <div class="field"><label for="ed-imp">Importância (0–10)</label>
+                            <input id="ed-imp" class="input num" type="number" min="0" max="10" x-model.number="draft.importance"></div>
+                          <div class="field" x-show="item.memory_class === 'ephemeral'"><label for="ed-ttl">TTL (dias)</label>
+                            <input id="ed-ttl" class="input num" type="number" min="1" x-model.number="draft.ttl_days"></div>
+                        </div>
+                        <div class="editor-grid">
+                          <div class="editor-col">
+                            <label class="editor-label" for="ed-content">Markdown</label>
+                            <textarea id="ed-content" x-ref="content" class="textarea editor-ta" x-model="draft.content" spellcheck="false"></textarea>
+                          </div>
+                          <div class="editor-col">
+                            <div class="editor-label">Preview</div>
+                            <div class="prose editor-prev" x-effect="preview($el)"></div>
+                          </div>
+                        </div>
+                        <div class="editor-bar">
+                          <span class="muted" x-show="dirty">Alterações não salvas</span>
+                          <span class="form-error" x-show="error" x-text="error" role="alert"></span>
+                          <span class="grow"></span>
+                          <button class="btn" @click="$store.app.toggleEdit()">Fechar edição</button>
+                          <button class="btn primary" :disabled="!dirty || saving" @click="save()">
+                            <span x-text="saving ? 'Salvando…' : 'Salvar'"></span> <kbd x-text="$store.app.isMac ? '⌘ S' : 'Ctrl S'"></kbd>
+                          </button>
+                        </div>
+                      </div>
+                    </template>
 
                     <template x-if="out.length || inc.length">
                       <section class="rels">
@@ -587,6 +645,84 @@
         <div class="pal-empty" x-show="!flat.length && !searching">Nada encontrado para “<span x-text="q"></span>”.</div>
       </div>
     </div>
+  </div>
+  </template>
+
+  <!-- Novo item / domain / workspace -->
+  <template x-if="$store.app.modal">
+  <div class="overlay" x-data="newModal" @click.self="close()">
+    <form class="dialog wide" role="dialog" aria-modal="true" :aria-label="title" @submit.prevent="submit()">
+      <div class="dialog-head"><h2 x-text="title"></h2>
+        <button type="button" class="btn icon ghost" @click="close()" aria-label="Fechar"><svg class="ic"><use href="#i-x"/></svg></button>
+      </div>
+      <div class="dialog-body">
+        <template x-if="kind === 'workspace'">
+          <div>
+            <div class="field"><label for="m-name">Nome</label>
+              <input id="m-name" x-ref="first" class="input" type="text" x-model="form.name" maxlength="255" required></div>
+            <div class="field"><label for="m-desc">Descrição</label>
+              <textarea id="m-desc" class="textarea" rows="3" x-model="form.description"></textarea></div>
+            <p class="muted" style="font-size:13px;margin:0">Será criado na conexão <b x-text="$store.app.connName"></b>.</p>
+          </div>
+        </template>
+
+        <template x-if="kind === 'domain'">
+          <div>
+            <div class="field"><label for="m-ws">Workspace</label>
+              <select id="m-ws" class="select" x-model="form.workspace_id">
+                <template x-for="w in $store.app.workspaces" :key="w.id"><option :value="w.id" x-text="w.name"></option></template>
+              </select></div>
+            <div class="field"><label for="m-dname">Nome</label>
+              <input id="m-dname" x-ref="first" class="input" type="text" x-model="form.name" maxlength="255" required></div>
+            <div class="field"><label for="m-ddesc">Descrição</label>
+              <textarea id="m-ddesc" class="textarea" rows="3" x-model="form.description"></textarea></div>
+          </div>
+        </template>
+
+        <template x-if="kind === 'item'">
+          <div>
+            <p class="muted" style="font-size:13px;margin:0 0 12px">Workspace: <b x-text="$store.app.workspace?.name"></b></p>
+            <div class="field"><label for="m-title">Título</label>
+              <input id="m-title" x-ref="first" class="input" type="text" x-model="form.title" maxlength="255" required></div>
+            <div class="form-row">
+              <div class="field"><label for="m-domain">Domain</label>
+                <select id="m-domain" class="select" x-model="form.domain_id">
+                  <template x-for="d in domains" :key="d.id"><option :value="d.id" x-text="d.name"></option></template>
+                </select></div>
+              <div class="field"><label for="m-type">Type</label>
+                <select id="m-type" class="select" x-model="form.type">
+                  <template x-for="t in types" :key="t"><option :value="t" x-text="t"></option></template>
+                </select></div>
+              <div class="field"><label for="m-class">Memory class</label>
+                <select id="m-class" class="select" x-model="form.memory_class">
+                  <template x-for="c in classes" :key="c"><option :value="c" x-text="c"></option></template>
+                </select></div>
+            </div>
+            <p class="form-hint" x-show="!domains.length">Este workspace ainda não tem domains: crie um antes do item.</p>
+            <div class="field"><label for="m-sum">Summary</label>
+              <input id="m-sum" class="input" type="text" x-model="form.summary" required></div>
+            <div class="field"><label for="m-content">Conteúdo (Markdown)</label>
+              <textarea id="m-content" class="textarea mono" rows="8" x-model="form.content" spellcheck="false" required></textarea></div>
+            <div class="form-row">
+              <div class="field"><label for="m-tags">Tags (separadas por vírgula)</label>
+                <input id="m-tags" class="input" type="text" x-model="form.tags"></div>
+              <div class="field"><label for="m-conf">Confiança</label>
+                <input id="m-conf" class="input num" type="number" min="0" max="100" x-model.number="form.confidence"></div>
+              <div class="field"><label for="m-imp">Importância</label>
+                <input id="m-imp" class="input num" type="number" min="0" max="10" x-model.number="form.importance"></div>
+              <div class="field" x-show="form.memory_class === 'ephemeral'"><label for="m-ttl">TTL (dias)</label>
+                <input id="m-ttl" class="input num" type="number" min="1" x-model.number="form.ttl_days"></div>
+            </div>
+          </div>
+        </template>
+
+        <p class="form-error" x-show="error" x-text="error" role="alert"></p>
+      </div>
+      <div class="dialog-foot">
+        <button type="button" class="btn" @click="close()">Cancelar</button>
+        <button type="submit" class="btn primary" :disabled="saving" x-text="saving ? 'Criando…' : 'Criar'"></button>
+      </div>
+    </form>
   </div>
   </template>
 

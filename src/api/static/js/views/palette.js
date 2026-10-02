@@ -122,10 +122,14 @@ export function register(Alpine) {
         return groups;
       },
 
-      /** Ações da paleta (T7 acrescenta as de criação). */
+      /** Ações da paleta. */
       actions() {
         const app = this.app;
         return [
+          { key: 'a-new-item', title: 'Novo item', sub: 'Criar no workspace atual', icon: 'plus', run: () => app.openModal('item') },
+          { key: 'a-new-domain', title: 'Novo domain', sub: '', icon: 'folder', run: () => app.openModal('domain') },
+          { key: 'a-new-ws', title: 'Novo workspace', sub: '', icon: 'box', run: () => app.openModal('workspace') },
+          { key: 'a-edit', title: 'Alternar Ler / Editar', sub: 'e', icon: 'edit', run: () => app.toggleEdit() },
           { key: 'a-wide', title: 'Alternar largura do conteúdo', sub: '', icon: 'expand', run: () => app.toggleWide() },
           { key: 'a-help', title: 'Ver atalhos de teclado', sub: '?', icon: 'command', run: () => (app.helpOpen = true) },
           { key: 'a-refresh', title: 'Recarregar dados', sub: '', icon: 'refresh', run: () => app.refresh() },

@@ -58,6 +58,9 @@ export const appStore = {
   helpOpen: false,
   paletteOpen: false,
   modal: null,
+  dirty: false,
+  saveHook: null,
+  lastHash: '',
 
   // ---- ciclo de vida ----
   async init() {
@@ -69,7 +72,16 @@ export const appStore = {
     setOnExpired(() => {
       this.expired = true;
     });
-    window.addEventListener('hashchange', () => this.onRoute());
+    this.lastHash = location.hash;
+    window.addEventListener('hashchange', () => {
+      // Edição com alterações não salvas: confirma antes de sair da rota.
+      if (this.dirty && location.hash !== this.lastHash && !window.confirm('Há alterações não salvas. Descartar?')) {
+        location.hash = this.lastHash;
+        return;
+      }
+      this.lastHash = location.hash;
+      this.onRoute();
+    });
     await this.boot();
   },
 
@@ -259,6 +271,17 @@ export const appStore = {
     };
     this.recents = [entry, ...this.recents.filter((r) => !(r.id === entry.id && r.conn === entry.conn))].slice(0, 8);
     lsSet('kos.recents', JSON.stringify(this.recents));
+  },
+
+  // ---- edição e modais ----
+  toggleEdit() {
+    const p = this.route.params;
+    if (this.route.name !== 'item') return;
+    go(p.edit ? hrefs.item(p.conn, p.ws, p.dm, p.item) : hrefs.edit(p.conn, p.ws, p.dm, p.item));
+  },
+  openModal(kind) {
+    this.paletteOpen = false;
+    this.modal = kind;
   },
 
   // ---- UI ----

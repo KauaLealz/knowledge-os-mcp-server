@@ -8,6 +8,7 @@ import { register as registerWorkspace } from './views/workspace.js';
 import { register as registerDomain } from './views/domain.js';
 import { register as registerItem } from './views/item.js';
 import { register as registerPalette } from './views/palette.js';
+import { register as registerEditor } from './views/editor.js';
 import { registerShortcuts, SHORTCUTS, isMac } from './shortcuts.js';
 
 // O token chega em #token=...: guarda e tira da barra de endereço antes de tudo.
@@ -23,6 +24,7 @@ registerWorkspace(Alpine);
 registerDomain(Alpine);
 registerItem(Alpine);
 registerPalette(Alpine);
+registerEditor(Alpine);
 
 appStore.shortcuts = SHORTCUTS;
 appStore.isMac = isMac;

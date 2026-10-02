@@ -58,7 +58,7 @@ As rotas usam `#/c/:conn/w/:ws/d/:dm/i/:item[/edit]` e `#/settings/connections[/
 - [x] T4 Shell, tokens, tema, router, api.js, store, sidebar e páginas de Workspace e Domain. Inclui tests/api/test_static.py. Prova: AC8. Verificar: `python -m pytest tests/api/test_static.py -q` + R1.
 - [x] T5 Página de item em modo leitura. Arquivos: js/views/item.js, js/markdown.js, index.html, css/app.css. Prova: AC9. Verificar: test_static + R2.
 - [x] T6 Paleta Ctrl/Cmd+K + atalhos. Arquivos: js/views/palette.js, js/shortcuts.js, index.html, css/app.css. Prova: AC10. Verificar: test_static + R3.
-- [ ] T7 Edição inline + modais Novo item, Novo workspace e Novo domain. Arquivos: js/views/editor.js, js/views/item.js, index.html, css/app.css. Prova: AC11. Verificar: test_static + R4.
+- [x] T7 Edição inline + modais Novo item, Novo workspace e Novo domain. Arquivos: js/views/editor.js, js/views/item.js, index.html, css/app.css. Prova: AC11. Verificar: test_static + R4.
 - [ ] T8 Configurações → Conexões (com campo de senha) + asserções no test_static de que a senha não é lida de volta nem guardada em storage. Arquivos: js/views/connections.js, index.html, css/app.css, tests/api/test_static.py. Prova: AC12, AC13. Verificar: test_static + R5.
 - [ ] T9 Responsivo, estados vazio/erro/sessão expirada, README e STATUS. Prova: AC14. Verificar: test_static + R6.
 - [ ] T10 Refazer o projpro pelas tools MCP registradas (fluxo na seção projpro). Sem commit. Prova: AC15. Verificar: workspace_list, domain_list e item_search com "Flyway", "filtro Hibernate" e "BFF".
