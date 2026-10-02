@@ -20,7 +20,8 @@ def label_create(name: str) -> dict[str, Any]:
 
 def label_list() -> list[dict[str, Any]]:
     """Lista todas as labels."""
-    return LabelListResponse.model_validate(LabelService().list()).model_dump(mode="json")
+    labels = LabelService().list()
+    return LabelListResponse.model_validate(labels, from_attributes=True).model_dump(mode="json")
 
 
 def label_delete(label_id: str) -> dict[str, str]:

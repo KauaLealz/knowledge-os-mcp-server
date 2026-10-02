@@ -53,6 +53,13 @@ def register_all_tools() -> None:
 
     workspace_tools.register(mcp)
     domain_tools.register(mcp)
+
+    from src.mcp import label_tools, memory_tools, relation_tools, tag_tools
+
+    relation_tools.register(mcp)
+    memory_tools.register(mcp)
+    tag_tools.register(mcp)
+    label_tools.register(mcp)
     # T3+ completarão isso depois
 
 

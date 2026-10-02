@@ -16,7 +16,10 @@ logger = logging.getLogger(__name__)
 
 
 def relation_create(source_id: str, target_id: str, relation_type: str) -> dict[str, Any]:
-    """Cria relação entre items (related_to, depends_on, implements, references, supersedes, derived_from)."""
+    """Cria relação entre items.
+
+    Tipos: related_to, depends_on, implements, references, supersedes, derived_from.
+    """
     req = RelationCreate(
         source_item_id=source_id, target_item_id=target_id, relation_type=relation_type  # type: ignore[arg-type]
     )
@@ -27,7 +30,7 @@ def relation_create(source_id: str, target_id: str, relation_type: str) -> dict[
 def relation_list(item_id: str) -> list[dict[str, Any]]:
     """Lista relações de um item (como source ou target)."""
     rels = RelationService().list(item_id)
-    return RelationListResponse.model_validate(rels).model_dump(mode="json")
+    return RelationListResponse.model_validate(rels, from_attributes=True).model_dump(mode="json")
 
 
 def relation_delete(relation_id: str) -> dict[str, str]:

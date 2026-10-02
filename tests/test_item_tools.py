@@ -1,6 +1,7 @@
 """Testes do ItemService (CRUD), schemas e tools MCP de item."""
 
 import asyncio
+import json
 
 import pytest
 from fastmcp import Client, FastMCP
@@ -130,7 +131,7 @@ class TestTools:
         async def run():
             async with Client(mcp) as client:
                 return await client.call_tool(name, args)
-        return asyncio.run(run())
+        return [json.loads(block.text) for block in asyncio.run(run())]
 
     def test_registra_5_tools(self, mcp):
         async def run():
@@ -145,22 +146,22 @@ class TestTools:
             workspace=sample_workspace.name, domain=sample_domain.name, type="rule",
             memory_class="longterm", title="Regra", summary="resumo", content="corpo valido",
             tags=["a"], labels=["official"], confidence=80, importance=7,
-        )).data
+        ))[0]
         assert created["content"] == "corpo valido"
         assert created["tags"] == ["a"] and created["labels"] == ["official"]
 
         found = self._call(mcp, "item_search", dict(
-            workspace=sample_workspace.name, query="valido")).data
+            workspace=sample_workspace.name, query="valido"))
         assert len(found) == 1 and "content" not in found[0]
         assert found[0]["id"] == created["id"]
 
-        got = self._call(mcp, "item_get", {"item_id": created["id"]}).data
+        got = self._call(mcp, "item_get", {"item_id": created["id"]})[0]
         assert got["content"] == "corpo valido" and got["access_count"] == 1
 
-        up = self._call(mcp, "item_update", {"item_id": created["id"], "summary": "novo"}).data
+        up = self._call(mcp, "item_update", {"item_id": created["id"], "summary": "novo"})[0]
         assert up["summary"] == "novo"
 
-        res = self._call(mcp, "item_delete", {"item_id": created["id"]}).data
+        res = self._call(mcp, "item_delete", {"item_id": created["id"]})[0]
         assert res["status"] == "ok"
 
     def test_create_ephemeral_sem_ttl_falha(self, mcp, sample_workspace, sample_domain):

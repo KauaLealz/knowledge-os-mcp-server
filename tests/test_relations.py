@@ -13,6 +13,12 @@ from src.services.relation_service import RelationService
 
 
 @pytest.fixture
+def use_test_engine(monkeypatch, test_engine):
+    """Faz os services sem sessão explícita usarem o engine de teste."""
+    monkeypatch.setattr("src.services._common.get_engine", lambda: test_engine)
+
+
+@pytest.fixture
 def other_item(test_session, sample_item) -> Item:
     item = Item(
         id=str(uuid.uuid4()), workspace_id=sample_item.workspace_id,

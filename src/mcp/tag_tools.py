@@ -20,7 +20,8 @@ def tag_create(name: str) -> dict[str, Any]:
 
 def tag_list() -> list[dict[str, Any]]:
     """Lista todas as tags."""
-    return TagListResponse.model_validate(TagService().list()).model_dump(mode="json")
+    tags = TagService().list()
+    return TagListResponse.model_validate(tags, from_attributes=True).model_dump(mode="json")
 
 
 def tag_delete(tag_id: str) -> dict[str, str]:

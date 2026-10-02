@@ -10,6 +10,12 @@ from src.schemas.tag_schemas import TagCreate
 from src.services.tag_service import TagService
 
 
+@pytest.fixture
+def use_test_engine(monkeypatch, test_engine):
+    """Faz os services sem sessão explícita usarem o engine de teste."""
+    monkeypatch.setattr("src.services._common.get_engine", lambda: test_engine)
+
+
 def test_create_list_unique(test_session):
     svc = TagService(test_session)
     tag = svc.create("spring")

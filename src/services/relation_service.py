@@ -32,7 +32,10 @@ class RelationService:
         self._session = session
 
     def create(self, source_item_id: str, target_item_id: str, relation_type: str) -> Relation:
-        """Cria relação. ValidationError para tipo inválido/auto-relação; NotFoundError se item não existe."""
+        """Cria relação.
+
+        ValidationError para tipo inválido/auto-relação; NotFoundError se item não existe.
+        """
         if relation_type not in RELATION_TYPES:
             raise ValidationError(
                 f"relation_type inválido: {relation_type}. Válidos: {', '.join(RELATION_TYPES)}"
@@ -63,7 +66,9 @@ class RelationService:
             rows = list(
                 s.scalars(
                     select(Relation)
-                    .where(or_(Relation.source_item_id == item_id, Relation.target_item_id == item_id))
+                    .where(
+                        or_(Relation.source_item_id == item_id, Relation.target_item_id == item_id)
+                    )
                     .order_by(Relation.created_at, Relation.id)
                 )
             )
