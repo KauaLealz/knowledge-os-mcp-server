@@ -1,0 +1,32 @@
+{
+  "version": "1.0",
+  "default": "sqlite_local",
+  "connections": [
+    {
+      "id": "sqlite_local",
+      "name": "Local SQLite",
+      "db_type": "sqlite",
+      "path": "./knowledge.db",
+      "host": null,
+      "port": null,
+      "database": null,
+      "username": null,
+      "password_env": null,
+      "enabled": true,
+      "created_at": "2026-10-02T21:13:54.420249Z"
+    },
+    {
+      "id": "78df19d7-3fb4-4e75-b2a3-13ed0620df8d",
+      "name": "extra",
+      "db_type": "sqlite",
+      "path": "C:\\Users\\kauasantos\\AppData\\Local\\Temp\\pytest-of-kauasantos\\pytest-63\\test_create_get0\\extra.db",
+      "host": null,
+      "port": null,
+      "database": null,
+      "username": null,
+      "password_env": null,
+      "enabled": true,
+      "created_at": "2026-10-02T21:13:55.539683"
+    }
+  ]
+}

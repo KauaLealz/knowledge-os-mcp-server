@@ -19,15 +19,18 @@ class LabelService:
     Se `session` não for informada, cada operação abre uma sessão própria.
     """
 
-    def __init__(self, session: Session | None = None) -> None:
+    def __init__(
+        self, session: Session | None = None, connection_id: str | None = None
+    ) -> None:
         self._session = session
+        self._connection_id = connection_id
 
     def create(self, name: str) -> Label:
         """Cria label única. ValidationError se vazia ou duplicada."""
         name = name.strip()
         if not name or len(name) > 100:
             raise ValidationError("Nome deve ter entre 1 e 100 caracteres")
-        with session_scope(self._session) as s:
+        with session_scope(self._session, self._connection_id) as s:
             if s.scalar(select(Label).where(Label.name == name)) is not None:
                 raise ValidationError(f"Label já existe: {name}")
             obj = Label(id=str(uuid.uuid4()), name=name)
@@ -41,7 +44,7 @@ class LabelService:
 
     def list(self) -> list[Label]:
         """Lista todas as labels por nome."""
-        with session_scope(self._session) as s:
+        with session_scope(self._session, self._connection_id) as s:
             rows = list(s.scalars(select(Label).order_by(Label.name)))
             if self._session is None:
                 s.expunge_all()
@@ -49,7 +52,7 @@ class LabelService:
 
     def delete(self, label_id: str) -> bool:
         """Remove a label e seus vínculos com items. NotFoundError se não existe."""
-        with session_scope(self._session) as s:
+        with session_scope(self._session, self._connection_id) as s:
             obj = s.get(Label, label_id)
             if obj is None:
                 raise NotFoundError(f"Label não encontrada: {label_id}")

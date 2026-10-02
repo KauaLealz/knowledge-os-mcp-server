@@ -3,21 +3,21 @@
 import logging
 import threading
 
-from sqlalchemy import Engine, inspect, text
+from sqlalchemy import Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
-from src.config import DB_URL
+from src.config import DB_URL, ConfigManager, ConnectionConfig
 from src.db.dialects import detect_type, get_dialect, redact
 from src.db.dialects.base import FTS_COLUMNS, FTS_TABLE
 from src.db.dialects.sqlite import create_fts_trigger
 from src.db.models import (
     DEFAULT_CONNECTION_ID,
     DEFAULT_CONNECTION_NAME,
-    Base,
     Connection,
 )
-from src.exceptions import DatabaseError, NotFoundError, ValidationError
+from src.db.schema_sync import schema_sync
+from src.exceptions import ConfigError, DatabaseError, NotFoundError, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -73,42 +73,21 @@ def redact_url(url: str) -> str:
     return make_url(url).render_as_string(hide_password=True)
 
 
-def _migrate_legacy_workspaces(engine: Engine) -> None:
-    """Bancos SQLite anteriores ao T7 não têm workspaces.connection_id: adiciona a coluna."""
-    inspector = inspect(engine)
-    if "workspaces" not in inspector.get_table_names():
-        return
-    if "connection_id" in {c["name"] for c in inspector.get_columns("workspaces")}:
-        return
-    with engine.begin() as conn:
-        conn.execute(
-            text(
-                "ALTER TABLE workspaces ADD COLUMN connection_id VARCHAR(36) "
-                f"NOT NULL DEFAULT '{DEFAULT_CONNECTION_ID}'"
-            )
-        )
-        conn.execute(
-            text("CREATE INDEX IF NOT EXISTS idx_workspace_connection ON workspaces(connection_id)")
-        )
-    logger.info("workspaces.connection_id adicionada ao banco legado")
-
-
 def init_db(
     engine: Engine | None = None,
     connection_id: str = DEFAULT_CONNECTION_ID,
     connection_name: str = DEFAULT_CONNECTION_NAME,
 ) -> Engine:
-    """Inicializa o banco: tabelas, busca textual do dialect e linha de connection.
+    """Inicializa o banco: sincroniza o schema (schema_sync) e garante a linha de connection.
 
     Idempotente. Para bancos de conexões externas, `connection_id` / `connection_name`
     identificam a linha espelhada em `connections` (exigida pela FK de workspaces).
     """
     engine = engine or create_db_engine()
     try:
-        Base.metadata.create_all(bind=engine)
-        if engine.dialect.name == "sqlite":
-            _migrate_legacy_workspaces(engine)
-        get_dialect(engine.dialect.name).create_fts_table(engine)
+        result = schema_sync(engine)
+        if result["pending_manual"]:
+            logger.warning("Schema com diferenças manuais: %s", result["pending_manual"])
         ensure_connection_row(engine, connection_id, connection_name)
     except SQLAlchemyError as exc:
         raise DatabaseError(f"Falha ao inicializar o banco: {exc}") from exc
@@ -117,10 +96,11 @@ def init_db(
 
 
 class ConnectionManager:
-    """Mantém um Engine por connection_id. O banco default (catálogo) guarda as Connections."""
+    """Um Engine por connection_id. Cadastro: connections.json; o default é o catálogo."""
 
     def __init__(self, default_engine: Engine | None = None) -> None:
         self._engines: dict[str, Engine] = {}
+        self._urls: dict[str, str] = {}
         self._lock = threading.RLock()
         if default_engine is not None:
             self._engines[DEFAULT_CONNECTION_ID] = default_engine
@@ -131,26 +111,49 @@ class ConnectionManager:
         return self._engines[DEFAULT_CONNECTION_ID]
 
     def get_engine(self, connection_id: str | None = None) -> Engine:
-        """Engine da conexão (cria e inicializa no primeiro uso). None = banco default."""
+        """Engine da conexão (cria e inicializa no primeiro uso). None = banco default.
+
+        O connections.json é relido a cada chamada: o engine em cache é descartado se a
+        conexão foi removida, desabilitada ou teve a URL alterada.
+        """
         cid = connection_id or DEFAULT_CONNECTION_ID
         with self._lock:
             if cid == DEFAULT_CONNECTION_ID:
                 return self._default()
-            if cid not in self._engines:
-                self._engines[cid] = self._open(cid)
+            try:
+                conn = self._resolve(cid)
+            except (NotFoundError, ValidationError):
+                self.invalidate(cid)
+                raise
+            url = conn.get_url()
+            if cid in self._engines and self._urls.get(cid) == url:
+                return self._engines[cid]
+            self.invalidate(cid)
+            self._engines[cid] = self._open(cid, conn)
+            self._urls[cid] = url
             return self._engines[cid]
 
-    def _open(self, connection_id: str) -> Engine:
-        with Session(self._default()) as s:
-            conn = s.get(Connection, connection_id)
-            if conn is None:
-                raise NotFoundError(f"Conexão não encontrada: {connection_id}")
-            if not conn.is_active:
-                raise ValidationError(f"Conexão inativa: {conn.name}")
-            db_type, db_url, name = conn.db_type, conn.db_url, conn.name
-        engine = get_dialect(db_type).create_engine(db_url)
+    @staticmethod
+    def _resolve(connection_id: str) -> ConnectionConfig:
+        """Conexão habilitada do connections.json (a única fonte de cadastro)."""
         try:
-            init_db(engine, connection_id=connection_id, connection_name=name)
+            config = ConfigManager.load_or_create()
+        except Exception as exc:
+            raise ConfigError(f"connections.json inválido: {exc}") from None
+        try:
+            conn = config.get_connection(connection_id)
+        except ValueError:
+            raise NotFoundError(f"Conexão não encontrada: {connection_id}") from None
+        if not conn.enabled:
+            raise ValidationError(f"Conexão inativa: {conn.name}")
+        return conn
+
+    def _open(self, connection_id: str, conn: ConnectionConfig | None = None) -> Engine:
+        conn = conn or self._resolve(connection_id)
+        url = conn.get_url()
+        engine = get_dialect(conn.db_type).create_engine(url)
+        try:
+            init_db(engine, connection_id=connection_id, connection_name=conn.name)
             from src.db.migrations import bootstrap_labels  # import tardio: evita ciclo
 
             with Session(engine) as s:
@@ -158,7 +161,7 @@ class ConnectionManager:
         except Exception as exc:
             engine.dispose()
             raise DatabaseError(
-                f"Falha ao abrir a conexão {name!r}: {redact(str(exc), db_url)}"
+                f"Falha ao abrir a conexão {conn.name!r}: {redact(str(exc), url)}"
             ) from None
         return engine
 
@@ -172,12 +175,14 @@ class ConnectionManager:
             return
         with self._lock:
             engine = self._engines.pop(connection_id, None)
+            self._urls.pop(connection_id, None)
         if engine is not None:
             engine.dispose()
 
     def close_all(self) -> None:
         with self._lock:
             engines, self._engines = list(self._engines.values()), {}
+            self._urls = {}
         for engine in engines:
             engine.dispose()
 

@@ -21,41 +21,42 @@ def _open_engine(conn: ConnectionConfig) -> Engine:
     return create_db_engine(conn.get_url())
 
 
-def connection_init_db(connection_id: str) -> dict[str, Any]:
-    """Cria o schema (tabelas, índices e busca textual) de uma connection.
+def _sync_connection(conn: ConnectionConfig, dry_run: bool) -> dict[str, Any]:
+    """Sincroniza o schema do banco da connection; fora do dry_run garante extensão e FK."""
+    from src.db.schema_sync import schema_sync as sync_schema
+    from src.db.session import ensure_connection_row
 
-    **Use quando:** Logo depois de cadastrar um banco novo, antes de workspace_create ou
-        migrate_workspaces.
-    **Retorna:** {connection_id, status: initialized|error, db_type, message}.
-    **Exemplo:** connection_init_db(connection_id="postgres_prod")
-    **Notas:** Idempotente. Retorna status=error se o banco não estiver acessível. A connection
-        precisa estar no .knowledge/connections.json.
-    """
+    engine = _open_engine(conn)
     try:
-        conn = ConfigManager.load_or_create().get_connection(connection_id)
-        validation = ConfigManager.validate_connection(conn)
-        if validation["status"] != "ok":
-            return {
-                "connection_id": connection_id,
-                "status": "error",
-                "message": f"Cannot connect: {validation['message']}",
-            }
-        from src.db.session import init_db
-
-        engine = _open_engine(conn)
-        try:
+        if not dry_run:
             if conn.db_type == "postgresql":
                 with engine.begin() as c:
                     c.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
-            init_db(engine, connection_id=conn.id, connection_name=conn.name)
-        finally:
-            engine.dispose()
-        return {
-            "connection_id": connection_id,
-            "status": "initialized",
-            "db_type": conn.db_type,
-            "message": "Database schema initialized successfully",
-        }
+        result = sync_schema(engine, dry_run=dry_run)
+        if not dry_run and result["pending_manual"] == []:
+            ensure_connection_row(engine, conn.id, conn.name)
+        return result
+    finally:
+        engine.dispose()
+
+
+def schema_sync(connection_id: str, dry_run: bool = False) -> dict[str, Any]:
+    """Sincroniza o schema de uma connection com o modelo.
+
+    Cria tabelas que faltam, adiciona colunas, cria índices e busca textual. Diferenças
+    destrutivas (ex.: tipo de coluna) são reportadas, nunca aplicadas.
+
+    **Use quando:** Logo depois de cadastrar uma connection, ou se o schema está descasado.
+    **Retorna:** {connection_id, status: created|updated|up_to_date|drift|error, tables_created,
+        columns_added, indexes_created, fts_created, pending_manual, version, dry_run}.
+    **Exemplo:** schema_sync(connection_id="postgres_prod", dry_run=False)
+    **Notas:** Idempotente. dry_run=True simula sem gravar. Em status=drift, pending_manual lista
+        o que exige ajuste manual. A connection precisa estar no .knowledge/connections.json.
+    """
+    try:
+        conn = ConfigManager.load_or_create().get_connection(connection_id)
+        result = _sync_connection(conn, dry_run)
+        return {"connection_id": connection_id, **result}
     except Exception as exc:
         return {"connection_id": connection_id, "status": "error", "message": str(exc)}
 
@@ -85,7 +86,7 @@ def migrate_workspaces(
         to_connection_id="postgres_prod", mode="replace")
     **Notas:** mode=replace apaga os dados do destino antes de copiar; mode=merge une tags/labels
         por nome e aborta se algum id já existir. Origem e destino devem ser diferentes, habilitados
-        e o destino já inicializado (connection_init_db).
+        e o schema do destino é sincronizado antes da cópia (schema_sync).
     """
     try:
         if mode not in MIGRATION_MODES:
@@ -113,6 +114,12 @@ def migrate_workspaces(
         from src.services.migration_service import MigrationService
 
         started = time.perf_counter()
+        synced = _sync_connection(dst, dry_run=False)
+        if synced["pending_manual"]:
+            return {
+                "status": "error",
+                "message": f"Destination schema has drift: {'; '.join(synced['pending_manual'])}",
+            }
         if mode == "replace":
             _clear_target(dst)
         result = MigrationService().migrate(src.get_url(), dst.get_url())
@@ -134,8 +141,8 @@ def migrate_workspaces(
 
 
 def register(mcp: FastMCP) -> None:
-    """Registra as 8 tools de connection no servidor."""
-    mcp.tool()(connection_init_db)
+    """Registra as tools de connection no servidor."""
+    mcp.tool()(schema_sync)
     mcp.tool()(migrate_workspaces)
 
     @mcp.tool()
@@ -155,7 +162,7 @@ def register(mcp: FastMCP) -> None:
             url="postgresql://user:pass@host:5432/knowledge")
         **Notas:** Exemplos de url: sqlite:///./database/x.db, mysql://user:pass@host/db. Com
             test=True (padrão) a conexão é testada antes de ser gravada. Depois rode
-            connection_init_db.
+            schema_sync.
         """
         conn = ConnectionService().create(name, db_type, url, test=test)
         return connection_to_dict(conn)

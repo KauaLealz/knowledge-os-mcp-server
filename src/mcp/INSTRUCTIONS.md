@@ -91,6 +91,76 @@ Ao sair de `ephemeral`, o `ttl_days` é removido.
 - Máximo de **100MB por arquivo**. Os metadados ficam no banco.
 - `artifact_get` devolve o conteúdo em base64: confira `file_size` antes.
 
+## Configurar conexões
+
+As connections vivem em `.knowledge/connections.json`. Você pode editar o arquivo
+à mão ou usar `connection_create`; os tools leem o arquivo do disco a cada
+chamada, então **não é preciso reiniciar o servidor**.
+
+### Formato
+
+```json
+{
+  "version": "1.0",
+  "default": "sqlite_local",
+  "connections": [
+    {
+      "id": "sqlite_local",
+      "name": "Local SQLite",
+      "db_type": "sqlite",
+      "path": "./knowledge.db",
+      "enabled": true
+    },
+    {
+      "id": "postgres_prod",
+      "name": "PostgreSQL Produção",
+      "db_type": "postgresql",
+      "host": "prod.company.com",
+      "port": 5432,
+      "database": "knowledge_db",
+      "username": "dbuser",
+      "password_env": "POSTGRES_PASSWORD",
+      "enabled": true
+    },
+    {
+      "id": "mysql_local",
+      "name": "MySQL Local",
+      "db_type": "mysql",
+      "host": "localhost",
+      "port": 3306,
+      "database": "knowledge",
+      "username": "root",
+      "password_env": "MYSQL_PASSWORD",
+      "enabled": false
+    }
+  ]
+}
+```
+
+JSON não aceita comentários: não os coloque no arquivo.
+
+### Campos
+
+- `id`: único; minúsculas, números, `-` e `_`.
+- `name`: nome amigável.
+- `db_type`: `sqlite`, `postgresql` ou `mysql`.
+- SQLite usa `path`; PostgreSQL e MySQL usam `host`, `port`, `database`,
+  `username` e `password_env`.
+- `password_env`: **nome** da variável de ambiente que guarda a senha (ex.:
+  `POSTGRES_PASSWORD`, definida no `.env`). **Nunca grave a senha no JSON.**
+- `enabled`: `false` desativa a connection sem apagá-la.
+- `default` (raiz do arquivo): `id` da connection usada quando o tool é chamado
+  sem `connection_id`. Precisa existir na lista.
+
+### Passo a passo
+
+1. Adicione a connection em `.knowledge/connections.json` (ou chame
+   `connection_create`, que não aceita senha: depois defina `password_env` no JSON).
+2. Defina a senha no `.env` (git-ignored), ex.: `POSTGRES_PASSWORD=...`.
+3. Valide com `connection_test` e prepare o banco com `schema_sync`
+   (ou `connection_init_db`).
+4. Use: `workspace_create(name="Shared", connection_id="postgres_prod")`.
+
 ## Convenções de parâmetros
 
 - **Workspace e domain por nome.** Nos tools de domain, `workspace` é o nome.

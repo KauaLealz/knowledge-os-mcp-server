@@ -21,7 +21,16 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from src.config import ARTIFACTS_DIR
-from src.db.models import Artifact, Domain, Item, Label, Relation, Tag, Workspace
+from src.db.models import (
+    DEFAULT_CONNECTION_ID,
+    Artifact,
+    Domain,
+    Item,
+    Label,
+    Relation,
+    Tag,
+    Workspace,
+)
 from src.exceptions import NotFoundError, ValidationError
 from src.schemas.item_schemas import ItemCreate
 from src.services._common import (
@@ -52,15 +61,21 @@ class ImportExportService:
     gravado no banco e os arquivos de artifact já copiados são removidos.
     """
 
-    def __init__(self, session: Session | None = None, artifacts_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        session: Session | None = None,
+        artifacts_dir: Path | None = None,
+        connection_id: str | None = None,
+    ) -> None:
         self._session = session
+        self._connection_id = connection_id
         self._dir = artifacts_dir or ARTIFACTS_DIR
 
     # ------------------------------------------------------------------ export
 
     def export_workspace(self, workspace_id: str) -> bytes:
         """Gera o ZIP (bytes) do workspace. NotFoundError se não existe."""
-        with session_scope(self._session) as s:
+        with session_scope(self._session, self._connection_id) as s:
             ws = s.get(Workspace, workspace_id)
             if ws is None:
                 logger.error("Export de workspace inexistente: %s", workspace_id)
@@ -86,7 +101,7 @@ class ImportExportService:
 
     def export_domain(self, workspace_id: str, domain_id: str) -> bytes:
         """Gera o ZIP (bytes) de um domain e seus items. NotFoundError se não existe."""
-        with session_scope(self._session) as s:
+        with session_scope(self._session, self._connection_id) as s:
             dm = s.get(Domain, domain_id)
             if dm is None or dm.workspace_id != workspace_id:
                 logger.error("Export de domain inexistente: %s", domain_id)
@@ -183,14 +198,20 @@ class ImportExportService:
         with self._open(zip_path, "workspace") as z:
             payload = self._read_json(z, "workspace.json")
             written: list[Path] = []
-            with session_scope(self._session) as s:
+            with session_scope(self._session, self._connection_id) as s:
                 try:
                     wd = payload["workspace"]
                     name = wd["name"]
-                    if s.scalar(select(Workspace.id).where(Workspace.name == name)):
+                    cid = self._connection_id or DEFAULT_CONNECTION_ID
+                    if s.scalar(
+                        select(Workspace.id).where(
+                            Workspace.name == name, Workspace.connection_id == cid
+                        )
+                    ):
                         raise ValidationError(f"Workspace já existe: {name}")
                     ws = Workspace(
                         id=str(uuid.uuid4()),
+                        connection_id=cid,
                         name=name,
                         description=wd.get("description"),
                         created_at=_parse_dt(wd.get("created_at")),
@@ -219,7 +240,7 @@ class ImportExportService:
         with self._open(zip_path, "domain") as z:
             payload = self._read_json(z, "domain.json")
             written: list[Path] = []
-            with session_scope(self._session) as s:
+            with session_scope(self._session, self._connection_id) as s:
                 try:
                     if s.get(Workspace, workspace_id) is None:
                         raise NotFoundError(f"Workspace não encontrado: {workspace_id}")
