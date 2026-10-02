@@ -208,6 +208,34 @@ Sem cardinalidade forçada — relações são puramente semânticas (related_to
 - Não há UI; apenas ferramentas MCP. UIs futuras (web, CLI) consomem as mesmas tools.
 - O primeiro workspace/domain/item são criados manualmente via MCP ou script de bootstrap.
 - Ordenação padrão favorece importância e confiança — a semântica é: "show me the best stuff first".
+- Memory cleanup (ephemeral TTL) será implementado em phase 2 como cron job (não em T1–T6).
+
+## Progresso
+
+### Estrutura Criada
+- ✅ README.md (setup, uso, conceitos, ferramentas, exemplos)
+- ✅ .env.example (MCP_DB_PATH, MCP_DB_KEY)
+- ✅ docs/FLUXO_COMPLETO.md (end-to-end example)
+- ✅ src/config.py, db/models.py, db/session.py, main.py
+- ✅ Stubs de services (workspace, domain, item, relation, memory, tag, import_export)
+- ✅ exceptions.py (custom exceptions)
+- ✅ Commit inicial: f42861f
+
+### Em Progresso
+- 🔄 **T1: Configuração e Modelos** (implementador rodando)
+  - S1. Completar FTS5 + triggers
+  - S2. Criar migrations.py (bootstrap labels)
+  - S3. Melhorar config.py (type hints, validation)
+  - S4. tests/conftest.py (pytest fixtures)
+  - S5. tests/test_db.py (6+ testes)
+  - S6. Atualizar main.py (--check-db, --bootstrap)
+
+### Próximo
+- ⏳ **T2: Ferramentas Workspace + Domain** (workspace_service, domain_service, mcp tools)
+- ⏳ **T3: Ferramentas Item (Core)** (FTS5 search, item_service, pydantic schemas)
+- ⏳ **T4: Ferramentas Auxiliares** (relations, memory_promote, tags)
+- ⏳ **T5: Artifacts + Main Server** (artifact_service, ZIP export/import, FastMCP registration)
+- ⏳ **T6: Testes + Documentação** (suite completa, coverage, README finalizado)
 
 ## Retro
 
@@ -215,5 +243,6 @@ Sem cardinalidade forçada — relações são puramente semânticas (related_to
 
 ---
 
-**Branch:** `feature/mcp-knowledge-os` (criada após aprovação Gate 1)
+**Branch:** `feature/mcp-knowledge-os`
 **Base:** main
+**Commits:** 1 (f42861f estrutura inicial)
