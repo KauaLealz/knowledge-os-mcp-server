@@ -13,9 +13,14 @@ if __name__ == "__main__":
 from fastmcp import FastMCP  # noqa: E402
 from sqlalchemy import inspect, text  # noqa: E402
 
-from src.config import LOG_LEVEL, validate_and_init_config, validate_config  # noqa: E402
+from src.config import (  # noqa: E402
+    LOG_LEVEL,
+    ConfigManager,
+    validate_and_init_config,
+    validate_config,
+)
 from src.db.models import Base  # noqa: E402
-from src.db.session import FTS_TABLE, close_engine, get_engine  # noqa: E402
+from src.db.session import FTS_TABLE, close_engines, get_engine  # noqa: E402
 from src.exceptions import ConfigError, DatabaseError  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -43,7 +48,13 @@ def check_database() -> dict[str, str]:
 
 @mcp.tool()
 def health_check() -> dict[str, str]:
-    """Verifica saúde do servidor MCP."""
+    """Verifica a saúde do servidor MCP e do banco default.
+
+    **Use quando:** Diagnosticar falhas ou confirmar que o servidor está operacional.
+    **Retorna:** {status: ok|error, database: connected | motivo do erro}.
+    **Exemplo:** health_check()
+    **Notas:** Valida a conexão e a presença de todas as tabelas (inclusive a de busca textual).
+    """
     return check_database()
 
 
@@ -51,6 +62,7 @@ def register_all_tools() -> None:
     """Registra todos os tools no FastMCP."""
     from src.mcp import (
         artifact_tools,
+        connection_tools,
         domain_tools,
         item_tools,
         label_tools,
@@ -68,6 +80,24 @@ def register_all_tools() -> None:
     tag_tools.register(mcp)
     label_tools.register(mcp)
     artifact_tools.register(mcp)
+    connection_tools.register(mcp)  # +6 tools
+
+
+def report_connections() -> None:
+    """Carrega (ou cria) .knowledge/connections.json e testa as conexões ativas.
+
+    Escreve em stderr: o stdout é o canal do protocolo MCP.
+    """
+    config = ConfigManager.load_or_create()
+    print(f"Loaded: {ConfigManager.CONNECTIONS_FILE}", file=sys.stderr)
+    for conn in config.connections:
+        if not conn.enabled:
+            continue
+        result = ConfigManager.validate_connection(conn)
+        if result["status"] == "ok":
+            print(f"Connected: {conn.name} ({conn.id})", file=sys.stderr)
+        else:
+            print(f"Failed: {conn.name} ({conn.id}) - {result['message']}", file=sys.stderr)
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -99,6 +129,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if result["status"] == "ok" else 1
 
         validate_and_init_config()
+        report_connections()
         register_all_tools()
         mcp.run()
         return 0
@@ -109,7 +140,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Erro: {exc}", file=sys.stderr)
         return 1
     finally:
-        close_engine()
+        close_engines()
 
 
 if __name__ == "__main__":

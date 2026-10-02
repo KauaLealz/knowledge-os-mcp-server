@@ -11,22 +11,43 @@ from src.services.label_service import LabelService
 logger = logging.getLogger(__name__)
 
 
-def label_create(name: str) -> dict[str, Any]:
-    """Cria nova label."""
+def label_create(name: str, connection_id: str | None = None) -> dict[str, Any]:
+    """Cria uma label (etiqueta controlada) no catálogo da connection.
+
+    **Use quando:** Adicionar uma categoria formal além das padrão.
+    **Retorna:** {id, name}.
+    **Exemplo:** label_create(name="needs-review")
+    **Notas:** Padrão do sistema: official, critical, experimental, deprecated, reference. Labels
+        são uma lista controlada: crie com parcimônia. connection_id: opcional; sem ele usa a
+        connection default (sqlite_local).
+    """
     req = LabelCreate(name=name)
-    label = LabelService().create(req.name)
+    label = LabelService(connection_id=connection_id).create(req.name)
     return LabelResponse.model_validate(label).model_dump(mode="json")
 
 
-def label_list() -> list[dict[str, Any]]:
-    """Lista todas as labels."""
-    labels = LabelService().list()
+def label_list(connection_id: str | None = None) -> list[dict[str, Any]]:
+    """Lista todas as labels da connection.
+
+    **Use quando:** Ver quais labels existem antes de usá-las em item_create.
+    **Retorna:** Lista de {id, name}.
+    **Exemplo:** label_list()
+    **Notas:** connection_id: opcional; sem ele usa a connection default (sqlite_local).
+    """
+    labels = LabelService(connection_id=connection_id).list()
     return LabelListResponse.model_validate(labels, from_attributes=True).model_dump(mode="json")
 
 
-def label_delete(label_id: str) -> dict[str, str]:
-    """Deleta label (e remove dos items)."""
-    LabelService().delete(label_id)
+def label_delete(label_id: str, connection_id: str | None = None) -> dict[str, str]:
+    """Deleta uma label e a remove de todos os items.
+
+    **Use quando:** Aposentar uma categoria controlada.
+    **Retorna:** {status: ok, message}.
+    **Exemplo:** label_delete(label_id="label_123")
+    **Notas:** Os items permanecem. connection_id: opcional; sem ele usa a connection default
+        (sqlite_local).
+    """
+    LabelService(connection_id=connection_id).delete(label_id)
     return {"status": "ok", "message": f"Label removida: {label_id}"}
 
 

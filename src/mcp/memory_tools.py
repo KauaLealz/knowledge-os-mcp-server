@@ -15,17 +15,34 @@ from src.services.memory_service import MemoryService
 logger = logging.getLogger(__name__)
 
 
-def memory_promote(item_id: str, target_memory: str) -> dict[str, Any]:
-    """Promove item para classe de memória superior (ephemeral > working > longterm > canonical)."""
+def memory_promote(
+    item_id: str, target_memory: str, connection_id: str | None = None
+) -> dict[str, Any]:
+    """Promove um item para uma classe de memória superior.
+
+    **Use quando:** Quando conhecimento temporário se provou útil e deve durar mais.
+    **Retorna:** Item atualizado (novo memory_class).
+    **Exemplo:** memory_promote(item_id="item_def456", target_memory="longterm")
+    **Notas:** Ordem crescente: ephemeral, working, longterm, canonical. Nunca rebaixa nem volta a
+        ephemeral; ao sair de ephemeral o ttl_days é removido. connection_id: opcional; sem ele usa
+        a connection default (sqlite_local).
+    """
     req = MemoryPromoteRequest(item_id=item_id, target_memory=target_memory)  # type: ignore[arg-type]
-    item = MemoryService().promote(req.item_id, req.target_memory)
+    item = MemoryService(connection_id=connection_id).promote(req.item_id, req.target_memory)
     return MemoryResponse.model_validate(item).model_dump(mode="json")
 
 
-def memory_renew(item_id: str, ttl_days: int) -> dict[str, Any]:
-    """Renova TTL de item ephemeral."""
+def memory_renew(item_id: str, ttl_days: int, connection_id: str | None = None) -> dict[str, Any]:
+    """Renova o TTL de um item ephemeral.
+
+    **Use quando:** Evitar que um item temporário expire enquanto ainda é relevante.
+    **Retorna:** Item atualizado (novo ttl_days).
+    **Exemplo:** memory_renew(item_id="item_def456", ttl_days=14)
+    **Notas:** Só vale para items ephemeral; ttl_days deve ser positivo. connection_id: opcional;
+        sem ele usa a connection default (sqlite_local).
+    """
     req = MemoryRenewRequest(item_id=item_id, ttl_days=ttl_days)
-    item = MemoryService().renew(req.item_id, req.ttl_days)
+    item = MemoryService(connection_id=connection_id).renew(req.item_id, req.ttl_days)
     return MemoryResponse.model_validate(item).model_dump(mode="json")
 
 
