@@ -9,7 +9,7 @@ def _create(client, auth, tmp_path, name="extra"):
 def test_list_has_default(client, auth):
     r = client.get("/api/connections", headers=auth)
     assert r.status_code == 200
-    assert [c["id"] for c in r.json()][0] == "default"
+    assert [c["id"] for c in r.json()] == ["default"]
 
 
 def test_create_get(client, auth, tmp_path):

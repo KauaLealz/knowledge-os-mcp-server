@@ -1,23 +1,14 @@
-"""Testes do config de conexões (.knowledge/connections.json)."""
-
-from pathlib import Path
+"""Testes do config de conexões (connections.json no home)."""
 
 import pytest
 
 from src.config import ConfigManager, ConnectionConfig, ConnectionsFile
 
 
-@pytest.fixture
-def workdir(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    return tmp_path
-
-
-def test_connection_config_valid():
-    conn = ConnectionConfig(
-        id="sqlite_local", name="Local", db_type="sqlite", path="./knowledge.db"
-    )
-    assert conn.get_url() == "sqlite:///./knowledge.db"
+def test_connection_config_valid(tmp_path):
+    path = (tmp_path / "knowledge.db").as_posix()
+    conn = ConnectionConfig(id="local", name="Local", db_type="sqlite", path=path)
+    assert conn.get_url() == f"sqlite:///{path}"
 
 
 def test_connection_config_id_invalid():
@@ -55,18 +46,17 @@ def test_get_url_mysql():
 
 def test_create_default_config():
     config = ConfigManager.create_default_config()
-    assert config.default == "sqlite_local"
-    assert len(config.connections) == 1
-    assert config.connections[0].db_type == "sqlite"
+    assert config.default == "default"
+    assert config.connections == []
 
 
-def test_load_or_create_creates_default(workdir):
+def test_load_or_create_creates_default(_isolated_home):
     config = ConfigManager.load_or_create()
-    assert Path(".knowledge/connections.json").exists()
-    assert config.default == "sqlite_local"
+    assert (_isolated_home / "connections.json").exists()
+    assert config.default == "default"
 
 
-def test_load_existing_config(workdir):
+def test_load_existing_config():
     config = ConfigManager.create_default_config()
     ConfigManager.save(config)
     loaded = ConfigManager.load_or_create()
@@ -74,12 +64,14 @@ def test_load_existing_config(workdir):
     assert len(loaded.connections) == len(config.connections)
 
 
-def test_validate_connection_sqlite(workdir):
-    conn = ConfigManager.create_default_config().connections[0]
+def test_validate_connection_sqlite(tmp_path):
+    conn = ConnectionConfig(
+        id="local", name="Local", db_type="sqlite", path=(tmp_path / "v.db").as_posix()
+    )
     assert ConfigManager.validate_connection(conn)["status"] == "ok"
 
 
-def test_validate_connection_error(workdir):
+def test_validate_connection_error():
     conn = ConnectionConfig(
         id="bad", name="Bad", db_type="postgresql", host="127.0.0.1", port=1,
         database="d", username="u",

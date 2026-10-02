@@ -1,24 +1,32 @@
-﻿"""Pytest fixtures compartilhadas para testes."""
+"""Pytest fixtures compartilhadas para testes."""
 
+import os
+import tempfile
 import uuid
 from typing import Generator
+
+# Home de dados da suíte: definido antes de qualquer import de `src`, para que as
+# constantes lidas no import (DB_PATH, ARTIFACTS_DIR...) nunca apontem para o ~/.knowledge-os real.
+os.environ["KNOWLEDGE_OS_HOME"] = tempfile.mkdtemp(prefix="kos-test-home-")
 
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from src.config import ConfigManager
-from src.db.models import Base, Domain, Item, Label, Tag, Workspace
-from src.db.session import create_fts_trigger
+import src.config as config  # noqa: E402
+from src.config import ConfigManager  # noqa: E402
+from src.db.models import Base, Domain, Item, Label, Tag, Workspace  # noqa: E402
+from src.db.session import create_fts_trigger  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
-def _isolated_connections_file(tmp_path, monkeypatch):
-    """O connections.json de cada teste vive em tmp_path: a suíte não toca o repo."""
-    monkeypatch.setattr(
-        ConfigManager, "CONNECTIONS_FILE", tmp_path / ".knowledge" / "connections.json"
-    )
+def _isolated_home(tmp_path, monkeypatch):
+    """Cada teste tem o seu home: connections.json e paths relativos vivem em tmp_path."""
+    home = tmp_path / "home"
+    monkeypatch.setattr(config, "KNOWLEDGE_HOME", home)
+    monkeypatch.setattr(ConfigManager, "CONNECTIONS_FILE", home / "connections.json")
+    return home
 
 
 @pytest.fixture

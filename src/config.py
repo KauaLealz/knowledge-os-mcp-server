@@ -5,7 +5,7 @@ import logging
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 from urllib.parse import quote
@@ -22,16 +22,23 @@ logger = logging.getLogger(__name__)
 
 MIN_DB_KEY_LENGTH = 16
 
-# Diretórios
-PROJECT_ROOT: Path = Path(__file__).parent.parent
-DATABASE_DIR: Path = PROJECT_ROOT / "database"
-ARTIFACTS_DIR: Path = PROJECT_ROOT / "artifacts"
-EXPORTS_DIR: Path = PROJECT_ROOT / "exports"
-BACKUPS_DIR: Path = PROJECT_ROOT / "backups"
+# Home de dados: connections.json, banco catálogo, artifacts, exports e backups.
+# As constantes são lidas no import; o diretório só é criado em ensure_home().
+KNOWLEDGE_HOME: Path = Path(
+    os.getenv("KNOWLEDGE_OS_HOME") or Path.home() / ".knowledge-os"
+).expanduser()
+ARTIFACTS_DIR: Path = KNOWLEDGE_HOME / "artifacts"
+EXPORTS_DIR: Path = KNOWLEDGE_HOME / "exports"
+BACKUPS_DIR: Path = KNOWLEDGE_HOME / "backups"
 
-# Criar diretórios se não existirem
-for _d in (DATABASE_DIR, ARTIFACTS_DIR, EXPORTS_DIR, BACKUPS_DIR):
-    _d.mkdir(parents=True, exist_ok=True)
+# Id reservado do catálogo (banco padrão, virtual: não consta da lista de conexões).
+CATALOG_ID = "default"
+
+
+def ensure_home() -> None:
+    """Cria o home de dados e seus subdiretórios (chamado pelos pontos de entrada)."""
+    for d in (KNOWLEDGE_HOME, ARTIFACTS_DIR, EXPORTS_DIR, BACKUPS_DIR):
+        d.mkdir(parents=True, exist_ok=True)
 
 
 def _env_flag(name: str) -> bool:
@@ -39,7 +46,7 @@ def _env_flag(name: str) -> bool:
 
 
 # Database
-DB_PATH: str = os.getenv("MCP_DB_PATH", str(DATABASE_DIR / "knowledge.db"))
+DB_PATH: str = os.getenv("MCP_DB_PATH", str(KNOWLEDGE_HOME / "knowledge.db"))
 DB_KEY: str | None = os.getenv("MCP_DB_KEY") or None
 # SQLCipher é usado quando há chave, ou quando solicitado via MCP_USE_SQLCIPHER.
 SQLCIPHER_REQUESTED: bool = _env_flag("MCP_USE_SQLCIPHER")
@@ -73,8 +80,8 @@ def validate_config() -> None:
     if USE_SQLCIPHER and DB_KEY is not None and len(DB_KEY) < MIN_DB_KEY_LENGTH:
         raise ConfigError(f"MCP_DB_KEY deve ter no mínimo {MIN_DB_KEY_LENGTH} caracteres")
 
-    if not DATABASE_DIR.exists():
-        raise ConfigError(f"DATABASE_DIR não existe: {DATABASE_DIR}")
+    if not KNOWLEDGE_HOME.exists():
+        raise ConfigError(f"Home de dados não existe: {KNOWLEDGE_HOME}")
 
     if not Path(DB_PATH).parent.exists():
         raise ConfigError(f"Diretório do banco não existe: {Path(DB_PATH).parent}")
@@ -90,7 +97,7 @@ def validate_and_init_config() -> None:
 
 
 class ConnectionConfig(BaseModel):
-    """Uma conexão do arquivo .knowledge/connections.json (SQLite, PostgreSQL ou MySQL)."""
+    """Uma conexão do connections.json do home (SQLite, PostgreSQL ou MySQL)."""
 
     id: str
     name: str
@@ -111,6 +118,13 @@ class ConnectionConfig(BaseModel):
             raise ValueError("ID must be lowercase alphanumeric with hyphens/underscores")
         return v
 
+    @field_validator("id")
+    @classmethod
+    def id_not_reserved(cls, v: str) -> str:
+        if v == CATALOG_ID:
+            raise ValueError(f"ID '{CATALOG_ID}' is reserved")
+        return v
+
     @field_validator("port")
     @classmethod
     def port_valid(cls, v: int | None) -> int | None:
@@ -118,10 +132,15 @@ class ConnectionConfig(BaseModel):
             raise ValueError("Port must be 1-65535")
         return v
 
+    def resolved_path(self) -> str:
+        """Path do SQLite; o relativo resolve contra o home no momento da chamada."""
+        path = Path(self.path or "")
+        return (path if path.is_absolute() else KNOWLEDGE_HOME / path).as_posix()
+
     def get_url(self) -> str:
         """URL SQLAlchemy da conexão (senha lida da variável `password_env`)."""
         if self.db_type == "sqlite":
-            return f"sqlite:///{self.path}"
+            return f"sqlite:///{self.resolved_path()}"
         user = quote(self.username or "", safe="")
         password = os.getenv(self.password_env, "") if self.password_env else ""
         if password:
@@ -133,7 +152,7 @@ class ConnectionConfig(BaseModel):
 
 
 class ConnectionsFile(BaseModel):
-    """Conteúdo de .knowledge/connections.json."""
+    """Conteúdo do connections.json do home."""
 
     version: str = "1.0"
     default: str
@@ -141,7 +160,7 @@ class ConnectionsFile(BaseModel):
 
     @model_validator(mode="after")
     def default_exists(self) -> "ConnectionsFile":
-        if self.default not in [c.id for c in self.connections]:
+        if self.default != CATALOG_ID and self.default not in [c.id for c in self.connections]:
             raise ValueError(f"Default connection '{self.default}' not found")
         return self
 
@@ -158,23 +177,12 @@ class ConnectionsFile(BaseModel):
 class ConfigManager:
     """Carrega, cria, salva e valida as conexões do arquivo de configuração."""
 
-    CONNECTIONS_FILE = Path(".knowledge/connections.json")
+    CONNECTIONS_FILE = KNOWLEDGE_HOME / "connections.json"
 
     @staticmethod
     def create_default_config() -> ConnectionsFile:
-        """Modo simples: uma conexão SQLite local."""
-        return ConnectionsFile(
-            default="sqlite_local",
-            connections=[
-                ConnectionConfig(
-                    id="sqlite_local",
-                    name="Local SQLite",
-                    db_type="sqlite",
-                    path="./knowledge.db",
-                    created_at=datetime.now(timezone.utc),
-                )
-            ],
-        )
+        """Config inicial: só o catálogo (`default`, <home>/knowledge.db), sem conexões extras."""
+        return ConnectionsFile(default=CATALOG_ID, connections=[])
 
     @staticmethod
     def load_or_create() -> ConnectionsFile:
@@ -190,7 +198,13 @@ class ConfigManager:
     def save(config: ConnectionsFile) -> None:
         path = ConfigManager.CONNECTIONS_FILE
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(config.model_dump(mode="json"), indent=2), encoding="utf-8")
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(config.model_dump(mode="json"), indent=2), encoding="utf-8")
+        try:
+            os.replace(tmp, path)
+        except OSError:  # Windows: destino aberto por outro processo (ex.: MCP + UI)
+            path.write_text(tmp.read_text(encoding="utf-8"), encoding="utf-8")
+            tmp.unlink(missing_ok=True)
 
     @staticmethod
     def validate_connection(conn: ConnectionConfig) -> dict[str, str]:

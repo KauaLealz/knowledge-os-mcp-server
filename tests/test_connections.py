@@ -58,7 +58,7 @@ def test_connection_create_sem_teste(svc, tmp_path):
 def test_connection_create_recusa_senha_na_url(svc):
     with pytest.raises(ValidationError, match="password_env"):
         svc.create("Pw", "postgresql", "postgresql://u:secret@prod/knowledge", test=False)
-    assert [c.name for c in ConfigManager.load_or_create().connections] == ["Local SQLite"]
+    assert ConfigManager.load_or_create().connections == []
 
 
 def test_connection_create_mysql(svc):
@@ -92,8 +92,8 @@ def test_connection_create_inalcancavel_falha_sem_vazar_senha(svc, db_type, url,
     with pytest.raises(ValidationError) as exc:
         svc.create("Down", db_type, url, test=True, password_env="KOS_PW")
     assert "topsecret" not in str(exc.value)
-    assert [c.id for c in svc.list()] == [DEFAULT_CONNECTION_ID, "sqlite_local"]
-    assert [c.name for c in ConfigManager.load_or_create().connections] == ["Local SQLite"]
+    assert [c.id for c in svc.list()] == [DEFAULT_CONNECTION_ID]
+    assert ConfigManager.load_or_create().connections == []
 
 
 def test_connection_create_validacoes(svc, tmp_path):
@@ -153,7 +153,7 @@ def test_connection_update(svc, tmp_path):
     with pytest.raises(ValidationError):
         svc.update(a.id, db_url="x")
     with pytest.raises(ValidationError):
-        svc.update("sqlite_local", is_active=False)  # default do JSON
+        svc.update(DEFAULT_CONNECTION_ID, is_active=False)
     with pytest.raises(NotFoundError):
         svc.update("nao-existe", name="Z")
 
@@ -176,8 +176,6 @@ def test_connection_delete_cascade(svc, tmp_path):
 def test_connection_delete_default_proibido(svc):
     with pytest.raises(ValidationError):
         svc.delete(DEFAULT_CONNECTION_ID)
-    with pytest.raises(ValidationError):
-        svc.delete("sqlite_local")  # default do JSON
 
 
 def test_workspace_with_connection(svc, tmp_path):

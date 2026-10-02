@@ -1,5 +1,7 @@
 """Testes das tools schema_sync e migrate_workspaces (config em arquivo)."""
 
+from pathlib import Path
+
 import pytest
 from sqlalchemy import create_engine, text
 
@@ -9,14 +11,24 @@ from src.mcp.connection_tools import migrate_workspaces, schema_sync
 
 @pytest.fixture
 def workdir(tmp_path, monkeypatch):
+    """Config com a conexão "sqlite_local" (knowledge.db em tmp_path)."""
     monkeypatch.chdir(tmp_path)
+    config = ConfigManager.create_default_config()
+    config.connections.append(
+        ConnectionConfig(
+            id="sqlite_local", name="Local SQLite", db_type="sqlite",
+            path=(tmp_path / "knowledge.db").as_posix(),
+        )
+    )
+    ConfigManager.save(config)
     return tmp_path
 
 
 def _two_sqlite():
-    config = ConfigManager.create_default_config()
+    config = ConfigManager.load_or_create()
+    backup = (Path(config.get_connection("sqlite_local").path).parent / "backup.db").as_posix()
     config.connections.append(
-        ConnectionConfig(id="sqlite_backup", name="Backup", db_type="sqlite", path="./backup.db")
+        ConnectionConfig(id="sqlite_backup", name="Backup", db_type="sqlite", path=backup)
     )
     ConfigManager.save(config)
 
