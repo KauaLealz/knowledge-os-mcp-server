@@ -2,8 +2,8 @@
 
 **Versão:** v0.1.0  
 **Data:** 2026-10-02  
-**Status:** ✅ Completo (awaiting T5 final commit)  
-**Branch:** `feature/mcp-knowledge-os`  
+**Status:** ✅ T1–T6 concluídas (pendente: merge)  
+**Branch:** `master` (a branch `feature/mcp-knowledge-os` não existe no repositório)  
 
 ---
 
@@ -37,7 +37,7 @@ Um **servidor MCP (Model Context Protocol) local e completo** que funciona como 
 - **Full-Text Search:** FTS5 em title + summary + content
 - **Features:** WAL mode, PRAGMA optimization, criptografia AES-256 (opcional)
 
-### Services Layer (8 Services)
+### Services Layer (8 Services + ImportExportService)
 1. **WorkspaceService** — CRUD + export
 2. **DomainService** — CRUD + export
 3. **ItemService** — CRUD + FTS5 search (Principal)
@@ -46,6 +46,7 @@ Um **servidor MCP (Model Context Protocol) local e completo** que funciona como 
 6. **TagService** — tags reutilizáveis
 7. **LabelService** — labels controladas
 8. **ArtifactService** — arquivos anexados
+9. **ImportExportService** — export/import ZIP de workspace e domain
 
 ### MCP Tools (32 Total)
 ```
@@ -77,15 +78,15 @@ Memory (2)           Tags (3)           Labels (3)        Artifacts (3)
 
 | Métrica | Valor |
 |---------|-------|
-| **Testes** | 80+ (pytest) |
-| **Cobertura** | 80%+ |
+| **Testes** | 104 passed (pytest) |
+| **Cobertura** | 88% (src/, medida em e52af23) |
 | **Tools MCP** | 32 |
-| **Services** | 8 |
+| **Services** | 9 |
 | **Models** | 8 |
-| **Linhas de Código** | ~5000+ |
-| **Lint Errors** | 0 |
-| **Type Errors** | 0 |
-| **Commits** | 6 |
+| **Lint (ruff)** | 21 pendências em models.py, migrations.py, conftest.py, test_db.py (pré-existentes) |
+| **Type check (mypy)** | 59 erros em 13 arquivos (maioria `Column[...]` vs tipo escalar do SQLAlchemy); a corrigir |
+| **Formato (black)** | 15 arquivos fora do padrão; não reformatados |
+| **Commits** | 5 de feature (T1–T5) + T6 |
 
 ---
 
@@ -150,7 +151,7 @@ item_search({
 - **README.md** — Setup, uso, conceitos, ferramentas (completo)
 - **docs/FLUXO_COMPLETO.md** — Exemplo end-to-end detalhado
 - **docs/ARQUITETURA.md** — Diagrama alto-nível
-- **docs/EXAMPLE_SETUP.md** — Passo-a-passo para novo usuário
+- **docs/EXEMPLO_SETUP.md** — Passo-a-passo para novo usuário
 - **Makefile** — Targets para dev (test, lint, bootstrap, etc)
 
 ---
@@ -197,18 +198,18 @@ item_search({
 - [x] T2: Workspace + Domain (12 tools, 17 testes)
 - [x] T3: Item + FTS5 (5 tools, 27 testes)
 - [x] T4: Relations + Memory + Tags (11 tools, 31 testes)
-- [ ] T5: Artifacts + Main (8 tools, ~5 testes) — em progresso
-- [ ] T6: Testes finais + Docs — aguardando T5
+- [x] T5: Artifacts + Import/Export + Main (32 tools, 104 testes)
+- [x] T6: Testes finais + Docs
 
 **Requisitos Atendidos:**
 - [x] Local-first
 - [x] SQLite + FTS5
 - [x] SQLCipher opcional
-- [x] 19+ ferramentas MCP
+- [x] 32 ferramentas MCP
 - [x] Export/Import ZIP
-- [x] Testes (80+)
+- [x] Testes (104, cobertura 88%)
 - [x] Documentação completa
-- [x] Código limpo (ruff, type hints, docstrings)
+- [ ] Código limpo: ruff, mypy e black ainda têm pendências (ver Métricas)
 
 ---
 
@@ -225,17 +226,11 @@ item_search({
 
 ## 📝 Branch & Merge
 
-**Branch:** `feature/mcp-knowledge-os`  
-**Base:** `main`  
-**Status:** Pronto para revisar + merge (após T5, T6 completarem)  
+**Branch:** `master`  
+**Status:** Funcional e testado; revisar as pendências de lint/typecheck antes do merge/tag  
 
 ```bash
-# Merge quando tudo estiver ✅
-git checkout main
-git merge feature/mcp-knowledge-os
-git push origin main
-
-# Tag v0.1.0
+# Tag v0.1.0 (após resolver as pendências)
 git tag v0.1.0
 git push origin v0.1.0
 ```
@@ -247,7 +242,7 @@ git push origin v0.1.0
 Implementado com Claude Sonnet 5.5 — arquitetura e implementação paralela (T1–T6).
 
 **Modelo:** Claude Sonnet 5.5  
-**Commits:** 6 (T1 + T2 + T3+T4 + T5 + T6)  
+**Commits:** T1 a T6  
 **Esforço:** Trilha Profunda, paralelização máxima  
 
 ---
@@ -260,7 +255,7 @@ Implementado com Claude Sonnet 5.5 — arquitetura e implementação paralela (T
 
 ---
 
-**Status Final:** ✅ **Pronto para Produção v0.1**
+**Status Final:** v0.1 funcional; qualidade estática (mypy/black) pendente
 
 Data de Conclusão: 2026-10-02  
 Próximo Release: v0.2 (Memory cleanup + Web UI)
