@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import secrets
 import sys
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from src.exceptions import ConfigError, DatabaseError  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
+UI_DEFAULT_PORT = 8765
 INSTRUCTIONS_FILE = Path(__file__).resolve().parent / "mcp" / "INSTRUCTIONS.md"
 
 # Inicializar FastMCP (as instructions chegam ao agente no handshake do protocolo)
@@ -112,7 +114,29 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     group.add_argument(
         "--bootstrap", action="store_true", help="cria schema e labels padrão e sai"
     )
+    sub = parser.add_subparsers(dest="command")
+    ui = sub.add_parser("ui", help="sobe a UI web local (somente 127.0.0.1) com token por start")
+    ui.add_argument("--port", type=int, default=UI_DEFAULT_PORT, help="porta (padrão: 8765)")
+    ui.add_argument("--no-browser", action="store_true", help="não abre o navegador")
     return parser.parse_args(argv)
+
+
+def run_ui(port: int, open_browser: bool) -> None:
+    """Sobe a UI/API em 127.0.0.1 com um token novo. A URL vai ao stdout (não é modo MCP)."""
+    import uvicorn
+
+    from src.api import auth
+    from src.api.main import app
+
+    token = secrets.token_urlsafe(32)
+    auth.set_token(token)
+    url = f"http://127.0.0.1:{port}/ui/#token={token}"
+    print(url, flush=True)
+    if open_browser:
+        import webbrowser
+
+        webbrowser.open(url)
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -121,6 +145,11 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=LOG_LEVEL, stream=sys.stderr)
     try:
         ensure_home()
+        if args.command == "ui":
+            validate_and_init_config()
+            run_ui(args.port, open_browser=not args.no_browser)
+            return 0
+
         if args.bootstrap:
             validate_and_init_config()
             print("bootstrap: OK")
