@@ -1,132 +1,207 @@
-"""Gerenciamento de engine e sessão SQLAlchemy."""
+"""Engines e sessões SQLAlchemy: catálogo (banco default) + N conexões (multi-DB)."""
 
 import logging
-from typing import Any
+import threading
 
-from sqlalchemy import Engine, create_engine, event, text
+from sqlalchemy import Engine, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from src.config import DB_URL
-from src.db.models import Base
-from src.exceptions import DatabaseError
+from src.db.dialects import detect_type, get_dialect, redact
+from src.db.dialects.base import FTS_COLUMNS, FTS_TABLE
+from src.db.dialects.sqlite import create_fts_trigger
+from src.db.models import (
+    DEFAULT_CONNECTION_ID,
+    DEFAULT_CONNECTION_NAME,
+    Base,
+    Connection,
+)
+from src.exceptions import DatabaseError, NotFoundError, ValidationError
 
 logger = logging.getLogger(__name__)
 
-FTS_TABLE = "items_fts"
-FTS_COLUMNS = ("title", "summary", "content")
-
-
-def _set_sqlite_pragmas(dbapi_connection: Any, connection_record: Any) -> None:
-    """Aplica PRAGMAs em cada nova conexão SQLite."""
-    cursor = dbapi_connection.cursor()
-    try:
-        cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.execute("PRAGMA synchronous=NORMAL")
-        cursor.execute("PRAGMA busy_timeout=5000")
-        cursor.execute("PRAGMA foreign_keys=ON")
-    finally:
-        cursor.close()
+__all__ = [
+    "FTS_COLUMNS",
+    "FTS_TABLE",
+    "ConnectionManager",
+    "close_engine",
+    "close_engines",
+    "create_db_engine",
+    "create_fts_trigger",
+    "ensure_connection_row",
+    "get_engine",
+    "get_session",
+    "init_db",
+]
 
 
 def create_db_engine(url: str = DB_URL) -> Engine:
-    """Cria um engine com WAL mode, synchronous=NORMAL e busy_timeout=5000."""
-    kwargs: dict[str, Any] = {"echo": False}
-    connect_args: dict[str, Any] = {"check_same_thread": False, "timeout": 10}
-    if url.endswith(":memory:") or url.endswith("sqlite://"):
-        # Banco em memória: uma única conexão compartilhada, senão cada conexão
-        # enxergaria um banco vazio diferente.
-        kwargs["poolclass"] = StaticPool
-    engine = create_engine(url, connect_args=connect_args, **kwargs)
-    if "sqlite" in url:
-        event.listen(engine, "connect", _set_sqlite_pragmas)
-    return engine
+    """Cria o engine do dialect detectado na URL (SQLite com WAL por padrão)."""
+    return get_dialect(detect_type(url)).create_engine(url)
 
 
-def _fts_exists(engine: Engine) -> bool:
-    with engine.connect() as conn:
-        row = conn.execute(
-            text("SELECT 1 FROM sqlite_master WHERE type='table' AND name=:n"),
-            {"n": FTS_TABLE},
-        ).first()
-    return row is not None
+def ensure_connection_row(
+    engine: Engine,
+    connection_id: str = DEFAULT_CONNECTION_ID,
+    name: str = DEFAULT_CONNECTION_NAME,
+    db_type: str | None = None,
+    db_url: str | None = None,
+) -> None:
+    """Garante a linha de `connections` que a FK de workspaces exige neste banco.
+
+    A URL gravada nunca contém a senha.
+    """
+    safe_url = db_url if db_url is not None else engine.url.render_as_string(hide_password=True)
+    with Session(engine) as s:
+        if s.get(Connection, connection_id) is None:
+            s.add(
+                Connection(
+                    id=connection_id,
+                    name=name,
+                    db_type=db_type or engine.dialect.name,
+                    db_url=redact_url(safe_url),
+                )
+            )
+            s.commit()
 
 
-def create_fts_trigger(engine: Engine) -> None:
-    """Cria triggers que mantêm items_fts sincronizado com a tabela items."""
-    cols = ", ".join(FTS_COLUMNS)
-    new_vals = ", ".join(f"new.{c}" for c in FTS_COLUMNS)
-    old_vals = ", ".join(f"old.{c}" for c in FTS_COLUMNS)
-    delete_row = (
-        f"INSERT INTO {FTS_TABLE}({FTS_TABLE}, rowid, {cols}) "
-        f"VALUES('delete', old.rowid, {old_vals});"
-    )
-    insert_row = f"INSERT INTO {FTS_TABLE}(rowid, {cols}) VALUES (new.rowid, {new_vals});"
-    statements = [
-        f"CREATE TRIGGER IF NOT EXISTS items_fts_ai AFTER INSERT ON items BEGIN {insert_row} END",
-        f"CREATE TRIGGER IF NOT EXISTS items_fts_ad AFTER DELETE ON items BEGIN {delete_row} END",
-        f"CREATE TRIGGER IF NOT EXISTS items_fts_au AFTER UPDATE OF {cols} ON items "
-        f"BEGIN {delete_row} {insert_row} END",
-    ]
-    try:
-        with engine.begin() as conn:
-            for stmt in statements:
-                conn.execute(text(stmt))
-    except SQLAlchemyError as exc:
-        raise DatabaseError(f"Falha ao criar triggers FTS5: {exc}") from exc
+def redact_url(url: str) -> str:
+    """URL com a senha mascarada."""
+    from sqlalchemy.engine import make_url
+
+    return make_url(url).render_as_string(hide_password=True)
 
 
-def _create_fts_table(engine: Engine) -> None:
-    """Cria a tabela virtual FTS5 (external content sobre items) se não existir."""
-    existed = _fts_exists(engine)
-    cols = ", ".join(FTS_COLUMNS)
+def _migrate_legacy_workspaces(engine: Engine) -> None:
+    """Bancos SQLite anteriores ao T7 não têm workspaces.connection_id: adiciona a coluna."""
+    inspector = inspect(engine)
+    if "workspaces" not in inspector.get_table_names():
+        return
+    if "connection_id" in {c["name"] for c in inspector.get_columns("workspaces")}:
+        return
     with engine.begin() as conn:
         conn.execute(
             text(
-                f"CREATE VIRTUAL TABLE IF NOT EXISTS {FTS_TABLE} "
-                f"USING fts5({cols}, content='items', content_rowid='rowid')"
+                "ALTER TABLE workspaces ADD COLUMN connection_id VARCHAR(36) "
+                f"NOT NULL DEFAULT '{DEFAULT_CONNECTION_ID}'"
             )
         )
-        if not existed:
-            # Indexa linhas que já existiam antes da criação do índice.
-            conn.execute(text(f"INSERT INTO {FTS_TABLE}({FTS_TABLE}) VALUES('rebuild')"))
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS idx_workspace_connection ON workspaces(connection_id)")
+        )
+    logger.info("workspaces.connection_id adicionada ao banco legado")
 
 
-def init_db(engine: Engine | None = None) -> Engine:
-    """Inicializa banco de dados com WAL mode, tabelas e FTS5 (idempotente)."""
+def init_db(
+    engine: Engine | None = None,
+    connection_id: str = DEFAULT_CONNECTION_ID,
+    connection_name: str = DEFAULT_CONNECTION_NAME,
+) -> Engine:
+    """Inicializa o banco: tabelas, busca textual do dialect e linha de connection.
+
+    Idempotente. Para bancos de conexões externas, `connection_id` / `connection_name`
+    identificam a linha espelhada em `connections` (exigida pela FK de workspaces).
+    """
     engine = engine or create_db_engine()
     try:
         Base.metadata.create_all(bind=engine)
-        _create_fts_table(engine)
+        if engine.dialect.name == "sqlite":
+            _migrate_legacy_workspaces(engine)
+        get_dialect(engine.dialect.name).create_fts_table(engine)
+        ensure_connection_row(engine, connection_id, connection_name)
     except SQLAlchemyError as exc:
         raise DatabaseError(f"Falha ao inicializar o banco: {exc}") from exc
-    create_fts_trigger(engine)
     logger.debug("Banco inicializado")
     return engine
 
 
-def get_session(engine: Engine) -> Session:
-    """Retorna nova sessão SQLAlchemy."""
-    factory = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    return factory()
+class ConnectionManager:
+    """Mantém um Engine por connection_id. O banco default (catálogo) guarda as Connections."""
+
+    def __init__(self, default_engine: Engine | None = None) -> None:
+        self._engines: dict[str, Engine] = {}
+        self._lock = threading.RLock()
+        if default_engine is not None:
+            self._engines[DEFAULT_CONNECTION_ID] = default_engine
+
+    def _default(self) -> Engine:
+        if DEFAULT_CONNECTION_ID not in self._engines:
+            self._engines[DEFAULT_CONNECTION_ID] = init_db()
+        return self._engines[DEFAULT_CONNECTION_ID]
+
+    def get_engine(self, connection_id: str | None = None) -> Engine:
+        """Engine da conexão (cria e inicializa no primeiro uso). None = banco default."""
+        cid = connection_id or DEFAULT_CONNECTION_ID
+        with self._lock:
+            if cid == DEFAULT_CONNECTION_ID:
+                return self._default()
+            if cid not in self._engines:
+                self._engines[cid] = self._open(cid)
+            return self._engines[cid]
+
+    def _open(self, connection_id: str) -> Engine:
+        with Session(self._default()) as s:
+            conn = s.get(Connection, connection_id)
+            if conn is None:
+                raise NotFoundError(f"Conexão não encontrada: {connection_id}")
+            if not conn.is_active:
+                raise ValidationError(f"Conexão inativa: {conn.name}")
+            db_type, db_url, name = conn.db_type, conn.db_url, conn.name
+        engine = get_dialect(db_type).create_engine(db_url)
+        try:
+            init_db(engine, connection_id=connection_id, connection_name=name)
+            from src.db.migrations import bootstrap_labels  # import tardio: evita ciclo
+
+            with Session(engine) as s:
+                bootstrap_labels(s)
+        except Exception as exc:
+            engine.dispose()
+            raise DatabaseError(
+                f"Falha ao abrir a conexão {name!r}: {redact(str(exc), db_url)}"
+            ) from None
+        return engine
+
+    def get_session(self, connection_id: str | None = None) -> Session:
+        engine = self.get_engine(connection_id)
+        return sessionmaker(autocommit=False, autoflush=False, bind=engine)()
+
+    def invalidate(self, connection_id: str) -> None:
+        """Descarta o engine em cache (conexão removida, desativada ou alterada)."""
+        if connection_id == DEFAULT_CONNECTION_ID:
+            return
+        with self._lock:
+            engine = self._engines.pop(connection_id, None)
+        if engine is not None:
+            engine.dispose()
+
+    def close_all(self) -> None:
+        with self._lock:
+            engines, self._engines = list(self._engines.values()), {}
+        for engine in engines:
+            engine.dispose()
 
 
-# Engine global
-_engine: Engine | None = None
+_connection_manager = ConnectionManager()
 
 
-def get_engine() -> Engine:
-    """Retorna o engine global, inicializando o banco no primeiro uso."""
-    global _engine
-    if _engine is None:
-        _engine = init_db()
-    return _engine
+def get_engine(connection_id: str | None = None) -> Engine:
+    """Engine da conexão informada; sem argumento, o banco default (inicializado no 1º uso)."""
+    return _connection_manager.get_engine(connection_id)
+
+
+def get_session(target: Engine | str | None = None) -> Session:
+    """Nova sessão. `target` pode ser um Engine ou um connection_id (None = default)."""
+    if isinstance(target, Engine):
+        return sessionmaker(autocommit=False, autoflush=False, bind=target)()
+    return _connection_manager.get_session(target)
+
+
+def close_engines() -> None:
+    """Fecha todos os engines (default e conexões)."""
+    _connection_manager.close_all()
 
 
 def close_engine() -> None:
-    """Fecha engine global."""
-    global _engine
-    if _engine is not None:
-        _engine.dispose()
-        _engine = None
+    """Compatibilidade T1-T5: fecha os engines."""
+    close_engines()

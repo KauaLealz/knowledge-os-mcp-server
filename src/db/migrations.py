@@ -36,13 +36,13 @@ def bootstrap() -> None:
     Executa bootstrap completo:
     1. Cria engine e inicializa banco (schema)
     2. Insere labels padrão
-    
+
     Idempotente: seguro rodar múltiplas vezes.
     """
     try:
         # Inicializa banco (cria tabelas, FTS5, triggers)
         engine = init_db(get_engine())
-        
+
         # Insere labels padrão
         session = Session(bind=engine)
         try:
@@ -50,7 +50,7 @@ def bootstrap() -> None:
             logger.info("Bootstrap concluído com sucesso")
         finally:
             session.close()
-            
+
     except Exception as exc:
         logger.error(f"Erro durante bootstrap: {exc}")
         raise
