@@ -1,14 +1,50 @@
 """Modelos SQLAlchemy para Knowledge OS."""
 
 from datetime import datetime
+
 from sqlalchemy import (
-    Column, String, Text, Integer, DateTime, ForeignKey,
-    UniqueConstraint, Index, create_engine
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 
 Base = declarative_base()
+
+# Connection "default": o próprio banco do catálogo (knowledge.db). Workspaces criados
+# sem connection_id (T1-T5) pertencem a ela.
+DEFAULT_CONNECTION_ID = "default"
+DEFAULT_CONNECTION_NAME = "default"
+
+
+class Connection(Base):
+    """Connection: ponto de acesso a um banco de dados (SQLite, MySQL ou PostgreSQL)."""
+    __tablename__ = "connections"
+
+    id = Column(String(36), primary_key=True)
+    name = Column(String(255), unique=True, nullable=False)
+    db_type = Column(String(20), nullable=False)  # sqlite, mysql, postgresql
+    db_url = Column(String(2048), nullable=False)
+    host = Column(String(255), nullable=True)
+    port = Column(Integer, nullable=True)
+    database = Column(String(255), nullable=True)
+    username = Column(String(255), nullable=True)
+    is_active = Column(Boolean, default=True)
+    last_tested = Column(DateTime, nullable=True)
+    test_result = Column(String(500), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    workspaces = relationship(
+        "Workspace", back_populates="connection", cascade="all, delete-orphan"
+    )
 
 
 class Workspace(Base):
@@ -16,16 +52,22 @@ class Workspace(Base):
     __tablename__ = "workspaces"
 
     id = Column(String(36), primary_key=True)
-    name = Column(String(255), unique=True, nullable=False)
+    connection_id = Column(
+        String(36), ForeignKey("connections.id"), nullable=False, default=DEFAULT_CONNECTION_ID
+    )
+    name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relacionamentos
+    connection = relationship("Connection", back_populates="workspaces")
     domains = relationship("Domain", back_populates="workspace", cascade="all, delete-orphan")
     items = relationship("Item", back_populates="workspace", cascade="all, delete-orphan")
 
     __table_args__ = (
+        UniqueConstraint("connection_id", "name", name="uq_workspace_connection_name"),
+        Index("idx_workspace_connection", "connection_id"),
         Index("idx_workspace_name", "name"),
     )
 
@@ -59,7 +101,8 @@ class Item(Base):
     workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=False)
     domain_id = Column(String(36), ForeignKey("domains.id"), nullable=False)
 
-    type = Column(String(50), nullable=False)  # context, rule, pattern, procedure, knowledge, insight, artifact
+    # context, rule, pattern, procedure, knowledge, insight, artifact
+    type = Column(String(50), nullable=False)
     memory_class = Column(String(50), nullable=False)  # ephemeral, working, longterm, canonical
 
     title = Column(String(255), nullable=False)
@@ -135,7 +178,8 @@ class Relation(Base):
     id = Column(String(36), primary_key=True)
     source_item_id = Column(String(36), ForeignKey("items.id"), nullable=False)
     target_item_id = Column(String(36), ForeignKey("items.id"), nullable=False)
-    relation_type = Column(String(50), nullable=False)  # related_to, depends_on, implements, references, supersedes, derived_from
+    # related_to, depends_on, implements, references, supersedes, derived_from
+    relation_type = Column(String(50), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (

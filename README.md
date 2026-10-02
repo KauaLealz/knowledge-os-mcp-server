@@ -159,7 +159,7 @@ Personal
 | `longterm` | Nenhum | Persistente |
 | `canonical` | Nenhum | Oficial, promovido explicitamente |
 
-## Ferramentas MCP (19 total)
+## Ferramentas MCP (32 total)
 
 ### Workspace (6)
 - `workspace_create`, `workspace_list`, `workspace_get`, `workspace_delete`, `workspace_export`, `workspace_import`
@@ -179,8 +179,14 @@ Personal
 ### Tag (3)
 - `tag_create`, `tag_list`, `tag_delete`
 
+### Label (3)
+- `label_create`, `label_list`, `label_delete`
+
 ### Artifact (3)
 - `artifact_attach`, `artifact_list`, `artifact_get`
+
+### Saúde (1)
+- `health_check`
 
 ## Otimizações para Agentes
 
@@ -236,8 +242,10 @@ src/
 │   ├── item_service.py
 │   ├── relation_service.py
 │   ├── memory_service.py
-│   ├── import_export_service.py
-│   └── tag_service.py
+│   ├── tag_service.py
+│   ├── label_service.py
+│   ├── artifact_service.py
+│   └── import_export_service.py
 ├── mcp/
 │   ├── workspace_tools.py
 │   ├── domain_tools.py
@@ -245,6 +253,7 @@ src/
 │   ├── relation_tools.py
 │   ├── memory_tools.py
 │   ├── tag_tools.py
+│   ├── label_tools.py
 │   └── artifact_tools.py
 └── schemas/
     └── Pydantic validators
@@ -256,8 +265,8 @@ src/
 # Rodar testes
 pytest -v
 
-# Com cobertura
-pytest --cov=src -v
+# Com cobertura (requer pytest-cov)
+pytest --cov=src --cov-report=html -v
 
 # Apenas um arquivo
 pytest tests/test_item_tools.py -v
@@ -291,9 +300,15 @@ workspace_import({
 # Restaura estrutura completa
 ```
 
+## Documentação
+
+- [docs/EXEMPLO_SETUP.md](docs/EXEMPLO_SETUP.md): passo a passo para novos usuários
+- [docs/FLUXO_COMPLETO.md](docs/FLUXO_COMPLETO.md): exemplo ponta a ponta
+- [docs/ARQUITETURA.md](docs/ARQUITETURA.md): camadas, módulos e decisões
+
 ## Roadmap
 
-- [ ] v0.1 (em progresso): MVP core — workspace, domain, item, search, export/import
+- [x] v0.1: MVP core — workspace, domain, item, search, export/import
 - [ ] v0.2: Cron job para memory_cleanup (ephemeral expirados)
 - [ ] v0.3: Web UI simples (browse, search, create)
 - [ ] v0.4: CLI (`knowledge-mcp` command)
@@ -301,7 +316,7 @@ workspace_import({
 
 ## Suporte
 
-- Docs: veja `docs/` para exemplos e guias
+- Docs: veja `docs/` (setup, fluxo completo, arquitetura)
 - Issues: crie no repositório
 - Discussões: veja Discussions
 

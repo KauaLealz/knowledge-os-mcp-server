@@ -19,8 +19,11 @@ class MemoryService:
     Se `session` não for informada, cada operação abre uma sessão própria.
     """
 
-    def __init__(self, session: Session | None = None) -> None:
+    def __init__(
+        self, session: Session | None = None, connection_id: str | None = None
+    ) -> None:
         self._session = session
+        self._connection_id = connection_id
 
     def _get_item(self, s: Session, item_id: str) -> Item:
         item = s.get(Item, item_id)
@@ -46,7 +49,7 @@ class MemoryService:
             )
         if target_memory == "ephemeral":
             raise ValidationError("Não é possível promover para ephemeral (sem downgrade)")
-        with session_scope(self._session) as s:
+        with session_scope(self._session, self._connection_id) as s:
             item = self._get_item(s, item_id)
             if item.memory_class not in MEMORY_ORDER:
                 raise ValidationError(f"Classe atual desconhecida: {item.memory_class}")
@@ -64,7 +67,7 @@ class MemoryService:
         """Atualiza ttl_days de um item ephemeral."""
         if ttl_days <= 0:
             raise ValidationError("ttl_days deve ser positivo")
-        with session_scope(self._session) as s:
+        with session_scope(self._session, self._connection_id) as s:
             item = self._get_item(s, item_id)
             if item.memory_class != "ephemeral":
                 raise ValidationError(

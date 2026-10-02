@@ -137,10 +137,10 @@ class TestTools:
         assert got["artifact"]["id"] == att["id"]
 
 
-def test_main_registra_32_tools():
+def test_main_registra_40_tools():
     import src.main as main
 
     main.register_all_tools()
     names = set(asyncio.run(main.mcp.get_tools()))
-    assert len(names) == 32
+    assert len(names) == 40  # 32 (T1-T5) + 6 de connection (T7) + 2 (T9)
     assert {"health_check", "item_search", "artifact_get", "workspace_import"} <= names

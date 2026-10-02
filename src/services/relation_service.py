@@ -28,8 +28,11 @@ class RelationService:
     Se `session` não for informada, cada operação abre uma sessão própria.
     """
 
-    def __init__(self, session: Session | None = None) -> None:
+    def __init__(
+        self, session: Session | None = None, connection_id: str | None = None
+    ) -> None:
         self._session = session
+        self._connection_id = connection_id
 
     def create(self, source_item_id: str, target_item_id: str, relation_type: str) -> Relation:
         """Cria relação.
@@ -42,7 +45,7 @@ class RelationService:
             )
         if source_item_id == target_item_id:
             raise ValidationError("Um item não pode se relacionar consigo mesmo")
-        with session_scope(self._session) as s:
+        with session_scope(self._session, self._connection_id) as s:
             for item_id in (source_item_id, target_item_id):
                 if s.get(Item, item_id) is None:
                     raise NotFoundError(f"Item não encontrado: {item_id}")
@@ -62,7 +65,7 @@ class RelationService:
 
     def list(self, item_id: str) -> list[Relation]:
         """Lista relações em que o item é source ou target."""
-        with session_scope(self._session) as s:
+        with session_scope(self._session, self._connection_id) as s:
             rows = list(
                 s.scalars(
                     select(Relation)
@@ -78,7 +81,7 @@ class RelationService:
 
     def delete(self, relation_id: str) -> bool:
         """Remove a relação. NotFoundError se não existe."""
-        with session_scope(self._session) as s:
+        with session_scope(self._session, self._connection_id) as s:
             rel = s.get(Relation, relation_id)
             if rel is None:
                 raise NotFoundError(f"Relação não encontrada: {relation_id}")

@@ -13,50 +13,111 @@ from src.services.workspace_service import WorkspaceService
 logger = logging.getLogger(__name__)
 
 
-def _workspace_id(workspace: str) -> str:
+def _workspace_id(workspace: str, connection_id: str | None) -> str:
     """Resolve o nome do workspace para o id (NotFoundError se não existe)."""
-    return WorkspaceService().get(workspace).id
+    return WorkspaceService(connection_id=connection_id).get(workspace).id
 
 
 def register(mcp: FastMCP) -> None:
     """Registra as 6 tools de domain no servidor."""
 
     @mcp.tool()
-    def domain_create(workspace: str, name: str, description: str | None = None) -> dict[str, Any]:
-        """Cria novo domain em um workspace (informado pelo nome)."""
+    def domain_create(
+        workspace: str, name: str, description: str | None = None, connection_id: str | None = None
+    ) -> dict[str, Any]:
+        """Cria um domain (tópico) dentro de um workspace.
+
+        **Use quando:** Estruturar um workspace em tópicos antes de guardar items.
+        **Retorna:** {id, workspace_id, name, description, ...}.
+        **Exemplo:** domain_create(workspace="Python Learning", name="Decorators")
+        **Notas:** workspace é informado pelo nome. Nome do domain único dentro do workspace.
+            connection_id: opcional; sem ele usa a connection default (sqlite_local).
+        """
         data = DomainCreate(
-            workspace_id=_workspace_id(workspace), name=name, description=description
+            workspace_id=_workspace_id(workspace, connection_id), name=name, description=description
         )
-        dm = DomainService().create(data.workspace_id, data.name, data.description)
+        dm = DomainService(connection_id=connection_id).create(
+            data.workspace_id, data.name, data.description
+        )
         return DomainResponse.model_validate(dm).model_dump(mode="json")
 
     @mcp.tool()
-    def domain_list(workspace: str) -> list[dict[str, Any]]:
-        """Lista domains de um workspace."""
-        rows = DomainService().list(_workspace_id(workspace))
+    def domain_list(workspace: str, connection_id: str | None = None) -> list[dict[str, Any]]:
+        """Lista os domains de um workspace.
+
+        **Use quando:** Ver os tópicos existentes antes de criar items.
+        **Retorna:** Lista de domains.
+        **Exemplo:** domain_list(workspace="Python Learning")
+        **Notas:** workspace é o nome. connection_id: opcional; sem ele usa a connection default
+            (sqlite_local).
+        """
+        rows = DomainService(connection_id=connection_id).list(
+            _workspace_id(workspace, connection_id)
+        )
         return DomainListResponse.model_validate(rows).model_dump(mode="json")
 
     @mcp.tool()
-    def domain_get(workspace: str, name: str) -> dict[str, Any]:
-        """Obtém domain por nome."""
-        dm = DomainService().get(_workspace_id(workspace), name)
+    def domain_get(workspace: str, name: str, connection_id: str | None = None) -> dict[str, Any]:
+        """Obtém um domain pelo nome.
+
+        **Use quando:** Confirmar que um domain existe ou ler sua descrição.
+        **Retorna:** Dados do domain.
+        **Exemplo:** domain_get(workspace="Python Learning", name="Decorators")
+        **Notas:** Erro de not found se o nome não existir no workspace. connection_id: opcional;
+            sem ele usa a connection default (sqlite_local).
+        """
+        dm = DomainService(connection_id=connection_id).get(
+            _workspace_id(workspace, connection_id), name
+        )
         return DomainResponse.model_validate(dm).model_dump(mode="json")
 
     @mcp.tool()
-    def domain_delete(workspace: str, name: str) -> dict[str, Any]:
-        """Deleta domain."""
-        if DomainService().delete(_workspace_id(workspace), name):
+    def domain_delete(
+        workspace: str, name: str, connection_id: str | None = None
+    ) -> dict[str, Any]:
+        """Deleta um domain pelo nome.
+
+        **Use quando:** Remover um tópico obsoleto.
+        **Retorna:** {status: deleted|not_found, message}.
+        **Exemplo:** domain_delete(workspace="Python Learning", name="Decorators")
+        **Notas:** Destrutivo: afeta os items do domain. connection_id: opcional; sem ele usa a
+            connection default (sqlite_local).
+        """
+        if DomainService(connection_id=connection_id).delete(
+            _workspace_id(workspace, connection_id), name
+        ):
             return {"status": "deleted", "message": f"Domain '{name}' removido"}
         return {"status": "not_found", "message": f"Domain '{name}' não existe"}
 
     @mcp.tool()
-    def domain_export(workspace: str, name: str) -> dict[str, Any]:
-        """Exporta domain (prepara dados para ZIP)."""
-        data = DomainService().export(_workspace_id(workspace), name)
+    def domain_export(
+        workspace: str, name: str, connection_id: str | None = None
+    ) -> dict[str, Any]:
+        """Exporta um domain (prepara os dados para ZIP).
+
+        **Use quando:** Compartilhar ou fazer backup de um único tópico.
+        **Retorna:** {status: ok, domain: dados do domain}.
+        **Exemplo:** domain_export(workspace="Python Learning", name="Decorators")
+        **Notas:** connection_id: opcional; sem ele usa a connection default (sqlite_local).
+        """
+        data = DomainService(connection_id=connection_id).export(
+            _workspace_id(workspace, connection_id), name
+        )
         return {"domain": data["domain_data"], "status": "ok"}
 
     @mcp.tool()
-    def domain_import(workspace: str, file_path: str) -> dict[str, Any]:
-        """Importa domain de ZIP para o workspace (falha se o domain já existe nele)."""
-        dm = ImportExportService().import_domain(_workspace_id(workspace), file_path)
+    def domain_import(
+        workspace: str, file_path: str, connection_id: str | None = None
+    ) -> dict[str, Any]:
+        """Importa um domain de um ZIP para um workspace.
+
+        **Use quando:** Restaurar ou trazer um tópico exportado.
+        **Retorna:** {status: ok, id, name, ...} do domain criado.
+        **Exemplo:** domain_import(workspace="Python Learning", file_path="exports/decorators.zip")
+        **Notas:** Falha se o domain já existir no workspace. connection_id: opcional; sem ele usa a
+            connection default (sqlite_local).
+        """
+        dm = ImportExportService(connection_id=connection_id).import_domain(
+            _workspace_id(workspace, connection_id), file_path
+        )
         return {"status": "ok", **DomainResponse.model_validate(dm).model_dump(mode="json")}

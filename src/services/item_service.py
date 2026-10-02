@@ -12,7 +12,9 @@ from sqlalchemy import Engine, bindparam, delete, func, select, text, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
+from src.db.dialects import get_dialect
 from src.db.models import (
+    DEFAULT_CONNECTION_ID,
     Artifact,
     Domain,
     Item,
@@ -23,7 +25,7 @@ from src.db.models import (
     Tag,
     Workspace,
 )
-from src.db.session import FTS_TABLE, get_engine, get_session
+from src.db.session import get_engine, get_session
 from src.exceptions import NotFoundError, ValidationError
 from src.schemas.item_schemas import ItemCreate, ItemUpdate
 
@@ -47,13 +49,19 @@ class ItemService:
     desanexados, mas com atributos (inclusive tags e labels) já carregados.
     """
 
-    def __init__(self, engine: Engine | None = None) -> None:
-        """Usa o engine informado ou, por padrão, o engine global."""
+    def __init__(self, engine: Engine | None = None, connection_id: str | None = None) -> None:
+        """Usa o engine informado ou o da connection (sem ambos, o banco default)."""
         self._engine = engine
+        self._connection_id = connection_id
+
+    def _get_engine(self) -> Engine:
+        if self._engine is not None:
+            return self._engine
+        return get_engine(self._connection_id) if self._connection_id else get_engine()
 
     @contextmanager
     def _session(self) -> Iterator[Session]:
-        session = get_session(self._engine or get_engine())
+        session = get_session(self._get_engine())
         session.expire_on_commit = False
         try:
             yield session
@@ -69,7 +77,10 @@ class ItemService:
         """Resolve um workspace por nome ou id. Levanta NotFoundError se não existir."""
         with self._session() as s:
             ws_id = s.scalar(
-                select(Workspace.id).where((Workspace.name == ref) | (Workspace.id == ref))
+                select(Workspace.id).where(
+                    (Workspace.name == ref) | (Workspace.id == ref),
+                    Workspace.connection_id == (self._connection_id or DEFAULT_CONNECTION_ID),
+                )
             )
         if ws_id is None:
             raise NotFoundError(f"Workspace não encontrado: {ref}")
@@ -255,10 +266,10 @@ class ItemService:
             expanding.append("mclasses")
 
         if query:
-            source = f"{FTS_TABLE} JOIN items i ON i.rowid = {FTS_TABLE}.rowid"
-            where.insert(0, f"{FTS_TABLE} MATCH :q")
-            params["q"] = query
-            score = f"-bm25({FTS_TABLE})"
+            dialect = get_dialect(self._get_engine().dialect.name)
+            source, match, score, match_params = dialect.search_parts(query)
+            where.insert(0, match)
+            params.update(match_params)
         else:
             source = "items i"
             score = "0.0"

@@ -35,8 +35,14 @@ class ArtifactService:
     informada, cada operação abre uma sessão própria via get_session(get_engine()).
     """
 
-    def __init__(self, session: Session | None = None, artifacts_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        session: Session | None = None,
+        artifacts_dir: Path | None = None,
+        connection_id: str | None = None,
+    ) -> None:
         self._session = session
+        self._connection_id = connection_id
         self._dir = artifacts_dir or ARTIFACTS_DIR
 
     def attach(self, item_id: str, file_path: str) -> Artifact:
@@ -54,7 +60,7 @@ class ArtifactService:
         if size > MAX_ARTIFACT_BYTES:
             raise ValidationError(f"Arquivo maior que {MAX_ARTIFACT_BYTES} bytes: {file_path}")
 
-        with session_scope(self._session) as s:
+        with session_scope(self._session, self._connection_id) as s:
             if s.get(Item, item_id) is None:
                 raise NotFoundError(f"Item não encontrado: {item_id}")
             artifact_id = str(uuid.uuid4())
@@ -84,7 +90,7 @@ class ArtifactService:
 
     def list(self, item_id: str) -> list[Artifact]:
         """Lista os artifacts do item. NotFoundError se o item não existe."""
-        with session_scope(self._session) as s:
+        with session_scope(self._session, self._connection_id) as s:
             if s.get(Item, item_id) is None:
                 raise NotFoundError(f"Item não encontrado: {item_id}")
             rows = list(
@@ -100,7 +106,7 @@ class ArtifactService:
 
     def get(self, artifact_id: str) -> tuple[Artifact, bytes]:
         """Retorna (metadados, conteúdo). NotFoundError se o registro ou o arquivo faltam."""
-        with session_scope(self._session) as s:
+        with session_scope(self._session, self._connection_id) as s:
             art = s.get(Artifact, artifact_id)
             if art is None:
                 raise NotFoundError(f"Artifact não encontrado: {artifact_id}")
