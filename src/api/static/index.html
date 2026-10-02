@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Knowledge OS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="bg-slate-50">
+    <div x-data="app()" class="min-h-screen flex flex-col">
+        <header class="bg-white border-b border-slate-200">
+            <div class="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+                <h1 class="text-2xl font-bold text-blue-600">📚 Knowledge OS</h1>
+                <nav class="flex gap-4">
+                    <button @click="tab='workspaces'" :class="tab==='workspaces'?'font-bold':''" class="text-slate-600 hover:text-blue-600">Workspaces</button>
+                    <button @click="tab='search'" :class="tab==='search'?'font-bold':''" class="text-slate-600 hover:text-blue-600">Search</button>
+                </nav>
+            </div>
+        </header>
+
+        <main class="flex-1 max-w-7xl mx-auto w-full px-4 py-8">
+            <p x-show="error" x-text="error" class="mb-4 p-3 rounded-lg bg-red-100 text-red-700 text-sm"></p>
+
+            <!-- Workspaces -->
+            <div x-show="tab==='workspaces'">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-3xl font-bold">Workspaces</h2>
+                    <button @click="createWorkspace()" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">+ New</button>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <template x-for="ws in workspaces" :key="ws.id">
+                        <div @click="selectWorkspace(ws)" :class="selectedWorkspace?.id===ws.id?'border-blue-500':'border-slate-200'" class="bg-white p-4 rounded-lg border cursor-pointer hover:border-blue-400 hover:shadow-md transition">
+                            <h3 class="font-bold text-lg" x-text="ws.name"></h3>
+                            <p class="text-sm text-slate-600" x-text="ws.description"></p>
+                            <div class="mt-2 text-xs text-slate-500">
+                                <span x-text="`${ws.stats?.domains ?? 0} domains · ${ws.stats?.items ?? 0} items`"></span>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+                <p x-show="!workspaces.length" class="text-slate-500">Nenhum workspace ainda.</p>
+
+                <div x-show="selectedWorkspace" class="mt-8">
+                    <h3 class="text-2xl font-bold mb-4" x-text="`${selectedWorkspace?.name} › Domains`"></h3>
+                    <button @click="createDomain()" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 mb-4">+ Domain</button>
+                    <div class="space-y-2">
+                        <template x-for="dom in domains" :key="dom.id">
+                            <div @click="selectDomain(dom)" :class="selectedDomain?.id===dom.id?'border-green-500':'border-slate-200'" class="bg-white p-3 rounded-lg border cursor-pointer hover:bg-slate-50">
+                                <div class="flex justify-between items-center">
+                                    <h4 class="font-semibold" x-text="dom.name"></h4>
+                                    <span class="text-xs bg-slate-200 px-2 py-1 rounded" x-text="`${dom.stats?.items ?? 0} items`"></span>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <div x-show="selectedDomain" class="mt-8">
+                    <h3 class="text-2xl font-bold mb-4" x-text="`${selectedDomain?.name} › Items`"></h3>
+                    <button @click="createItem()" class="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 mb-4">+ Item</button>
+                    <div class="space-y-2">
+                        <template x-for="item in items" :key="item.id">
+                            <div class="bg-white p-4 rounded-lg border border-slate-200 hover:shadow-md transition">
+                                <h4 class="font-semibold" x-text="item.title"></h4>
+                                <p class="text-sm text-slate-600" x-text="item.summary"></p>
+                                <div class="mt-2 flex gap-2 text-xs">
+                                    <span class="bg-blue-100 text-blue-700 px-2 py-1 rounded" x-text="item.type"></span>
+                                    <span class="bg-green-100 text-green-700 px-2 py-1 rounded" x-text="item.memory_class"></span>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Search -->
+            <div x-show="tab==='search'">
+                <h2 class="text-3xl font-bold mb-6">Search</h2>
+                <p class="text-sm text-slate-500 mb-3" x-text="selectedWorkspace ? `Em: ${selectedWorkspace.name}` : 'Selecione um workspace na aba Workspaces.'"></p>
+                <div class="flex gap-2 mb-6">
+                    <input x-model="searchQuery" @keyup.enter="search()" placeholder="Search items..." class="flex-1 px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600">
+                    <button @click="search()" class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700">Search</button>
+                </div>
+                <p x-show="searched && !searchResults.length" class="text-slate-500">Sem resultados.</p>
+                <div class="space-y-3">
+                    <template x-for="result in searchResults" :key="result.id">
+                        <div class="bg-white p-4 rounded-lg border border-slate-200">
+                            <h4 class="font-semibold" x-text="result.title"></h4>
+                            <p class="text-sm text-slate-600" x-text="result.summary"></p>
+                            <div class="mt-2 text-xs text-slate-500">
+                                Score: <span x-text="result.score?.toFixed(2)"></span>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // v0.1: a API só exige um Bearer não vazio. Troque via localStorage.kos_token.
+        function token() {
+            try { return localStorage.getItem('kos_token') || 'dev'; } catch (e) { return 'dev'; }
+        }
+
+        async function api(path, opts = {}) {
+            const res = await fetch('/api' + path, {
+                ...opts,
+                headers: {
+                    'Authorization': 'Bearer ' + token(),
+                    'Content-Type': 'application/json',
+                    ...(opts.headers || {})
+                }
+            });
+            if (!res.ok) {
+                let detail = res.statusText;
+                try { detail = JSON.stringify((await res.json()).detail); } catch (e) {}
+                throw new Error(`${res.status}: ${detail}`);
+            }
+            return res.json();
+        }
+
+        function app() {
+            return {
+                tab: 'workspaces',
+                workspaces: [],
+                domains: [],
+                items: [],
+                searchResults: [],
+                searchQuery: '',
+                searched: false,
+                selectedWorkspace: null,
+                selectedDomain: null,
+                error: '',
+
+                async run(fn) {
+                    this.error = '';
+                    try { await fn(); } catch (e) { this.error = e.message; console.error(e); }
+                },
+
+                async init() {
+                    await this.loadWorkspaces();
+                },
+
+                loadWorkspaces() {
+                    return this.run(async () => {
+                        const list = await api('/workspaces');
+                        await Promise.all(list.map(async ws => {
+                            ws.stats = await api(`/workspaces/${ws.id}/stats`).catch(() => null);
+                        }));
+                        this.workspaces = list;
+                    });
+                },
+
+                selectWorkspace(ws) {
+                    this.selectedWorkspace = ws;
+                    this.selectedDomain = null;
+                    this.items = [];
+                    return this.loadDomains();
+                },
+
+                loadDomains() {
+                    return this.run(async () => {
+                        const list = await api(`/domains?workspace_id=${encodeURIComponent(this.selectedWorkspace.id)}`);
+                        await Promise.all(list.map(async d => {
+                            d.stats = await api(`/domains/${d.id}/stats`).catch(() => null);
+                        }));
+                        this.domains = list;
+                    });
+                },
+
+                selectDomain(dom) {
+                    this.selectedDomain = dom;
+                    return this.loadItems();
+                },
+
+                loadItems() {
+                    return this.run(async () => {
+                        this.items = await api(`/items?domain_id=${encodeURIComponent(this.selectedDomain.id)}`);
+                    });
+                },
+
+                search() {
+                    if (!this.searchQuery) return;
+                    return this.run(async () => {
+                        if (!this.selectedWorkspace) throw new Error('Selecione um workspace antes de buscar.');
+                        const q = new URLSearchParams({ query: this.searchQuery, workspace_id: this.selectedWorkspace.id });
+                        if (this.selectedDomain) q.set('domain_id', this.selectedDomain.id);
+                        const data = await api(`/items/search?${q}`);
+                        this.searchResults = data.results || [];
+                        this.searched = true;
+                    });
+                },
+
+                createWorkspace() {
+                    const name = prompt('Workspace name:');
+                    if (!name) return;
+                    return this.run(async () => {
+                        await api('/workspaces', { method: 'POST', body: JSON.stringify({ name, description: '' }) });
+                        await this.loadWorkspaces();
+                    });
+                },
+
+                createDomain() {
+                    if (!this.selectedWorkspace) return;
+                    const name = prompt('Domain name:');
+                    if (!name) return;
+                    return this.run(async () => {
+                        await api('/domains', {
+                            method: 'POST',
+                            body: JSON.stringify({ workspace_id: this.selectedWorkspace.id, name, description: '' })
+                        });
+                        await this.loadDomains();
+                    });
+                },
+
+                createItem() {
+                    if (!this.selectedDomain) return;
+                    const title = prompt('Item title:');
+                    if (!title) return;
+                    const summary = prompt('Summary:', title);
+                    if (!summary) return;
+                    return this.run(async () => {
+                        await api('/items', {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                workspace_id: this.selectedWorkspace.id,
+                                domain_id: this.selectedDomain.id,
+                                type: 'knowledge',
+                                memory_class: 'working',
+                                title,
+                                summary,
+                                content: summary,
+                                confidence: 50,
+                                importance: 5
+                            })
+                        });
+                        await this.loadItems();
+                    });
+                }
+            };
+        }
+    </script>
+</body>
+</html>

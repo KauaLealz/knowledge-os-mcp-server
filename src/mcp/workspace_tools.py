@@ -1,10 +1,12 @@
 """Tools MCP de Workspace."""
 
 import logging
+from datetime import datetime
 from typing import Any
 
 from fastmcp import FastMCP
 
+from src.config import EXPORTS_DIR
 from src.schemas.workspace_schemas import (
     WorkspaceCreate,
     WorkspaceListResponse,
@@ -80,15 +82,24 @@ def register(mcp: FastMCP) -> None:
 
         **Use quando:** Backup antes de mudanças grandes ou para levar um workspace a outra
             connection.
-        **Retorna:** {status: ok, manifest, workspace}.
+        **Retorna:** {status: ok, file_path, size_mb, manifest, workspace}.
         **Exemplo:** workspace_export(name="Python Learning")
-        **Notas:** Devolve os dados do workspace; o restore é feito por workspace_import a partir de
-            um ZIP. connection_id: opcional; sem ele usa a connection default (sqlite_local).
+        **Notas:** Grava o ZIP em exports/ (file_path) e devolve os dados; o restore é feito por
+            workspace_import a partir de um ZIP. connection_id: opcional; sem ele usa a connection
+            default (sqlite_local).
         """
         data = WorkspaceService(connection_id=connection_id).export(name)
+        ws_id = WorkspaceService(connection_id=connection_id).get(name).id
+        zip_bytes = ImportExportService(connection_id=connection_id).export_workspace(ws_id)
+        EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        zip_path = EXPORTS_DIR / f"workspace_{ws_id}_{stamp}.zip"
+        zip_path.write_bytes(zip_bytes)
         return {
             "manifest": data["manifest"],
             "workspace": data["workspace_data"],
+            "file_path": str(zip_path),
+            "size_mb": round(len(zip_bytes) / (1024 * 1024), 2),
             "status": "ok",
         }
 

@@ -7,7 +7,9 @@ from fastmcp import FastMCP
 
 from src.db.session import get_engine
 from src.schemas.item_schemas import ItemResponse, ItemSearchRequest, ItemSearchResult
+from src.schemas.relation_schemas import RelationListResponse
 from src.services.item_service import ItemService
+from src.services.relation_service import RelationService
 
 logger = logging.getLogger(__name__)
 
@@ -108,12 +110,17 @@ def register(mcp: FastMCP) -> None:
         """Obtém um item completo, incluindo content.
 
         **Use quando:** Ler o conteúdo de um resultado de item_search.
-        **Retorna:** Item completo (content, tags, labels, metadados).
+        **Retorna:** Item completo (content, tags, labels, metadados, relations).
         **Exemplo:** item_get(item_id="item_def456")
         **Notas:** item_search nunca devolve content; use este tool para lê-lo. connection_id:
             opcional; sem ele usa a connection default (sqlite_local).
         """
-        return ItemResponse.from_item(_service(connection_id).get(item_id)).model_dump(mode="json")
+        data = ItemResponse.from_item(_service(connection_id).get(item_id)).model_dump(mode="json")
+        rels = RelationService(connection_id=connection_id).list(item_id)
+        data["relations"] = RelationListResponse.model_validate(
+            rels, from_attributes=True
+        ).model_dump(mode="json")
+        return data
 
     @mcp.tool()
     def item_search(

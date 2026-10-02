@@ -1,6 +1,5 @@
 ﻿"""Testes para modelos de banco de dados."""
 
-import pytest
 from sqlalchemy.orm import Session
 
 from src.db.models import Domain, Item, Workspace
@@ -14,7 +13,7 @@ class TestWorkspace:
         ws = Workspace(id="ws_1", name="Test", description="Test workspace")
         test_session.add(ws)
         test_session.commit()
-        
+
         assert ws.id == "ws_1"
         assert ws.name == "Test"
         # TODO: Implementar mais assertions
@@ -28,7 +27,7 @@ class TestWorkspace:
         )
         test_session.add(dm)
         test_session.commit()
-        
+
         assert dm.workspace_id == sample_workspace.id
         # TODO: Implementar mais assertions
 
@@ -36,7 +35,9 @@ class TestWorkspace:
 class TestItem:
     """Testes para modelo Item."""
 
-    def test_criar_item(self, test_session: Session, sample_workspace: Workspace, sample_domain: Domain):
+    def test_criar_item(
+        self, test_session: Session, sample_workspace: Workspace, sample_domain: Domain
+    ):
         """Testa criação de item."""
         item = Item(
             id="it_1",
@@ -50,14 +51,14 @@ class TestItem:
         )
         test_session.add(item)
         test_session.commit()
-        
+
         assert item.type == "knowledge"
         # TODO: Implementar mais assertions
 
     def test_fts_index(self, test_session: Session, sample_item: Item):
         """Testa FTS5 indexing e busca."""
         from sqlalchemy import text
-        
+
         # Busca por palavra-chave no FTS5
         result = test_session.execute(
             text("""
@@ -65,7 +66,7 @@ class TestItem:
                 WHERE items_fts MATCH 'Spring'
             """)
         ).scalar()
-        
+
         assert result is not None
         # TODO: Implementar mais assertions
 

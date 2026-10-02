@@ -21,10 +21,10 @@ def test_engine():
         poolclass=StaticPool,
         echo=False,
     )
-    
+
     # Criar tabelas
     Base.metadata.create_all(bind=engine)
-    
+
     # Criar tabela virtual FTS5
     with engine.begin() as conn:
         conn.execute(
@@ -36,12 +36,12 @@ def test_engine():
             )
         )
         conn.execute(text("INSERT INTO items_fts(items_fts) VALUES('rebuild')"))
-    
+
     # Criar triggers
     create_fts_trigger(engine)
-    
+
     yield engine
-    
+
     engine.dispose()
 
 
@@ -50,9 +50,9 @@ def test_session(test_engine) -> Generator[Session, None, None]:
     """Sessão SQLAlchemy para testes."""
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
     session = SessionLocal()
-    
+
     yield session
-    
+
     session.close()
 
 

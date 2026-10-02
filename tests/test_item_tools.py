@@ -164,6 +164,27 @@ class TestTools:
         res = self._call(mcp, "item_delete", {"item_id": created["id"]})[0]
         assert res["status"] == "ok"
 
+    def test_item_get_inclui_relations(
+        self, mcp, monkeypatch, test_engine, sample_workspace, sample_domain
+    ):
+        monkeypatch.setattr("src.services._common.get_engine", lambda: test_engine)
+        ids = [
+            self._call(mcp, "item_create", dict(
+                workspace=sample_workspace.name, domain=sample_domain.name, type="rule",
+                memory_class="longterm", title=t, summary="s", content="corpo valido",
+            ))[0]["id"]
+            for t in ("A", "B")
+        ]
+        assert self._call(mcp, "item_get", {"item_id": ids[0]})[0]["relations"] == []
+        from src.services.relation_service import RelationService
+        RelationService().create(ids[0], ids[1], "depends_on")
+        for item_id in ids:
+            rels = self._call(mcp, "item_get", {"item_id": item_id})[0]["relations"]
+            assert len(rels) == 1
+            assert rels[0]["source_item_id"] == ids[0]
+            assert rels[0]["target_item_id"] == ids[1]
+            assert rels[0]["relation_type"] == "depends_on"
+
     def test_create_ephemeral_sem_ttl_falha(self, mcp, sample_workspace, sample_domain):
         with pytest.raises(Exception):
             self._call(mcp, "item_create", dict(

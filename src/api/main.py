@@ -1,8 +1,11 @@
 """App FastAPI do Knowledge OS: camada HTTP sobre os services."""
 
+from pathlib import Path
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from src.api.routes import (
     artifact,
@@ -67,6 +70,11 @@ for _module, _tag in (
     (connection, "connections"),
 ):
     app.include_router(_module.router, prefix="/api", tags=[_tag])
+
+# UI estática (Alpine + Tailwind via CDN). Em /ui porque "/" já é o health check.
+_STATIC_DIR = Path(__file__).parent / "static"
+if _STATIC_DIR.is_dir():
+    app.mount("/ui", StaticFiles(directory=_STATIC_DIR, html=True), name="ui")
 
 
 if __name__ == "__main__":

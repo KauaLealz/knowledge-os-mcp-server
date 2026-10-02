@@ -255,6 +255,18 @@ class TestTools:
 
         return [json.loads(b.text) for b in asyncio.run(run())]
 
+    def test_workspace_export_grava_zip(self, server, populated, tmp_path, monkeypatch):
+        out = tmp_path / "exports"
+        monkeypatch.setattr("src.mcp.workspace_tools.EXPORTS_DIR", out)
+        res = self._call(server, "workspace_export", {"name": "TestWorkspace"})[0]
+        assert res["status"] == "ok" and "manifest" in res and "workspace" in res
+        from pathlib import Path
+        zp = Path(res["file_path"])
+        assert zp.exists() and zp.parent == out
+        assert res["size_mb"] == round(zp.stat().st_size / (1024 * 1024), 2)
+        with zipfile.ZipFile(zp) as z:
+            assert "manifest.json" in z.namelist()
+
     def test_workspace_import(self, server, test_session, populated, tmp_path):
         data = ImportExportService(test_session).export_workspace(populated["ws"].id)
         test_session.delete(test_session.get(Workspace, populated["ws"].id))
