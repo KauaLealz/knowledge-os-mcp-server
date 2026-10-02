@@ -247,6 +247,20 @@ export const appStore = {
     go(hrefs.ws(this.connId, id));
   },
 
+  /** Lembra os últimos itens abertos (usados pela paleta). */
+  pushRecent(item) {
+    const entry = {
+      id: item.id,
+      title: item.title,
+      type: item.type,
+      conn: this.connId,
+      ws: item.workspace_id,
+      dm: item.domain_id,
+    };
+    this.recents = [entry, ...this.recents.filter((r) => !(r.id === entry.id && r.conn === entry.conn))].slice(0, 8);
+    lsSet('kos.recents', JSON.stringify(this.recents));
+  },
+
   // ---- UI ----
   setTheme(theme) {
     this.theme = theme;

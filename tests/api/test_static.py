@@ -21,6 +21,8 @@ ASSETS = [
     "js/views/sidebar.js",
     "js/views/workspace.js",
     "js/views/domain.js",
+    "js/markdown.js",
+    "js/views/item.js",
 ]
 
 
@@ -83,3 +85,26 @@ def test_token_e_lido_do_fragmento_e_nao_do_storage_persistente():
     api_js = (STATIC / "js" / "api.js").read_text(encoding="utf-8")
     assert "sessionStorage" in api_js and "replaceState" in api_js
     assert "localStorage" not in api_js
+
+
+def _js(name: str) -> str:
+    return (STATIC / "js" / name).read_text(encoding="utf-8")
+
+
+def test_markdown_passa_pelo_dompurify_e_nunca_por_x_html():
+    md = _js("markdown.js")
+    assert "DOMPurify.sanitize" in md and "marked" in md and "hljs" in md
+    assert "x-html" not in (STATIC / "index.html").read_text(encoding="utf-8")
+    for f in (STATIC / "js").rglob("*.js"):
+        assert ".innerHTML" not in f.read_text(encoding="utf-8"), f.name
+
+
+def test_pagina_de_item_tem_toc_relacoes_e_banner():
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert 'x-data="itemView"' in html
+    needles = (
+        "Nesta página", "Copiar como Markdown", "Ver Markdown", "Referencia", "Referenciado por",
+    )
+    for needle in needles:
+        assert needle in html, needle
+    assert "IntersectionObserver" in _js("views/item.js")

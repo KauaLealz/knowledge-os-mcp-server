@@ -388,11 +388,136 @@
             </div></div>
           </template>
 
-          <!-- Item (preenchido na T5) -->
+          <!-- Item -->
           <template x-if="$store.app.route.name === 'item'">
-            <div class="page"><div class="doc">
-              <h1 class="page-title" x-text="$store.app.currentItem?.title || 'Item'"></h1>
-            </div></div>
+            <div class="page" :class="{ 'has-toc': item && headings.length }" x-data="itemView">
+              <div class="doc">
+                <div class="skeleton" x-show="loading && !item" style="height:30px;width:50%;margin:0 0 16px"></div>
+
+                <template x-if="item">
+                  <article>
+                    <nav class="crumbs">
+                      <a :href="$store.app.hConn()" x-text="$store.app.connName"></a><span class="sep">/</span>
+                      <a :href="$store.app.hWs()" x-text="$store.app.workspace?.name"></a><span class="sep">/</span>
+                      <a :href="$store.app.hDomain(item.domain_id)" x-text="domainName"></a><span class="sep">/</span>
+                      <span x-text="item.title"></span>
+                    </nav>
+
+                    <div class="item-head">
+                      <h1 class="page-title" x-text="item.title"></h1>
+                      <div class="item-actions">
+                        <button class="btn" @click="copyMarkdown()"><svg class="ic"><use href="#i-copy"/></svg> Copiar como Markdown</button>
+                        <button class="btn" :aria-pressed="showRaw" @click="showRaw = !showRaw">
+                          <svg class="ic"><use href="#i-eye"/></svg> <span x-text="showRaw ? 'Ver renderizado' : 'Ver Markdown'"></span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <p class="page-lead" x-text="item.summary"></p>
+
+                    <div class="chips">
+                      <span class="chip accent"><svg class="ic"><use :href="'#i-' + $icon(item.type)"/></svg><span x-text="item.type"></span></span>
+                      <span class="chip" :class="'mc-' + item.memory_class" x-text="item.memory_class"></span>
+                      <span class="conf" :class="$conf(item.confidence)" x-show="item.confidence != null" title="Confiança">
+                        <span class="conf-bar"><i :style="'width:' + item.confidence + '%'"></i></span>
+                        <span>Confiança <b x-text="item.confidence + '%'"></b></span>
+                      </span>
+                      <span class="chip outline" x-show="item.importance != null" x-text="'Importância ' + item.importance + '/10'"></span>
+                      <span class="chip outline" x-show="ttlDaysLeft != null" x-text="'TTL ' + item.ttl_days + ' d'"></span>
+                      <template x-for="t in item.tags" :key="'t' + t"><span class="chip outline" x-text="'#' + t"></span></template>
+                      <template x-for="l in item.labels" :key="'l' + l"><span class="chip accent" x-text="l"></span></template>
+                      <span class="muted" style="font-size:12.5px" :title="fullDate(item.updated_at)" x-text="'atualizado ' + $ago(item.updated_at)"></span>
+                    </div>
+
+                    <template x-for="b in banners" :key="b.key">
+                      <div class="banner" role="status">
+                        <svg class="ic"><use href="#i-alert"/></svg><span x-text="b.text"></span>
+                      </div>
+                    </template>
+
+                    <div class="prose" x-show="!showRaw" @click="onProseClick($event)"
+                         x-effect="renderInto($el, item.content)"></div>
+                    <pre class="raw" x-show="showRaw" x-text="item.content"></pre>
+
+                    <template x-if="out.length || inc.length">
+                      <section class="rels">
+                        <h2 class="section-title">Relações</h2>
+                        <div class="rel-cols">
+                          <div x-show="out.length">
+                            <h3 class="rel-h">Referencia</h3>
+                            <template x-for="r in out" :key="r.id">
+                              <a class="rel" :href="relHref(r.other)">
+                                <span class="chip" x-text="r.type"></span>
+                                <svg class="ic"><use href="#i-arrow-right"/></svg>
+                                <span class="rel-t" x-text="relTitle(r.other)"></span>
+                              </a>
+                            </template>
+                          </div>
+                          <div x-show="inc.length">
+                            <h3 class="rel-h">Referenciado por</h3>
+                            <template x-for="r in inc" :key="r.id">
+                              <a class="rel" :href="relHref(r.other)">
+                                <span class="chip" x-text="r.type"></span>
+                                <svg class="ic"><use href="#i-arrow-left"/></svg>
+                                <span class="rel-t" x-text="relTitle(r.other)"></span>
+                              </a>
+                            </template>
+                          </div>
+                        </div>
+                      </section>
+                    </template>
+
+                    <template x-if="artifacts.length">
+                      <section>
+                        <h2 class="section-title">Artifacts</h2>
+                        <template x-for="a in artifacts" :key="a.id">
+                          <div class="rel">
+                            <svg class="ic"><use href="#i-artifact"/></svg>
+                            <span class="rel-t" x-text="a.filename"></span>
+                            <span class="muted" style="font-size:12.5px" x-text="humanSize(a.file_size)"></span>
+                            <button class="btn ghost icon" @click="downloadArtifact(a)" :aria-label="'Baixar ' + a.filename"><svg class="ic"><use href="#i-download"/></svg></button>
+                          </div>
+                        </template>
+                      </section>
+                    </template>
+
+                    <nav class="pager" aria-label="Itens vizinhos">
+                      <template x-if="prev">
+                        <a class="pager-a" :href="$store.app.hItem(item.domain_id, prev.id)">
+                          <span class="muted">Anterior</span><b x-text="prev.title"></b>
+                        </a>
+                      </template>
+                      <template x-if="next">
+                        <a class="pager-a next" :href="$store.app.hItem(item.domain_id, next.id)">
+                          <span class="muted">Próximo</span><b x-text="next.title"></b>
+                        </a>
+                      </template>
+                    </nav>
+                  </article>
+                </template>
+
+                <div class="state error" x-show="notFound" role="alert">
+                  <svg class="ic"><use href="#i-alert"/></svg>
+                  <h3>Item não encontrado</h3>
+                  <p>Ele pode ter sido removido ou pertencer a outra conexão.</p>
+                  <a class="btn" :href="$store.app.hWs()">Voltar ao workspace</a>
+                </div>
+                <div class="state error" x-show="error" role="alert">
+                  <svg class="ic"><use href="#i-alert"/></svg>
+                  <h3>Não foi possível carregar o item</h3>
+                  <p x-text="error"></p>
+                  <button class="btn" @click="load()">Tentar de novo</button>
+                </div>
+              </div>
+
+              <aside class="toc" x-show="item && headings.length" aria-label="Nesta página">
+                <div class="toc-title">Nesta página</div>
+                <template x-for="h in headings" :key="h.id">
+                  <a class="toc-link" :class="{ active: active === h.id, sub: h.level === 3 }"
+                     :href="'#' + h.id" @click.prevent="goTo(h.id)" x-text="h.text"></a>
+                </template>
+              </aside>
+            </div>
           </template>
 
           <!-- Configurações · Conexões (T8) -->
