@@ -136,3 +136,19 @@ def test_edicao_inline_e_modais_de_criacao():
     sc = _js("shortcuts.js")
     assert "saveHook" in sc and "toggleEdit" in sc
     assert "Ctrl S" in sc or "⌘ S" in sc
+
+
+def test_responsivo_e_estados():
+    css = (STATIC / "css" / "app.css").read_text(encoding="utf-8")
+    assert "max-width: 768px" in css and "max-width: 1000px" in css
+    assert "drawer-open" in css and "prefers-reduced-motion" in css
+    assert "overflow-x: hidden" in css or "overflow-x: clip" in css
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert "Sessão expirada" in html and "knowledge-mcp ui" in html
+    # a falha de listagem aparece também na página de Workspace, não só na lista da conexão
+    assert html.count("$store.app.wsError") >= 3
+    assert "Tentar de novo" in html and 'role="alert"' in html
+
+
+def test_sessao_expirada_sem_token_responde_401(ui):
+    assert ui.get("/api/workspaces/x/tree").status_code == 401

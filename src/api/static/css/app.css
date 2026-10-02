@@ -356,3 +356,27 @@ kbd {
   .editor-grid { grid-template-columns: minmax(0, 1fr); }
   .editor-ta, .editor-prev { min-height: 40vh; }
 }
+
+/* ===== Polimento ===== */
+body { overflow-x: clip; }
+.tree, .pal-list, .dialog-body, .toc { scrollbar-width: thin; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+@media (max-width: 768px) {
+  .item-actions .btn kbd { display: none; }
+  .item-actions { width: 100%; padding-top: 0; }
+  .item-head .page-title { flex-basis: 100%; }
+  .page.editing { --content-w: 100%; }
+  .rel-cols { grid-template-columns: minmax(0, 1fr); }
+  .pager { grid-template-columns: minmax(0, 1fr); }
+  .pager-a.next { grid-column: 1; }
+  .toolbar .select.sm { flex: 1 1 140px; }
+  .dialog { margin: 0; }
+  .editor-bar { padding-bottom: 16px; }
+  .toasts { left: 16px; right: 16px; }
+}
+@media (max-width: 768px) {
+  .sidebar { box-shadow: none; }
+  .app.drawer-open .sidebar { box-shadow: var(--shadow-pop); }
+}

@@ -332,7 +332,13 @@
                   </template>
                 </div>
               </template>
-              <div class="state error" x-show="!$store.app.workspace && !$store.app.wsLoading" role="alert">
+              <div class="state error" x-show="$store.app.wsError" role="alert">
+                <svg class="ic"><use href="#i-alert"/></svg>
+                <h3>Não foi possível carregar o workspace</h3>
+                <p x-text="$store.app.wsError"></p>
+                <button class="btn" @click="$store.app.refresh()">Tentar de novo</button>
+              </div>
+              <div class="state error" x-show="!$store.app.workspace && !$store.app.wsLoading && !$store.app.wsError" role="alert">
                 <svg class="ic"><use href="#i-alert"/></svg>
                 <h3>Workspace não encontrado</h3>
                 <p>Ele pode ter sido removido ou pertencer a outra conexão.</p>
