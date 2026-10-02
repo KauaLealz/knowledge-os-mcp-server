@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import quote
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 if __name__ == "__main__":
     # `python src/config.py` põe src/ em sys.path[0]; troca pela raiz do projeto.
@@ -107,7 +107,8 @@ class ConnectionConfig(BaseModel):
     port: int | None = None
     database: str | None = None
     username: str | None = None
-    password_env: str | None = None  # nome da variável de ambiente com a senha
+    # Texto no connections.json (que vive no home, fora do repo). Nunca em repr/log/erro.
+    password: str | None = Field(default=None, repr=False)
     enabled: bool = True
     created_at: datetime | None = None
 
@@ -138,11 +139,11 @@ class ConnectionConfig(BaseModel):
         return (path if path.is_absolute() else KNOWLEDGE_HOME / path).as_posix()
 
     def get_url(self) -> str:
-        """URL SQLAlchemy da conexão (senha lida da variável `password_env`)."""
+        """URL SQLAlchemy da conexão (com a senha do campo `password`)."""
         if self.db_type == "sqlite":
             return f"sqlite:///{self.resolved_path()}"
         user = quote(self.username or "", safe="")
-        password = os.getenv(self.password_env, "") if self.password_env else ""
+        password = self.password or ""
         if password:
             userinfo = f"{user}:{quote(password, safe='')}@"
         else:
@@ -200,6 +201,10 @@ class ConfigManager:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(path.name + ".tmp")
         tmp.write_text(json.dumps(config.model_dump(mode="json"), indent=2), encoding="utf-8")
+        try:
+            os.chmod(tmp, 0o600)  # best-effort: o arquivo guarda senhas
+        except OSError:
+            pass
         try:
             os.replace(tmp, path)
         except OSError:  # Windows: destino aberto por outro processo (ex.: MCP + UI)

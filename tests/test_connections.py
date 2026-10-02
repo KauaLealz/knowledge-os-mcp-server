@@ -56,19 +56,20 @@ def test_connection_create_sem_teste(svc, tmp_path):
 
 
 def test_connection_create_recusa_senha_na_url(svc):
-    with pytest.raises(ValidationError, match="password_env"):
+    with pytest.raises(ValidationError, match="password") as exc:
         svc.create("Pw", "postgresql", "postgresql://u:secret@prod/knowledge", test=False)
+    assert "secret" not in str(exc.value)
     assert ConfigManager.load_or_create().connections == []
 
 
 def test_connection_create_mysql(svc):
     conn = svc.create(
-        "My", "mysql", "mysql://root@db.local:3307/personal", test=False, password_env="KOS_PW")
+        "My", "mysql", "mysql://root@db.local:3307/personal", test=False, password="s3cret")
     assert conn.db_type == "mysql"
     assert (conn.host, conn.port, conn.database, conn.username) == (
         "db.local", 3307, "personal", "root")
     assert conn.db_url.startswith("mysql+pymysql://")
-    assert ConfigManager.load_or_create().get_connection(conn.id).password_env == "KOS_PW"
+    assert ConfigManager.load_or_create().get_connection(conn.id).password == "s3cret"
 
 
 def test_connection_create_postgresql(svc):
@@ -87,10 +88,9 @@ def test_connection_create_postgresql_sem_porta_usa_a_padrao(svc):
     ("mysql", "mysql://root@127.0.0.1:1/x"),
     ("postgresql", "postgresql://u@127.0.0.1:1/x"),
 ])
-def test_connection_create_inalcancavel_falha_sem_vazar_senha(svc, db_type, url, monkeypatch):
-    monkeypatch.setenv("KOS_PW", "topsecret")
+def test_connection_create_inalcancavel_falha_sem_vazar_senha(svc, db_type, url):
     with pytest.raises(ValidationError) as exc:
-        svc.create("Down", db_type, url, test=True, password_env="KOS_PW")
+        svc.create("Down", db_type, url, test=True, password="topsecret")
     assert "topsecret" not in str(exc.value)
     assert [c.id for c in svc.list()] == [DEFAULT_CONNECTION_ID]
     assert ConfigManager.load_or_create().connections == []
@@ -121,9 +121,8 @@ def test_connection_test_sqlite(svc, tmp_path):
     ("mysql", "mysql://root@127.0.0.1:1/x"),
     ("postgresql", "postgresql://u@127.0.0.1:1/x"),
 ])
-def test_connection_test_falha_nao_vaza_senha(svc, db_type, url, monkeypatch):
-    monkeypatch.setenv("KOS_PW", "topsecret")
-    conn = svc.create("Down", db_type, url, test=False, password_env="KOS_PW")
+def test_connection_test_falha_nao_vaza_senha(svc, db_type, url):
+    conn = svc.create("Down", db_type, url, test=False, password="topsecret")
     result = svc.test(conn.id)
     assert result["status"] == "error" and "topsecret" not in result["message"]
 
@@ -185,13 +184,25 @@ def test_workspace_with_connection(svc, tmp_path):
     assert WorkspaceService().list() == []  # o default não enxerga
 
 
-def test_serializacao_oculta_senha(svc, monkeypatch):
-    monkeypatch.setenv("KOS_PW", "topsecret")
+def test_serializacao_oculta_senha_e_informa_password_set(svc, tmp_path):
     conn = svc.create(
-        "Pg", "postgresql", "postgresql://u@prod/knowledge", test=False, password_env="KOS_PW")
+        "Pg", "postgresql", "postgresql://u@prod/knowledge", test=False, password="topsecret")
     data = connection_to_dict(svc.get(conn.id))
-    assert "topsecret" not in str(data)
+    assert "topsecret" not in str(data) and "topsecret" not in str(connection_to_dict(conn))
+    assert data["password_set"] is True
     assert data["host"] == "prod" and data["db_type"] == "postgresql"
+    local = svc.create("L", "sqlite", sqlite_url(tmp_path / "l.db"), test=False)
+    assert connection_to_dict(svc.get(local.id))["password_set"] is False
+    assert connection_to_dict(svc.get(DEFAULT_CONNECTION_ID))["password_set"] is False
+    assert all("topsecret" not in str(connection_to_dict(c)) for c in svc.list())
+
+
+def test_senha_fica_no_json_com_chmod_600_quando_o_so_permite(svc):
+    svc.create("Pg", "postgresql", "postgresql://u@prod/knowledge", test=False, password="pw1")
+    path = ConfigManager.CONNECTIONS_FILE
+    assert '"password": "pw1"' in path.read_text(encoding="utf-8")
+    if os.name == "posix":
+        assert path.stat().st_mode & 0o777 == 0o600
 
 
 @pytest.mark.skipif(not os.getenv("KOS_TEST_POSTGRES_URL"), reason="sem PostgreSQL de teste")

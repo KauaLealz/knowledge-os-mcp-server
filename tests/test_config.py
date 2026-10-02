@@ -26,15 +26,34 @@ def test_connections_file_default_exists():
         ConnectionsFile(version="1.0", default="nonexistent", connections=[])
 
 
-def test_get_url_postgres_with_and_without_password(monkeypatch):
-    conn = ConnectionConfig(
+def _pg(**kw):
+    return ConnectionConfig(
         id="pg", name="PG", db_type="postgresql", host="h", port=5432,
-        database="d", username="u", password_env="KOS_TEST_PW",
+        database="d", username="u", **kw,
     )
-    monkeypatch.delenv("KOS_TEST_PW", raising=False)
-    assert conn.get_url() == "postgresql://u@h:5432/d"
-    monkeypatch.setenv("KOS_TEST_PW", "p@ss")
-    assert conn.get_url() == "postgresql://u:p%40ss@h:5432/d"
+
+
+def test_get_url_postgres_with_and_without_password():
+    assert _pg().get_url() == "postgresql://u@h:5432/d"
+    assert _pg(password="p@ss").get_url() == "postgresql://u:p%40ss@h:5432/d"
+
+
+def test_password_nunca_aparece_em_repr_str_ou_erro():
+    conn = _pg(password="topsecret")
+    cfg = ConnectionsFile(default="default", connections=[conn])
+    for text in (repr(conn), str(conn), repr(cfg), str(cfg)):
+        assert "topsecret" not in text
+    bad = _pg(password="topsecret")
+    bad.port = 1  # inalcançável
+    msg = ConfigManager.validate_connection(bad)["message"]
+    assert "topsecret" not in msg
+
+
+def test_password_vai_para_o_json_e_password_env_saiu():
+    conn = _pg(password="topsecret")
+    assert conn.model_dump(mode="json")["password"] == "topsecret"
+    assert not hasattr(conn, "password_env")
+    assert "password_env" not in conn.model_dump()
 
 
 def test_get_url_mysql():

@@ -134,3 +134,32 @@ def test_migrate_workspaces_merge(workdir):
 def test_migrate_workspaces_same_connection(workdir):
     result = migrate_workspaces("sqlite_local", "sqlite_local")
     assert result["status"] == "error"
+
+
+def test_tools_connection_nao_recebem_senha_e_devolvem_password_set(workdir):
+    import asyncio
+
+    import src.main as main
+
+    main.register_all_tools()
+    tools = asyncio.run(main.mcp.get_tools())
+    for name in ("connection_create", "connection_update"):
+        assert not [p for p in tools[name].parameters["properties"] if "pass" in p], name
+
+    config = ConfigManager.load_or_create()
+    config.connections.append(ConnectionConfig(
+        id="pg", name="Pg", db_type="postgresql", host="h", port=5432, database="d",
+        username="u", password="topsecret", enabled=False))
+    ConfigManager.save(config)
+
+    from fastmcp import FastMCP
+
+    from src.mcp.connection_tools import register
+
+    m = FastMCP(name="t")
+    register(m)
+    local = asyncio.run(m.get_tools())
+    got = local["connection_get"].fn(connection_id="pg")
+    listed = local["connection_list"].fn()
+    assert got["password_set"] is True
+    assert "topsecret" not in str(got) and "topsecret" not in str(listed)

@@ -156,13 +156,14 @@ def register(mcp: FastMCP) -> None:
 
         **Use quando:** Conectar um banco novo ou remoto antes de usá-lo via connection_id nos
             outros tools.
-        **Retorna:** Dados da connection (id, name, db_type, url sem senha, is_active). A senha
-            nunca é devolvida.
+        **Retorna:** Dados da connection (id, name, db_type, url sem senha, password_set,
+            is_active). A senha nunca é devolvida.
         **Exemplo:** connection_create(name="postgres_prod", db_type="postgresql",
-            url="postgresql://user:pass@host:5432/knowledge")
-        **Notas:** Exemplos de url: sqlite:///./database/x.db, mysql://user:pass@host/db. Com
+            url="postgresql://user@host:5432/knowledge")
+        **Notas:** Exemplos de url: sqlite:///./database/x.db, mysql://user@host/db. Com
             test=True (padrão) a conexão é testada antes de ser gravada. Depois rode
-            schema_sync.
+            schema_sync. A url não leva senha e esta tool não recebe senha: peça ao usuário
+            para informá-la na UI ou no campo password do connections.json.
         """
         conn = ConnectionService().create(name, db_type, url, test=test)
         return connection_to_dict(conn)
@@ -172,7 +173,8 @@ def register(mcp: FastMCP) -> None:
         """Lista as connections cadastradas.
 
         **Use quando:** Primeiro passo de qualquer sessão: descobrir os connection_id disponíveis.
-        **Retorna:** Lista de connections (id, name, db_type, url sem senha, is_active).
+        **Retorna:** Lista de connections (id, name, db_type, url sem senha, password_set,
+            is_active).
         **Exemplo:** connection_list()
         **Notas:** A connection default sqlite_local existe desde o início. Sem parâmetros.
         """
@@ -183,7 +185,7 @@ def register(mcp: FastMCP) -> None:
         """Obtém uma connection pelo id ou nome.
 
         **Use quando:** Conferir configuração/estado de uma connection específica.
-        **Retorna:** Dados da connection (sem senha).
+        **Retorna:** Dados da connection (sem senha; password_set diz se há senha).
         **Exemplo:** connection_get(connection_id="postgres_prod")
         **Notas:** Erro de not found se não existir; use connection_list para ver os ids.
         """

@@ -47,7 +47,7 @@ def _iso(value: datetime | None) -> str | None:
 
 
 def connection_to_dict(conn: Connection) -> dict[str, Any]:
-    """Serializa uma Connection. A URL sai sem senha."""
+    """Serializa uma Connection. A URL sai sem senha; `password_set` diz só se existe."""
     return {
         "id": conn.id,
         "name": conn.name,
@@ -57,6 +57,7 @@ def connection_to_dict(conn: Connection) -> dict[str, Any]:
         "port": conn.port,
         "database": conn.database,
         "username": conn.username,
+        "password_set": bool(getattr(conn, "password_set", False)),
         "is_active": bool(conn.is_active),
         "last_tested": _iso(conn.last_tested),
         "test_result": conn.test_result,
