@@ -67,6 +67,7 @@
   <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8M5 10v10h14V10"/></symbol>
   <symbol id="i-box" viewBox="0 0 24 24"><path d="m12 3 9 5v8l-9 5-9-5V8l9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></symbol>
   <symbol id="i-command" viewBox="0 0 24 24"><path d="M9 6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6z"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 6.3"/><path d="M20 4v7h-7"/></symbol>
   <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
 </svg>
 
@@ -202,6 +203,11 @@
       <header class="topbar">
         <button class="btn icon ghost menu-btn" @click="$store.app.drawer = true" aria-label="Abrir menu">
           <svg class="ic"><use href="#i-menu"/></svg>
+        </button>
+        <button class="search-btn" @click="$store.app.paletteOpen = true" aria-label="Buscar e comandos">
+          <svg class="ic"><use href="#i-search"/></svg>
+          <span class="search-txt">Buscar…</span>
+          <kbd x-text="$store.app.isMac ? '⌘K' : 'Ctrl K'"></kbd>
         </button>
         <div class="spacer"></div>
         <button class="btn icon ghost" @click="$store.app.toggleWide()" :aria-pressed="$store.app.wide"
@@ -548,6 +554,60 @@
       </template>
     </div>
   </div>
+
+  <!-- Paleta Ctrl/Cmd+K -->
+  <template x-if="$store.app.paletteOpen">
+  <div class="overlay" x-data="palette" @click.self="$store.app.paletteOpen = false">
+    <div class="palette" role="dialog" aria-modal="true" aria-label="Buscar e comandos">
+      <div class="pal-input">
+        <svg class="ic"><use href="#i-search"/></svg>
+        <input x-ref="input" x-model="q" type="text" placeholder="Buscar itens, domains, ações…" autocomplete="off" spellcheck="false"
+               role="combobox" aria-expanded="true" aria-controls="pal-list"
+               :aria-activedescendant="'pal-' + sel"
+               @keydown.arrow-down.prevent="move(1)" @keydown.arrow-up.prevent="move(-1)"
+               @keydown.enter.prevent="chooseSelected()">
+        <kbd>Esc</kbd>
+      </div>
+      <div class="pal-list" id="pal-list" role="listbox">
+        <template x-for="g in groups" :key="g.label">
+          <div class="pal-group">
+            <div class="pal-label" x-text="g.label"></div>
+            <template x-for="e in g.entries" :key="e.key">
+              <button class="pal-item" role="option" :id="'pal-' + e.idx" :class="{ active: e.idx === sel }"
+                      :aria-selected="e.idx === sel" @click="choose(e)" @mousemove="sel = e.idx">
+                <svg class="ic"><use :href="'#i-' + e.icon"/></svg>
+                <span class="pal-body">
+                  <span class="pal-title" x-text="e.title"></span>
+                  <span class="pal-sub" x-show="e.sub" x-text="e.sub"></span>
+                </span>
+              </button>
+            </template>
+          </div>
+        </template>
+        <div class="pal-empty" x-show="!flat.length && !searching">Nada encontrado para “<span x-text="q"></span>”.</div>
+      </div>
+    </div>
+  </div>
+  </template>
+
+  <!-- Atalhos -->
+  <template x-if="$store.app.helpOpen">
+  <div class="overlay" @click.self="$store.app.helpOpen = false">
+    <div class="dialog" role="dialog" aria-modal="true" aria-label="Atalhos de teclado">
+      <div class="dialog-head"><h2>Atalhos de teclado</h2>
+        <button class="btn icon ghost" @click="$store.app.helpOpen = false" aria-label="Fechar"><svg class="ic"><use href="#i-x"/></svg></button>
+      </div>
+      <div class="dialog-body">
+        <template x-for="s in $store.app.shortcuts" :key="s.label">
+          <div class="kbd-row">
+            <span x-text="s.label"></span>
+            <span class="kbd-keys"><template x-for="k in s.keys" :key="k"><kbd x-text="k"></kbd></template></span>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+  </template>
 
   <!-- Toasts -->
   <div class="toasts" aria-live="polite">

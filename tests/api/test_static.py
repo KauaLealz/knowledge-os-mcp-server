@@ -23,6 +23,8 @@ ASSETS = [
     "js/views/domain.js",
     "js/markdown.js",
     "js/views/item.js",
+    "js/views/palette.js",
+    "js/shortcuts.js",
 ]
 
 
@@ -108,3 +110,16 @@ def test_pagina_de_item_tem_toc_relacoes_e_banner():
     for needle in needles:
         assert needle in html, needle
     assert "IntersectionObserver" in _js("views/item.js")
+
+
+def test_paleta_e_atalhos():
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert 'x-data="palette"' in html and 'role="dialog"' in html
+    pal = _js("views/palette.js")
+    for grupo in ("Recentes", "Items", "Domains e Workspaces", "Ações", "Configurações"):
+        assert f"'{grupo}'" in pal, grupo
+    assert "/items/search" in pal
+    sc = _js("shortcuts.js")
+    for needle in ("Escape", "metaKey", "'?'", "registerShortcuts"):
+        assert needle in sc, needle
+    assert "registerShortcuts" in _js("main.js")
