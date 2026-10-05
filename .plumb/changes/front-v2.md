@@ -74,4 +74,7 @@ As rotas usam `#/c/:conn/w/:ws/d/:dm/i/:item[/edit]` e `#/settings/connections[/
 - A busca da paleta usa `summary` como trecho, porque o `snippet()` do FTS só existe no SQLite.
 - A tool MCP `connection_create` não recebe senha (para ela não passar pela conversa): a senha entra pela UI.
 
+- Lacuna anterior a esta mudança, fora de escopo: `migrate_workspaces` só aceita conexões do JSON (`ConfigManager.get_connection`), então não migra o catálogo `default` (onde ficam os dados) para outro banco. Vale uma mudança própria.
+- Um pytest travou uma vez em tests/test_migration.py (sqlite, Windows), sem repetir nas execuções seguintes (372 passed). Se reaparecer, investigar.
+
 ## Retro
