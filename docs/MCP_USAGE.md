@@ -1,293 +1,117 @@
-# How to Use Knowledge OS MCP
+# Uso das ferramentas MCP
 
-Guia prático, orientado a tarefas. Para o modelo conceitual (connection,
-workspace, domain, item...), tipos, classes de memória e a tabela
-"qual tool usar", veja `src/mcp/INSTRUCTIONS.md`. Os parâmetros de cada tool
-estão no docstring do próprio tool.
+Guia por tarefa. As instruções que o servidor envia ao agente são o resumo disto; aqui ficam
+os exemplos completos.
 
-> **Notação.** Os exemplos usam `mcp call <tool> --parametro valor` como forma
-> compacta de mostrar uma chamada de tool. Em um cliente MCP real (Claude
-> Desktop, Claude Code etc.) é o mesmo tool com os mesmos parâmetros, só que
-> chamado pelo cliente. Os ids (`ws_...`, `item_...`) são ilustrativos: use os
-> que o servidor devolver.
+## Começar num projeto
 
-## Installation
+O hook de início de sessão do Plumb injeta o pacote de contexto. Sem hook:
 
-```bash
-pip install -e .          # instala as dependências (veja pyproject.toml)
-python src/main.py        # inicia o servidor MCP (stdio)
+```python
+context_get(project=".")                                   # projeto inteiro
+context_get(project=".", paths=["src/payments/Charge.java"])  # + regras com escopo
+context_get(project=".", query="estorno")                  # + itens relacionados
 ```
 
-Na inicialização o servidor escreve em **stderr** (o stdout é o canal do protocolo):
+Projeto não ligado: `context_get` diz como ligar. Ligue uma vez:
 
-```
-Loaded: <home>/connections.json
-Connected: <nome da conexão> (<id>)
-```
-
-Comandos úteis antes de subir o servidor:
-
-```bash
-python src/main.py --bootstrap   # cria schema e labels padrão e sai
-python src/main.py --check-db    # verifica conexão e schema e sai
+```python
+project_link(project=".", workspace="Polara", domain="projpro")
 ```
 
-Para registrar o servidor num cliente MCP, aponte o comando para
-`python src/main.py` (transporte stdio).
+O pacote junta o domain do projeto, o domain `Geral` do mesmo workspace (convenções do
+cliente) e `Global/Geral` (suas preferências em qualquer projeto).
 
-## Quick Start (5 minutos)
+## Procurar e ler
 
-### 1. Criar um workspace
-```bash
-mcp call workspace_create --name "Learning Python"
-# Retorna: {"id": "ws_abc123", "name": "Learning Python", ...}
+```python
+item_search(query="migração flyway", project=".", limit=5)      # resumos
+item_get(keys=["proc/migration", "regra/money"], project=".")   # completos
+item_get(ids=["9b2c..."])
 ```
 
-### 2. Criar um domain dentro dele
-```bash
-mcp call domain_create --workspace "Learning Python" --name "Decorators"
-# Retorna: {"id": "dom_xyz789", "name": "Decorators", ...}
+- Sem `project` nem `workspace`, busca em toda a base.
+- A busca ignora acento e plural e começa pela relevância. Busca vazia não prova ausência:
+  tente um sinônimo (e grave o sinônimo em `keywords` quando achar).
+
+## Gravar
+
+Uma ferramenta, em lote e numa transação. O modo vem de cada entrada:
+
+| Entrada traz | Faz |
+|---|---|
+| `key` | upsert no domain (cria ou atualiza; não duplica) — **o preferido** |
+| `id` | atualiza o item |
+| nenhum dos dois | cria e devolve `similar` (títulos parecidos já guardados) |
+
+```python
+item_save(project=".", items=[
+  {"key": "regra/money", "type": "rule", "memory_class": "working",
+   "title": "Money em pagamentos", "summary": "Valores sempre em Money, nunca double",
+   "content": "...", "scope_paths": ["src/payments/**"], "source": "PAY-142",
+   "keywords": "dinheiro centavos BigDecimal"},
+  {"key": "decisao/pix-vencido", "type": "insight", "memory_class": "working",
+   "title": "Pix vencido é recusado", "summary": "Recusar, sem estorno automático",
+   "content": "Porque o financeiro revisa caso a caso.", "source": "PAY-142"},
+])
 ```
 
-### 3. Guardar conhecimento
-```bash
-mcp call item_create \
-  --workspace "Learning Python" \
-  --domain "Decorators" \
-  --type knowledge \
-  --memory-class longterm \
-  --title "O que é um decorator?" \
-  --summary "Função que envolve outra função para estender seu comportamento" \
-  --content "# Decorators em Python\n\nSintaxe @nome sobre uma função..."
-# Retorna: {"id": "item_def456", ...}
+Convenção de keys: `regra/...`, `decisao/...`, `proc/...`, `padrao/...`, `gotcha/...`,
+`contexto/...` — minúsculas, números, `.` `_` `/` `-`.
+
+### Promover, renovar, aposentar
+
+```python
+item_save(items=[{"id": "...", "memory_class": "longterm"}])   # só sobe; peça o "sim"
+item_save(items=[{"id": "...", "ttl_days": 30}])               # renova um ephemeral
+item_save(items=[{"id": "...", "status": "deprecated"}])        # sai da busca, fica o histórico
 ```
 
-### 4. Buscar depois
-```bash
-mcp call item_search --workspace "Learning Python" --query "decorator"
-# Retorna: [{"id": "item_def456", "title": "O que é um decorator?", "summary": "...", "score": 0.95}]
+### Substituir
 
-mcp call item_get --item-id item_def456     # conteúdo completo
+```python
+item_save(project=".", items=[{"key": "proc/deploy-ci", "type": "procedure", ...,
+  "relations": [{"type": "supersedes", "target": "proc/deploy"}]}])
 ```
 
-> `workspace` e `domain` são passados **pelo nome**. `item_search` nunca devolve
-> o `content`; use `item_get` para lê-lo.
+O alvo vira `superseded` e sai da busca e do contexto. Tipos de relação: `related_to`,
+`depends_on`, `implements`, `references`, `supersedes`, `derived_from`. `target` é id ou key
+do mesmo domain, inclusive de um item criado no mesmo lote.
 
-## Workflows
+### Erros
 
-### Workflow 1: Guardar & Buscar Conhecimento
+- Um erro desfaz o lote inteiro e aponta a entrada (`Entrada 1 (regra/x): ...`).
+- Segredos são recusados sem eco do valor: descreva onde o valor fica, não o valor.
 
-**Objetivo:** documentar um aprendizado e reutilizá-lo depois.
+## Administração (perfil `all`)
 
-```bash
-# 1. Criar contexto e tópico (pule se já existirem: workspace_list / domain_list)
-mcp call workspace_create --name "Python"
-mcp call domain_create --workspace "Python" --name "Async"
-
-# 2. Guardar o item, já com tags
-mcp call item_create \
-  --workspace "Python" --domain "Async" \
-  --type knowledge --memory-class working \
-  --title "asyncio básico" \
-  --summary "Event loop, coroutines e await" \
-  --content "..." \
-  --tags '["asyncio", "python"]' \
-  --importance 7
-# Retorna: {"id": "item_abc", ...}
-
-# 3. Buscar depois
-mcp call item_search --workspace "Python" --query "asyncio"
-
-# 4. Ler o conteúdo do resultado
-mcp call item_get --item-id item_abc
-
-# 5. Quando o conhecimento se provar útil, promover
-mcp call memory_promote --item-id item_abc --target-memory longterm
+```python
+structure_list()                                    # árvore com contagens
+structure_delete(workspace="Teste")                 # preview do que seria apagado
+structure_delete(workspace="Teste", confirm=True)   # só depois do "sim" do usuário
+item_delete(item_id="...")                          # prefira status=deprecated
+relation_delete(relation_id="...")                  # id vem em item_get → relations
+vocabulary(kind="tags")                             # reaproveite antes de criar variações
+vocabulary(kind="labels", action="create", name="lgpd")
+backup_export(workspace="Polara")                   # ZIP em <home>/exports
+backup_import(file_path="...zip")                   # workspace novo, ids novos
+artifact_attach(item_id="...", file_path="C:/docs/arquitetura.png")
+artifact_get(artifact_id="...")                     # base64; confira file_size antes
 ```
 
-Tags e labels entram **na criação** do item. Para ver o vocabulário existente:
-`mcp call tag_list` e `mcp call label_list`.
+## Conexões com outros bancos
 
----
+Pela UI (`knowledge-mcp ui`): cadastrar Postgres/MySQL, testar, sincronizar schema e migrar
+workspaces. As conexões ficam em `<home>/connections.json`; todas as ferramentas aceitam
+`connection_id` opcional (sem ele, o catálogo `default`). Senhas nunca passam pela conversa.
 
-### Workflow 2: Migrar de SQLite para PostgreSQL
+## Problemas comuns
 
-**Objetivo:** mover o conhecimento para um servidor remoto.
-
-```bash
-# 1. Registrar a connection PostgreSQL
-mcp call connection_create \
-  --name "postgres_prod" \
-  --db-type postgresql \
-  --url "postgresql://user@prod.example.com:5432/knowledge"
-# A senha não entra aqui: informe-a na UI (Configurações > Conexões) ou no campo
-# `password` do connections.json.
-
-# 2. Testar a conexão
-mcp call connection_test --connection-id postgres_prod
-# Retorna: {"status": "ok", "message": "connected", "latency_ms": 42}
-
-# 3. Preparar o banco (cria tabelas e índices; idempotente)
-mcp call schema_sync --connection-id postgres_prod
-
-# 4. Migrar tudo (replace: limpa o destino antes de copiar)
-mcp call migrate_workspaces \
-  --from-connection-id sqlite_backup \
-  --to-connection-id postgres_prod \
-  --mode replace
-
-# 5. Conferir
-mcp call workspace_list --connection-id postgres_prod
-```
-
-Escolha do `mode`:
-
-| mode | O que faz | Quando usar |
-|------|-----------|-------------|
-| `replace` | Apaga os dados do destino e copia tudo | Destino vazio ou descartável |
-| `merge` | Une tags/labels por nome e adiciona o resto; aborta se algum id já existir | Destino já tem dados que você quer manter |
-
-Depois da migração, passe `--connection-id postgres_prod` nos demais tools
-para operar no PostgreSQL. Faça um backup (Workflow 4) antes de usar `replace`
-num destino com dados.
-
----
-
-### Workflow 3: Conectar Ideias com Relations
-
-**Objetivo:** rastrear dependências entre conhecimentos.
-
-```bash
-# Ter dois items: item_A e item_B (ids vindos de item_create ou item_search)
-
-# item_A depende de item_B
-mcp call relation_create \
-  --source-id item_A \
-  --target-id item_B \
-  --relation-type depends_on
-# Retorna: {"id": "rel_001", "source_item_id": "item_A", "target_item_id": "item_B", "relation_type": "depends_on"}
-
-# Ver as relações de item_A (como origem ou destino)
-mcp call relation_list --item-id item_A
-
-# Desfazer
-mcp call relation_delete --relation-id rel_001
-```
-
-Tipos: `related_to`, `depends_on`, `implements`, `references`, `supersedes`,
-`derived_from`. A direção vai de `source` para `target`.
-
----
-
-### Workflow 4: Exportar & Importar (Backup/Share)
-
-**Objetivo:** fazer backup ou compartilhar um workspace inteiro.
-
-```bash
-# Dados do workspace (manifest + conteúdo), para inspeção
-mcp call workspace_export --name "Python"
-# Retorna: {"status": "ok", "manifest": {...}, "workspace": {...}}
-
-# Restaurar a partir de um ZIP de exportação, em qualquer connection
-mcp call workspace_import \
-  --file-path ./exports/python.zip \
-  --connection-id postgres_prod
-# Retorna: {"status": "ok", "id": "...", "name": "Python", ...}
-```
-
-Pontos de atenção:
-
-- `workspace_import` **cria um workspace novo** e falha se o nome já existir na
-  connection. Renomeie ou apague o existente antes.
-- O mesmo vale para um tópico isolado: `domain_export` / `domain_import
-  --workspace <nome> --file-path <zip>` (falha se o domain já existir).
-- Para copiar tudo entre bancos sem passar por ZIP, use o Workflow 2.
-- O ZIP de exportação é gerado pelo serviço de import/export (o endpoint
-  `POST /workspaces/{id}/export` da API HTTP); o tool `workspace_export` devolve
-  o conteúdo estruturado.
-
----
-
-## Dicas & Truques
-
-### Listar tudo de forma rápida
-```bash
-mcp call connection_list                              # connections
-mcp call workspace_list                               # workspaces
-mcp call domain_list --workspace "Python"             # domains de um workspace
-mcp call tag_list                                     # tags
-mcp call label_list                                   # labels
-mcp call relation_list --item-id item_abc             # relações de um item
-mcp call artifact_list --item-id item_abc             # anexos de um item
-```
-
-Não existe `item_list`: para enumerar items use `item_search` com `--limit`.
-
-### Busca avançada
-```bash
-# Em um domain específico
-mcp call item_search --workspace "Python" --domain "Async" --query "loop"
-
-# Só regras e padrões
-mcp call item_search --workspace "Python" --query "retry" --types '["rule", "pattern"]'
-
-# Só conhecimento consolidado, mais resultados
-mcp call item_search --workspace "Python" --query "deploy" \
-  --memory-classes '["longterm", "canonical"]' --limit 25
-```
-
-O resultado é ordenado por `importance`, `confidence`, `access_count` e
-`updated_at`: preencha `importance`/`confidence` ao criar para que o melhor
-conhecimento apareça primeiro.
-
-### Memória e metadados
-```bash
-# Item completo: content, tags, labels, metadados
-mcp call item_get --item-id item_abc
-
-# Promover (ephemeral -> working -> longterm -> canonical)
-mcp call memory_promote --item-id item_abc --target-memory longterm
-
-# Estender o prazo de um item ephemeral
-mcp call memory_renew --item-id item_abc --ttl-days 14
-
-# Corrigir só alguns campos
-mcp call item_update --item-id item_abc --summary "Resumo revisado" --importance 9
-```
-
-### Anexos
-```bash
-mcp call artifact_attach --item-id item_abc --file-path ./docs/arquitetura.pdf
-mcp call artifact_list --item-id item_abc
-mcp call artifact_get --artifact-id art_123    # conteúdo em base64 (até 100MB)
-```
-
----
-
-## Troubleshooting
-
-| Problema | Solução |
-|----------|---------|
-| Connection não encontrada | Rodar `connection_list` para ver os ids disponíveis |
-| Workspace/domain não encontrado | Rodar `workspace_list` / `domain_list` e usar o **nome** exato |
-| Não conecta ao PostgreSQL/MySQL | `connection_test --connection-id <id>`; conferir URL, rede e a variável de ambiente da senha |
-| Erro de tabela/schema ausente | `schema_sync --connection-id <id>` e depois `health_check` |
-| Item `ephemeral` rejeitado | Informar `ttl_days` ao criar |
-| `memory_promote` recusado | Só é possível subir de classe (nunca rebaixar nem voltar a `ephemeral`) |
-| `memory_renew` recusado | Só vale para items `ephemeral` |
-| Busca sem resultado | Usar menos palavras, outro `domain`, sinônimos; confirmar o `workspace` |
-| `workspace_import` falha por nome | Já existe um workspace com esse nome na connection; renomeie ou remova |
-| Migração falha | Garantir que o destino foi inicializado (`schema_sync`); em `merge`, ids repetidos abortam, então use `replace` num destino descartável |
-| `artifact_attach` falha | O caminho precisa ser um arquivo regular existente de até 100MB |
-| Servidor não inicia | `python src/main.py --check-db` mostra o problema de banco/configuração |
-
----
-
-## Próximos Passos (v0.2+)
-
-- [ ] Permissionamento (leitura/escrita por usuário)
-- [ ] Auditoria de operações
-- [ ] Workflow editorial (draft -> review -> approved)
-- [ ] Colaboração em tempo real (WebSocket)
-- [ ] Visualização do grafo de conhecimento
-- [ ] Aplicativo mobile
+| Sintoma | Ação |
+|---|---|
+| "Projeto não ligado" | `project_link` ou `/plumb-setup` |
+| Busca não acha | sinônimo; `include_inactive=True` se pode ter sido substituído |
+| `Entrada N (...)` | corrija a entrada N; nada do lote foi gravado |
+| "parece conter um segredo" | tire o valor; descreva onde ele fica |
+| Servidor fora do ar | o Plumb segue com aviso e guarda em `.plumb/pending-brain.jsonl`; `knowledge-mcp pending` grava depois |
+| Banco remoto inacessível | `health_check`; a UI testa a conexão |

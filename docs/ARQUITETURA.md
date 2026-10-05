@@ -1,83 +1,64 @@
-# Arquitetura — MCP Knowledge OS
+# Arquitetura
 
-Visão de alto nível do v0.1. Para um exemplo de uso ponta a ponta, veja
-[FLUXO_COMPLETO.md](FLUXO_COMPLETO.md); para instalar, veja
-[EXEMPLO_SETUP.md](EXEMPLO_SETUP.md). Voltar ao [README](../README.md).
+Voltar ao [README](../README.md). Uso das ferramentas: [MCP_USAGE.md](MCP_USAGE.md).
 
 ## Camadas
 
 ```
-Cliente MCP (Claude, Claude Code, ...)
-        │  STDIO
-        ▼
-┌──────────────────────────────────────────────────────────┐
-│ FastMCP Server — 32 tools            (src/main.py)       │
-│  ├─ Workspace (6)  create list get delete export import  │
-│  ├─ Domain (6)     create list get delete export import  │
-│  ├─ Item (5)       create update delete get search(FTS5) │
-│  ├─ Relation (3)   create list delete                    │
-│  ├─ Memory (2)     promote renew                         │
-│  ├─ Tag (3)        create list delete                    │
-│  ├─ Label (3)      create list delete                    │
-│  ├─ Artifact (3)   attach list get                       │
-│  └─ health_check (1)                                     │
-└──────────────────────────────────────────────────────────┘
-        │  src/mcp/*_tools.py  (validação via src/schemas/, Pydantic v2)
-        ▼
-┌──────────────────────────────────────────────────────────┐
-│ Services — regras de negócio         (src/services/)     │
-│  WorkspaceService   DomainService    ItemService (FTS5)  │
-│  RelationService    MemoryService    TagService          │
-│  LabelService       ArtifactService                      │
-│  ImportExportService (ZIP de workspace/domain; usado     │
-│                       pelas tools *_export / *_import)   │
-└──────────────────────────────────────────────────────────┘
-        │  session_scope / get_engine   (src/db/session.py)
-        ▼
-┌──────────────────────────────────────────────────────────┐
-│ Modelos SQLAlchemy 2.x               (src/db/models.py)  │
-│  Workspace  Domain  Item  Tag  Label  Relation  Artifact │
-│  + tabelas de associação ItemTag e ItemLabel             │
-│  + tabela virtual FTS5 (items_fts) com triggers          │
-└──────────────────────────────────────────────────────────┘
-        │
-        ▼
- SQLite + FTS5 (modo WAL; AES-256 opcional via SQLCipher)
+Agente (Claude Code, Cursor)          Hook de início de sessão      Navegador
+   │ MCP stdio                           │ knowledge-mcp context      │ knowledge-mcp ui
+   ▼                                     ▼                            ▼
+src/main.py  FastMCP                  src/cli.py (sem fastmcp)      src/api  FastAPI + static (React)
+ ├─ agent_tools.py  6 ferramentas        context · recent ·          conexões, schema sync,
+ └─ admin_tools.py  +9 (perfil all)      pending · link              migração, navegação
+   │                                     │                            │
+   └──────────────────────┬──────────────┴────────────────────────────┘
+                          ▼
+src/services/   ItemService (save, search, similar) · ContextService · ProjectService
+                MemoryService · RelationService · secret_guard · ImportExport · Connection
+                          ▼
+src/db/         models (SQLAlchemy 2) · search_query (PT-BR) · schema_sync · dialects/
+                          ▼
+                SQLite + FTS5 (WAL) — padrão · Postgres (tsvector) · MySQL (LIKE)
 ```
 
-Cada tool é fina: resolve nomes para ids, chama um service e serializa a resposta.
-As regras (TTL de memória `ephemeral`, unicidade, cascatas) ficam nos services.
+Ferramentas são finas: resolvem nomes e projeto para ids, chamam um service e devolvem JSON
+enxuto. As regras de negócio (idempotência, transação do lote, TTL, supersedes, guarda de
+segredo) ficam nos services, e por isso CLI, MCP e UI se comportam igual.
 
-## Estrutura do código
+## Peças que importam
+
+| Peça | Como funciona | Por quê |
+|---|---|---|
+| Perfis de ferramentas (`src/mcp/toolset.py`) | `KNOWLEDGE_OS_TOOLSET=agent` registra 6 ferramentas e instruções curtas; `all` registra 15 | definições de ferramenta custam contexto em toda sessão |
+| `item_save` (`ItemService.save`) | lote atômico; `key` → upsert, `id` → update, sem nenhum → create + `similar`; relações por id ou key | o fechamento de uma mudança grava tudo numa chamada, sem duplicar |
+| Busca (`search_query.py`) | sem acento, sem stopwords, radical PT-BR, prefixo; AND e, se vazio, OR; pesos BM25 título 6, keywords 4, resumo 3, conteúdo 1 | acerto sem embeddings e sem custo de modelo |
+| Pacote de contexto (`ContextService`) | domain do projeto + `Geral` do workspace + `Global/Geral`; seções por tipo, canônico primeiro, rascunho marcado; regras com `scope_paths` só quando os paths casam; corta no orçamento e lista o omitido | o agente começa sabendo o essencial gastando ~1–1,5 mil tokens |
+| Ligação de projeto (`ProjectService`) | chave = remote do git normalizado (ou `path:` + raiz) → workspace/domain | o mesmo repositório em qualquer pasta ou máquina acha o mesmo conhecimento |
+| Ciclo de vida | `ephemeral` expira (`expires_at`); classe só sobe; `supersedes` marca o alvo `superseded`; `deprecated` sai da busca | o contexto não acumula lixo nem conselho velho |
+| `secret_guard` | padrões de chaves, tokens, JWT, `password=`, URL com senha; placeholders passam | o cérebro é lido em toda sessão; segredo ali vaza para todo agente |
+| CLI leve (`src/cli.py`) | subcomandos do cérebro não importam fastmcp; erro vira aviso; grava a fila offline `.plumb/pending-brain.jsonl` | o hook roda em toda sessão e nunca pode travá-la |
+| `schema_sync` | adiciona colunas e índices novos em bancos existentes e recria o FTS quando a definição muda | atualizar o pacote não exige migração manual |
+
+## Modelo de dados
+
+`Workspace` 1─N `Domain` 1─N `Item` (N─N `Tag`, `Label`; 1─N `Artifact`; `Relation` entre
+itens). `ProjectLink` liga a chave do projeto a workspace/domain. `Item` tem `item_key`
+(único por domain), `type`, `memory_class`, `status`, `scope_paths` (JSON), `keywords`,
+`source`, `expires_at`, `importance`, `confidence`, `access_count`. `items_fts` é uma tabela
+FTS5 de conteúdo externo mantida por triggers.
+
+## Estrutura
 
 ```
 src/
-├── main.py          servidor FastMCP, --bootstrap, --check-db
-├── config.py        MCP_DB_PATH, MCP_DB_KEY, LOG_LEVEL, diretórios
-├── exceptions.py    ConfigError, DatabaseError, ...
-├── db/              models, session (engine, WAL, FTS5), migrations (bootstrap)
-├── schemas/         modelos Pydantic de entrada e saída
-├── services/        um service por entidade + import/export
-└── mcp/             registro das tools por área
-```
-
-## Decisões principais
-
-| Decisão | Motivo |
-|---|---|
-| FTS5 com triggers sobre `title`, `summary`, `content` | Busca rápida com ranking BM25, sem embeddings |
-| `item_search` devolve só `summary` | Economiza contexto do agente; `item_get` traz o `content` |
-| Classes de memória (`ephemeral`, `working`, `longterm`, `canonical`) | Ciclo de vida explícito; limpeza automática fica para a v0.2 |
-| Criptografia opcional (SQLCipher, chave em `MCP_DB_KEY`) | Local-first sem obrigar dependência nativa |
-| Export/Import em ZIP | Backup e troca de conhecimento entre máquinas |
-| Sem LLM interno | A curadoria é do agente; o MCP só persiste |
-
-## Fluxo de uma chamada
-
-```
-item_search(workspace="BTG", query="ConditionalOnProperty")
-  → item_tools resolve "BTG" para workspace_id
-  → ItemService.search consulta items_fts e ordena por
-    importance, confidence, access_count, updated_at
-  → retorna [{id, title, summary, score}]  (sem content)
+├── cli.py            ponto de entrada `knowledge-mcp`
+├── main.py           servidor FastMCP, --bootstrap, --check-db, ui
+├── config.py         home, connections.json, validação de conexões
+├── mcp/              toolset, agent_tools, admin_tools, INSTRUCTIONS*.md
+├── services/         regras de negócio
+├── schemas/          Pydantic v2
+├── db/               models, session, dialects, search_query, schema_sync
+└── api/              FastAPI da UI (rotas + static do front React)
+tests/                unitários, serviços, ferramentas via Client em memória, stdio e CLI
 ```

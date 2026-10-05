@@ -76,6 +76,8 @@ def test_hook_claude_e_cursor(env, project):
 def test_hook_fora_de_projeto_fica_em_silencio(env, tmp_path):
     plain = tmp_path / "pasta"
     plain.mkdir()
+    if any((p / ".git").exists() for p in plain.parents):
+        pytest.skip("pasta temporária está dentro de um repositório git")
     out = cli(env, "context", "--hook", "claude", stdin=json.dumps({"cwd": str(plain)}))
     assert out.returncode == 0 and out.stdout == ""
 

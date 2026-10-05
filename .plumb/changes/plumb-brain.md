@@ -1,5 +1,5 @@
 # plumb-brain: Knowledge OS como segundo cérebro obrigatório do Plumb
-Status: construindo T7 · Trilha: profunda · Branch: feature/plumb-brain
+Status: verificando · Trilha: profunda · Branch: feature/plumb-brain
 
 ## Objetivo
 Tornar o Knowledge OS a memória central do Plumb com custo baixo de contexto:
@@ -44,8 +44,8 @@ master e `schema_sync` (colunas extras são ignoradas pelo código antigo).
 - [x] T4 Upsert, lote, similares, tags/labels editáveis, segredo bloqueado — prova: AC5, AC6 — verificar: `pytest tests/test_brain_write.py`
 - [x] T5 Projetos e pacote de contexto (`project_link`, `context_get`, escopo por caminho, orçamento) — prova: AC4 — verificar: `pytest tests/test_brain_context.py`
 - [x] T6 Perfil `agent` e instruções curtas; versão no health — prova: AC2, AC9 — verificar: `pytest tests/test_toolsets.py`
-- [ ] T7 CLI: `context` (com `--hook`), `recent`, `import-pending`, `--version` — prova: AC4, AC7 — verificar: `pytest tests/test_cli_brain.py`
-- [ ] T8 Documentação atual (README, MCP_USAGE), STATUS obsoleto removido, notas antigas do Plumb arquivadas — verificar: leitura
+- [x] T7 CLI: `context` (com `--hook`), `recent`, `pending`, `link`, `--version` — prova: AC4, AC7 — verificar: `pytest tests/test_cli_brain.py`
+- [x] T8 Documentação atual (README, MCP_USAGE), STATUS obsoleto removido, notas antigas do Plumb arquivadas — verificar: leitura
 
 ## Decisões
 - 2026-10-04 usuário: segundo cérebro obrigatório no Plumb; base local (SQLite); com a base fora do ar o fluxo segue com aviso; em arquivo ficam só Workflow/comandos no AGENTS.md, `.plumb/changes` e permissões; base = master; "implemente tudo" aprova este plano (gate 1).
