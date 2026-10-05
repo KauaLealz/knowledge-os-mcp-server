@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from pydantic import ValidationError as PydanticValidationError
-from sqlalchemy import Engine, bindparam, delete, func, select, text, update
+from sqlalchemy import DateTime, Engine, bindparam, delete, func, select, text, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
@@ -33,6 +33,7 @@ from src.db.session import (
     get_session,
     run_with_retry,
 )
+from src.db.timeutil import utcnow
 from src.exceptions import NotFoundError, ValidationError
 from src.schemas.item_schemas import MEMORY_CLASSES, ItemCreate, ItemUpdate
 from src.services.secret_guard import ensure_no_secrets
@@ -61,7 +62,7 @@ def _expiry(
     """Data de expiração de um ephemeral (None para as demais classes)."""
     if memory_class != "ephemeral" or not ttl_days:
         return None
-    return (base or datetime.utcnow()) + timedelta(days=ttl_days)
+    return (base or utcnow()) + timedelta(days=ttl_days)
 
 
 class ItemService:
@@ -202,7 +203,7 @@ class ItemService:
             raise NotFoundError(f"Domain não encontrado: {data.domain_id}")
         if data.key and self._by_key(s, data.domain_id, data.key) is not None:
             raise ValidationError(f"Já existe item com key {data.key!r} neste domain (use upsert)")
-        now = datetime.utcnow()
+        now = utcnow()
         item = Item(
             id=str(uuid.uuid4()),
             workspace_id=data.workspace_id,
@@ -572,7 +573,7 @@ class ItemService:
         if not include_inactive:
             where.append("COALESCE(i.status, 'active') IN ('active', 'done')")
             where.append("(i.expires_at IS NULL OR i.expires_at > :now)")
-            params["now"] = datetime.utcnow()
+            params["now"] = utcnow()
 
         tie = (
             "COALESCE(i.importance, 0) DESC, COALESCE(i.confidence, 0) DESC, "
@@ -605,7 +606,10 @@ class ItemService:
                 sql = text(
                     f"SELECT {columns}, {score} AS score FROM {source} "
                     f"WHERE {' AND '.join(clauses)} ORDER BY {order} LIMIT :limit"
-                ).bindparams(*(bindparam(n, expanding=True) for n in expanding))
+                ).bindparams(
+                    *(bindparam(n, expanding=True) for n in expanding),
+                    *([bindparam("now", type_=DateTime)] if "now" in params else []),
+                )
                 try:
                     rows = s.execute(sql, {**params, **mparams}).mappings().all()
                 except OperationalError as exc:
@@ -633,7 +637,7 @@ class ItemService:
                 .where(Item.id.in_(ids))
                 .values(
                     access_count=func.coalesce(Item.access_count, 0) + 1,
-                    last_accessed=datetime.utcnow(),
+                    last_accessed=utcnow(),
                     updated_at=Item.updated_at,  # busca não conta como edição
                 )
                 .execution_options(synchronize_session=False)

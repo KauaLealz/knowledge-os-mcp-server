@@ -120,8 +120,9 @@ artifact_get(artifact_id="...")                     # base64; confira file_size 
 ## Conexões com outros bancos
 
 Pela UI (`knowledge-mcp ui`): cadastrar Postgres/MySQL, testar, sincronizar schema e migrar
-workspaces. As conexões ficam em `<home>/connections.json`; todas as ferramentas aceitam
-`connection_id` opcional (sem ele, o catálogo `default`). Senhas nunca passam pela conversa.
+workspaces. As conexões ficam em `<home>/connections.json`; as ferramentas do cérebro e de
+administração aceitam `connection_id` opcional (sem ele, o catálogo `default`); só
+`health_check` não aceita e verifica sempre o catálogo `default`. Senhas nunca passam pela conversa.
 
 ## Problemas comuns
 

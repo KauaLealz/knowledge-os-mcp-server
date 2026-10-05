@@ -8,7 +8,6 @@ import logging
 import threading
 import time
 import uuid
-from datetime import datetime
 from typing import Any
 
 from sqlalchemy import Engine, text
@@ -27,6 +26,7 @@ from src.db import session as db_session
 from src.db.dialects import detect_type, get_dialect, normalize_url, redact
 from src.db.models import DEFAULT_CONNECTION_ID, DEFAULT_CONNECTION_NAME, Connection
 from src.db.schema_sync import schema_sync
+from src.db.timeutil import utcnow
 from src.exceptions import NotFoundError, ValidationError
 from src.services._common import session_scope
 
@@ -81,7 +81,7 @@ def _remember_test(connection_id: str, result: tuple[bool, str, int]) -> dict[st
         "status": "ok" if result[0] else "error",
         "message": result[1],
         "latency_ms": result[2],
-        "tested_at": datetime.utcnow(),
+        "tested_at": utcnow(),
     }
     _last_tests[connection_id] = last
     return last
@@ -288,7 +288,7 @@ class ConnectionService:
                 "name": name,
                 "db_type": db_type,
                 "enabled": enabled,
-                "created_at": datetime.utcnow(),
+                "created_at": utcnow(),
             }
         )
         url = _url_of(conn)

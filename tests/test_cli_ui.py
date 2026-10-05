@@ -94,6 +94,7 @@ def test_ui_de_verdade_responde_sem_token_e_recusa_escrita_de_outra_origem(tmp_p
         watchdog.cancel()
         proc.terminate()
         proc.wait(timeout=10)
+        proc.stdout.close()
 
 
 def test_ui_porta_ocupada_falha_antes_de_imprimir_a_url(fake_uvicorn, capsys):

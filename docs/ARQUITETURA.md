@@ -38,6 +38,8 @@ segredo) ficam nos services, e por isso CLI, MCP e UI se comportam igual.
 | Ciclo de vida | `ephemeral` expira (`expires_at`); classe só sobe; `supersedes` marca o alvo `superseded`; `deprecated` sai da busca | o contexto não acumula lixo nem conselho velho |
 | `secret_guard` | padrões de chaves, tokens, JWT, `password=`, URL com senha; placeholders passam | o cérebro é lido em toda sessão; segredo ali vaza para todo agente |
 | CLI leve (`src/cli.py`) | subcomandos do cérebro não importam fastmcp; erro vira aviso; grava a fila offline `<home>/pending.jsonl` (entradas com `project`) | o hook roda em toda sessão e nunca pode travá-la |
+| Manutenção (`src/services/maintenance.py`) | backup do SQLite do catálogo (`backup`) e manutenção diária (`run_daily`: backup, remoção de ephemeral vencidos há mais de 7 dias, checkpoint do WAL) | o banco local se cuida sem ação do usuário |
+| Retentativa de escrita (`run_with_retry`, `src/db/session.py`) | reexecuta a unidade de trabalho inteira enquanto o banco estiver travado (espera crescente até um orçamento; opcionalmente também em conflito de integridade) e, no fim, vira `DatabaseError` legível | vários processos (agentes, CLI, UI) escrevem no mesmo SQLite sem falhar por lock |
 | `schema_sync` | adiciona colunas e índices novos em bancos existentes e recria o FTS quando a definição muda | atualizar o pacote não exige migração manual |
 
 ## Modelo de dados

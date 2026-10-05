@@ -1,13 +1,14 @@
 """Busca do segundo cérebro: PT-BR, relevância, escopo e itens inativos (plumb-brain T3)."""
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import pytest
-from sqlalchemy import Engine, text
+from sqlalchemy import DateTime, Engine, bindparam, text
 
 from src.db.dialects.sqlite import SQLiteDialect
 from src.db.models import Domain, Item, Workspace
 from src.db.search_query import match_expressions, stem, terms
+from src.db.timeutil import utcnow
 from src.services.item_service import ItemService
 
 
@@ -97,8 +98,9 @@ def test_omite_substituidos_e_ephemeral_vencidos(
     eph = _mk(svc, sample_workspace, sample_domain, title="Deploy rascunho",
               memory_class="ephemeral", ttl_days=1)
     with test_engine.begin() as conn:
-        conn.execute(text("UPDATE items SET expires_at = :p WHERE id = :i"),
-                     {"p": datetime.utcnow() - timedelta(days=1), "i": eph.id})
+        conn.execute(text("UPDATE items SET expires_at = :p WHERE id = :i").bindparams(
+                         bindparam("p", type_=DateTime)),
+                     {"p": utcnow() - timedelta(days=1), "i": eph.id})
     assert svc.search(sample_workspace.id, None, "deploy") == []
     todos = {r["id"] for r in svc.search(sample_workspace.id, None, "deploy",
                                           include_inactive=True)}
@@ -108,7 +110,7 @@ def test_omite_substituidos_e_ephemeral_vencidos(
 def test_ephemeral_ganha_expires_at(svc, sample_workspace, sample_domain):
     eph = _mk(svc, sample_workspace, sample_domain, memory_class="ephemeral", ttl_days=7)
     assert eph.expires_at is not None
-    assert timedelta(days=6) < eph.expires_at - datetime.utcnow() <= timedelta(days=7)
+    assert timedelta(days=6) < eph.expires_at - utcnow() <= timedelta(days=7)
 
 
 # ------------------------------------------------------------------ migração do índice

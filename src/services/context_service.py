@@ -15,6 +15,7 @@ from sqlalchemy import Engine, func, or_, select, update
 from src.db.models import Domain, Item, Workspace
 from src.db.search_query import strip_accents
 from src.db.session import get_engine, get_session, run_with_retry
+from src.db.timeutil import utcnow
 from src.schemas.item_schemas import decode_paths
 from src.services.item_service import ItemService
 from src.services.project_service import ProjectService, project_key
@@ -99,7 +100,7 @@ class ContextService:
         return list(dict.fromkeys([link["domain_id"], *rows]))
 
     def _items(self, domain_ids: list[str]) -> list[Item]:
-        now = datetime.utcnow()
+        now = utcnow()
         session = get_session(self._get_engine())
         try:
             return list(
@@ -154,7 +155,7 @@ class ContextService:
                 .where(Item.id.in_(ids))
                 .values(
                     access_count=func.coalesce(Item.access_count, 0) + 1,
-                    last_accessed=datetime.utcnow(),
+                    last_accessed=utcnow(),
                     updated_at=Item.updated_at,
                 )
                 .execution_options(synchronize_session=False)

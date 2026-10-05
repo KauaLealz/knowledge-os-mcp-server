@@ -34,7 +34,6 @@ __all__ = [
     "FTS_COLUMNS",
     "FTS_TABLE",
     "ConnectionManager",
-    "close_engine",
     "close_engines",
     "create_db_engine",
     "create_fts_trigger",
@@ -287,7 +286,3 @@ def close_engines() -> None:
     """Fecha todos os engines (default e conexões)."""
     _connection_manager.close_all()
 
-
-def close_engine() -> None:
-    """Compatibilidade T1-T5: fecha os engines."""
-    close_engines()

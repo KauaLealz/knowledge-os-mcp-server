@@ -19,6 +19,7 @@ from sqlalchemy import (
     MetaData,
     String,
     Table,
+    bindparam,
     inspect,
     select,
     text,
@@ -29,6 +30,7 @@ from sqlalchemy.schema import CreateIndex
 from src.db.dialects import get_dialect
 from src.db.dialects.base import FTS_TABLE
 from src.db.models import Base
+from src.db.timeutil import utcnow
 from src.exceptions import DatabaseError
 
 logger = logging.getLogger(__name__)
@@ -125,7 +127,7 @@ def _write_version(engine: Engine, version: str) -> None:
         conn.execute(_schema_meta.delete().where(_schema_meta.c.key == _VERSION_KEY))
         conn.execute(
             _schema_meta.insert().values(
-                key=_VERSION_KEY, value=version, updated_at=datetime.utcnow()
+                key=_VERSION_KEY, value=version, updated_at=utcnow()
             )
         )
 
@@ -142,9 +144,12 @@ def _backfill_expires_at(engine: Engine) -> None:
         for item_id, created_at, ttl_days in rows:
             if isinstance(created_at, str):
                 created_at = datetime.fromisoformat(created_at)
-            expires = (created_at or datetime.utcnow()) + timedelta(days=int(ttl_days))
+            expires = (created_at or utcnow()) + timedelta(days=int(ttl_days))
             conn.execute(
-                text("UPDATE items SET expires_at = :e WHERE id = :i"), {"e": expires, "i": item_id}
+                text("UPDATE items SET expires_at = :e WHERE id = :i").bindparams(
+                    bindparam("e", type_=DateTime)
+                ),
+                {"e": expires, "i": item_id},
             )
 
 

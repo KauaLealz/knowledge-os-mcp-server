@@ -84,6 +84,7 @@ def test_stdout_so_tem_protocolo(server_env):
         proc.stdin.close()
         proc.terminate()
         proc.wait(timeout=10)
+        proc.stdout.close()
     assert all(r.get("jsonrpc") == "2.0" for r in seen)
     assert len(next(r for r in seen if r.get("id") == 2)["result"]["tools"]) == EXPECTED_TOOLS
 

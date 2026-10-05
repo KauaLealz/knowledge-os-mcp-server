@@ -1,11 +1,12 @@
 """Memory service: promover e renovar itens."""
 
 import logging
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from sqlalchemy.orm import Session
 
 from src.db.models import Item
+from src.db.timeutil import utcnow
 from src.exceptions import NotFoundError, ValidationError
 from src.services._common import session_scope
 
@@ -77,6 +78,6 @@ class MemoryService:
                 )
             item.ttl_days = ttl_days
             # Renovar conta a partir de agora: é o que o agente espera ao estender o prazo.
-            item.expires_at = datetime.utcnow() + timedelta(days=ttl_days)
+            item.expires_at = utcnow() + timedelta(days=ttl_days)
             logger.info("TTL do item %s renovado para %d dias", item_id, ttl_days)
             return self._finish(s, item)

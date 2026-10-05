@@ -10,6 +10,7 @@ from sqlalchemy import delete, select, text
 from sqlalchemy.engine import Engine
 
 from src import config
+from src.db.timeutil import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,7 @@ def run_daily(now: datetime | None = None) -> dict[str, Any]:
     """
     from src.db.session import get_engine
 
-    now = now or datetime.utcnow()
+    now = now or utcnow()
     marker = config.KNOWLEDGE_HOME / MARKER_NAME
     today = now.strftime("%Y-%m-%d")
     try:

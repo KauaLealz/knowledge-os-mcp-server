@@ -2,13 +2,13 @@
 
 import re
 import subprocess
-from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy import Engine, select
 
 from src.db.models import Domain, ProjectLink, Workspace
 from src.db.session import get_engine, get_session
+from src.db.timeutil import utcnow
 from src.exceptions import NotFoundError, ValidationError
 from src.services.item_service import ItemService
 
@@ -107,7 +107,7 @@ class ProjectService:
                 session.add(ProjectLink(project_key=key, workspace_id=ws_id, domain_id=dm_id))
             else:
                 row.workspace_id, row.domain_id = ws_id, dm_id
-                row.updated_at = datetime.utcnow()
+                row.updated_at = utcnow()
             session.commit()
         finally:
             session.close()

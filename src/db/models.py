@@ -1,7 +1,5 @@
 """Modelos SQLAlchemy para Knowledge OS."""
 
-from datetime import datetime
-
 from sqlalchemy import (
     Boolean,
     Column,
@@ -13,8 +11,9 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import declarative_base, relationship
+
+from src.db.timeutil import utcnow
 
 Base = declarative_base()
 
@@ -39,8 +38,8 @@ class Connection(Base):
     is_active = Column(Boolean, default=True)
     last_tested = Column(DateTime, nullable=True)
     test_result = Column(String(500), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     workspaces = relationship(
         "Workspace", back_populates="connection", cascade="all, delete-orphan"
@@ -57,8 +56,8 @@ class Workspace(Base):
     )
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     # Relacionamentos
     connection = relationship("Connection", back_populates="workspaces")
@@ -80,8 +79,8 @@ class Domain(Base):
     workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=False)
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     # Relacionamentos
     workspace = relationship("Workspace", back_populates="domains")
@@ -123,8 +122,8 @@ class Item(Base):
     status = Column(String(20), nullable=False, default="active")  # active|superseded|deprecated
     scope_paths = Column(Text, nullable=True)  # JSON: globs onde a regra vale
 
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
     last_accessed = Column(DateTime, nullable=True)
     access_count = Column(Integer, default=0)
 
@@ -192,7 +191,7 @@ class Relation(Base):
     target_item_id = Column(String(36), ForeignKey("items.id"), nullable=False)
     # related_to, depends_on, implements, references, supersedes, derived_from
     relation_type = Column(String(50), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     __table_args__ = (
         Index("idx_relation_source", "source_item_id"),
@@ -211,7 +210,7 @@ class Artifact(Base):
     file_path = Column(String(1024), nullable=False)  # Relativo a ARTIFACTS_DIR
     file_size = Column(Integer, nullable=False)
     mime_type = Column(String(100), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     __table_args__ = (
         Index("idx_artifact_item", "item_id"),
@@ -225,7 +224,7 @@ class ProjectLink(Base):
     project_key = Column(String(512), primary_key=True)
     workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=False)
     domain_id = Column(String(36), ForeignKey("domains.id"), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     __table_args__ = (Index("idx_project_link_domain", "domain_id"),)

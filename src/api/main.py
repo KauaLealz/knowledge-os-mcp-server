@@ -8,6 +8,7 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from src import __version__
 from src.api.routes import (
     artifact,
     connection,
@@ -20,11 +21,9 @@ from src.api.routes import (
 )
 from src.exceptions import DatabaseError, NotFoundError, ValidationError
 
-VERSION = "0.1.0"
-
 app = FastAPI(
     title="Knowledge OS API",
-    version=VERSION,
+    version=__version__,
     description="REST API para Knowledge OS MCP",
     docs_url="/docs",
     redoc_url="/redoc",
@@ -91,7 +90,7 @@ async def _database(_: Request, exc: DatabaseError) -> JSONResponse:
 
 @app.get("/", tags=["meta"])
 def health() -> dict[str, str]:
-    return {"status": "ok", "version": VERSION}
+    return {"status": "ok", "version": __version__}
 
 
 for _module, _tag in (
