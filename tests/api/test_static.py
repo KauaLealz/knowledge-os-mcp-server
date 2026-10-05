@@ -151,6 +151,7 @@ def _js(name: str) -> str:
 def test_markdown_passa_pelo_dompurify_e_nunca_por_x_html():
     md = _js("markdown.js")
     assert "DOMPurify.sanitize" in md and "marked" in md and "hljs" in md
+    assert "FORBID_TAGS" in md and "FORBID_ATTR" in md
     assert "x-html" not in (STATIC / "index.html").read_text(encoding="utf-8")
     for f in (STATIC / "js").rglob("*.js"):
         assert ".innerHTML" not in f.read_text(encoding="utf-8"), f.name
