@@ -60,26 +60,35 @@ def test_link_e_resolve(test_engine):
     assert (found["workspace"], found["domain"]) == ("Polara", "app")
 
 
-def test_link_sem_workspace_usa_um_workspace_so_do_projeto(test_engine):
-    out = ProjectService(test_engine).link("git@github.com:Org/agenda-api.git")
-    assert (out["workspace"], out["domain"]) == ("agenda-api", "Geral")
-    found = ProjectService(test_engine).resolve("github.com/org/agenda-api")
-    assert (found["workspace"], found["domain"]) == ("agenda-api", "Geral")
+def test_link_sem_workspace_usa_o_dono_e_o_repo(test_engine):
+    out = ProjectService(test_engine).link("git@github.com:Polara-Innovations/projpro.git")
+    assert (out["workspace"], out["domain"]) == ("polara-innovations", "projpro")
     out = ProjectService(test_engine).link("path:c:/projects/meu-app")
-    assert out["workspace"] == "meu-app"
+    assert (out["workspace"], out["domain"]) == ("Pessoal", "meu-app")
 
 
-def test_global_entra_em_todo_projeto_e_projetos_nao_se_misturam(test_engine, items):
-    ProjectService(test_engine).link("github.com/org/a")
-    ProjectService(test_engine).link("github.com/org/b")
+def test_segundo_repo_do_mesmo_dono_cai_no_mesmo_workspace(test_engine):
+    ProjectService(test_engine).link("github.com/polara-innovations/projpro", "Polara")
+    out = ProjectService(test_engine).link("github.com/polara-innovations/synapse")
+    assert (out["workspace"], out["domain"]) == ("Polara", "synapse")
+    outro = ProjectService(test_engine).link("github.com/kaualealz/plumb-harness")
+    assert outro["workspace"] == "kaualealz"  # outro dono: não herda
+
+
+def test_repos_do_mesmo_workspace_dividem_o_geral_mas_nao_o_resto(test_engine, items):
+    ProjectService(test_engine).link("github.com/org/a", "Org")
+    ProjectService(test_engine).link("github.com/org/b", "Org")
     items.batch_upsert([
-        {"workspace": "a", "domain": "Geral", "key": "r", "type": "rule", **BASE,
+        {"workspace": "Org", "domain": "a", "key": "r", "type": "rule", **BASE,
          "title": "Regra do A"},
+        {"workspace": "Org", "domain": "Geral", "key": "c", "type": "rule", **BASE,
+         "title": "Convenção da empresa"},
         {"workspace": "Global", "domain": "Geral", "key": "g", "type": "rule", **BASE,
          "title": "Responder em PT-BR"},
     ])
     md_b = ContextService(test_engine).build("github.com/org/b")["markdown"]
-    assert "Responder em PT-BR" in md_b and "Regra do A" not in md_b
+    assert "Responder em PT-BR" in md_b and "Convenção da empresa" in md_b
+    assert "Regra do A" not in md_b
 
 
 def test_contexto_em_ordem_e_sem_inativos(test_engine, linked):

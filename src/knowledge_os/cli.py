@@ -220,7 +220,8 @@ def _context(args: argparse.Namespace) -> int:
         except ValueError:
             hook_input = {}
     roots = hook_input.get("workspace_roots") or []
-    project = Path(hook_input.get("cwd") or (roots[0] if roots else None) or args.project)
+    target = str(hook_input.get("cwd") or (roots[0] if roots else None) or args.project)
+    project = Path(target)  # caminho para a fila e para detectar repo; a chave usa o texto
     budget = args.budget if not args.hook else min(args.budget, HOOK_BUDGET)
 
     try:
@@ -228,7 +229,7 @@ def _context(args: argparse.Namespace) -> int:
         flushed, flush_error = _flush_pending(project.resolve())
         from knowledge_os.services.context_service import ContextService
 
-        out = ContextService().build(str(project), args.paths, args.query, budget)
+        out = ContextService().build(target, args.paths, args.query, budget)
         text = out["markdown"]
         if not out["linked"] and args.hook and not _is_project(project.resolve()):
             return 0  # pasta que não é projeto: sem ruído na sessão

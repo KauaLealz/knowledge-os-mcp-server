@@ -52,10 +52,11 @@ claude mcp add --scope user knowledge-os -e KNOWLEDGE_OS_TOOLSET=agent -e LOG_LE
 ## Modelo
 
 ```
-Workspace de um projeto (nome do repositório)   ex.: agenda-api
- └── Domain Geral (ou um por área, se quiser)
-      └── Item: type · memory_class · key · title · summary · content · scope_paths · source
-Global / Geral                                   diretrizes que valem em todo projeto
+Workspace = contexto de trabalho     ex.: Polara (empresa), Pessoal
+ ├── Domain Geral                     o que vale para todos os repositórios do workspace
+ └── Domain = um repositório          ex.: projpro, synapse
+      └── Item: type · key · title · summary · content · scope_paths · keywords · source
+Global / Geral                        o que vale para você em qualquer lugar
 ```
 
 | type | Para |
@@ -93,7 +94,7 @@ de schema e migração ficam na UI. Guia completo: [docs/MCP_USAGE.md](docs/MCP_
 knowledge-mcp                                   # servidor MCP (stdio)
 knowledge-mcp context --project . --paths src/payments/Charge.java --budget 1500
 knowledge-mcp context --hook claude|cursor      # hook de início de sessão (lê o JSON no stdin)
-knowledge-mcp link --project .                  # workspace = nome do repositório
+knowledge-mcp link --project .                  # domain = repo; workspace = o do dono
 knowledge-mcp recent --since 2026-10-01 --json  # o que mudou (usado pela daily)
 knowledge-mcp pending --project .               # grava a fila offline (~/.knowledge-os/pending.jsonl)
 knowledge-mcp ui [--port 8765]                  # UI web local (127.0.0.1)

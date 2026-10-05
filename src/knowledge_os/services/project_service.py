@@ -44,12 +44,26 @@ def _git_remote(root: Path) -> str | None:
     return out.stdout.strip() or None
 
 
-DEFAULT_DOMAIN = "Geral"
+COMMON_DOMAIN = "Geral"  # em cada workspace: o que vale para todos os seus repositórios
+LOCAL_WORKSPACE = "Pessoal"  # repositório sem remote
 
 
-def default_workspace(key: str) -> str:
-    """Nome do workspace de um projeto: o nome do repositório (último trecho da chave)."""
+def repo_name(key: str) -> str:
+    """Nome do repositório (último trecho da chave): o domain padrão do projeto."""
     return key.removeprefix("path:").rstrip("/").rsplit("/", 1)[-1] or key
+
+
+def owner_prefix(key: str) -> str | None:
+    """`github.com/org/repo` → `github.com/org/` (prefixo do dono); sem remote, None."""
+    if key.startswith("path:") or key.count("/") < 2:
+        return None
+    return key.rsplit("/", 1)[0] + "/"
+
+
+def owner_name(key: str) -> str:
+    """Workspace padrão do primeiro repo de um dono: o nome do dono no remote."""
+    prefix = owner_prefix(key)
+    return prefix.rstrip("/").rsplit("/", 1)[-1] if prefix else LOCAL_WORKSPACE
 
 
 def project_key(project: str) -> str:
@@ -91,12 +105,14 @@ class ProjectService:
     ) -> dict[str, str]:
         """Liga (ou religa) o projeto; workspace e domain são criados se não existirem.
 
-        Sem workspace, usa um workspace só do projeto, com o nome do repositório; sem domain,
-        `Geral`. O workspace `Global` guarda o que vale para todos os projetos.
+        Workspace = contexto de trabalho (empresa, cliente, pessoal); domain = o repositório.
+        Sem workspace: o de outro repo do mesmo dono já ligado; senão o nome do dono no
+        remote (sem remote, `Pessoal`). Sem domain: o nome do repositório. O domain `Geral`
+        de cada workspace e o workspace `Global` guardam o que vale para mais de um repo.
         """
         key = project_key(project)
-        workspace = workspace or default_workspace(key)
-        domain = domain or DEFAULT_DOMAIN
+        workspace = workspace or self._sibling_workspace(key) or owner_name(key)
+        domain = domain or repo_name(key)
         ws_id, dm_id = ItemService(self._engine, self._connection_id).ensure_location(
             workspace, domain
         )
@@ -112,6 +128,23 @@ class ProjectService:
         finally:
             session.close()
         return {"project_key": key, "workspace": workspace, "domain": domain}
+
+    def _sibling_workspace(self, key: str) -> str | None:
+        """Workspace de outro repositório do mesmo dono já ligado (o mais recente)."""
+        prefix = owner_prefix(key)
+        if prefix is None:
+            return None
+        session = get_session(self._get_engine())
+        try:
+            return session.scalar(
+                select(Workspace.name)
+                .join(ProjectLink, ProjectLink.workspace_id == Workspace.id)
+                .where(ProjectLink.project_key.startswith(prefix), ProjectLink.project_key != key)
+                .order_by(ProjectLink.updated_at.desc())
+                .limit(1)
+            )
+        finally:
+            session.close()
 
     def resolve(self, project: str) -> dict[str, str] | None:
         """{project_key, workspace_id, workspace, domain_id, domain} ou None se não ligado."""

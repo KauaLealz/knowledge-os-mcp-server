@@ -311,3 +311,10 @@ def test_backup_pela_cli_gera_arquivo_que_abre(env, project):
         assert conn.execute("SELECT COUNT(*) FROM workspaces").fetchone()[0] >= 1
     finally:
         conn.close()
+
+
+def test_context_aceita_a_chave_remota_como_project(env, project):
+    subprocess.run(["git", "-C", str(project), "init", "-q"], capture_output=True)
+    cli(env, "link", "--project", "github.com/org/app", "--workspace", "Org", "--domain", "app")
+    out = cli(env, "context", "--project", "github.com/org/app")
+    assert out.returncode == 0 and "Org / app" in out.stdout

@@ -183,8 +183,10 @@ def project_link(
 
     **Use quando:** Configurar um projeto pela primeira vez (o /plumb-setup faz isso).
     **Retorna:** {project_key, workspace, domain}.
-    **Exemplo:** project_link(project=".")  → workspace com o nome do repositório, domain Geral
-    **Workspaces:** um por projeto; `Global` (domain `Geral`) para o que vale em todo projeto.
+    **Exemplo:** project_link(project=".")  → domain = repo; workspace = o de outro repo do
+        mesmo dono já ligado (no primeiro, o nome do dono; sem remote, `Pessoal`).
+    **Organização:** workspace = contexto (empresa, cliente, Pessoal); `Geral` do workspace = o
+        que vale para os repos dele; `Global` = o que vale em qualquer lugar.
     **Notas:** project aceita caminho (qualquer pasta do repo), URL do remote ou chave; a chave é
         o remote do git normalizado (ou o caminho, sem remote). Workspace e domain são criados se
         não existirem. Religar move o projeto.
