@@ -3,6 +3,7 @@
 import shutil
 import tempfile
 from pathlib import Path, PurePosixPath, PureWindowsPath
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Response, UploadFile, status
 from sqlalchemy import select
@@ -52,6 +53,14 @@ def upload_artifact(
         return ArtifactService(session, artifacts_dir).attach(item_id, str(src), check_origin=False)
 
 
+def _content_disposition(filename: str) -> str:
+    """attachment com `filename` ASCII de fallback e `filename*` UTF-8 (RFC 6266/5987)."""
+    fallback = "".join(
+        c if c.isascii() and c.isprintable() and c not in '"\\' else "_" for c in filename
+    )
+    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(filename, safe='')}"
+
+
 @router.get("/artifacts/{id}")
 def download_artifact(
     id: str,
@@ -62,7 +71,7 @@ def download_artifact(
     return Response(
         content=content,
         media_type=art.mime_type or "application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{art.filename}"'},
+        headers={"Content-Disposition": _content_disposition(art.filename)},
     )
 
 
