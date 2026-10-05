@@ -10,7 +10,7 @@ from fastapi.routing import APIRoute
 from sqlalchemy.orm import Session
 
 from src.api.auth import verify_token
-from src.api.deps import get_session_dep
+from src.api.deps import get_catalog_session_dep
 from src.api.schemas.requests import ConnectionCreate, ConnectionUpdate
 from src.api.schemas.responses import (
     ConnectionResponse,
@@ -65,12 +65,12 @@ def _view(conn: Connection) -> dict[str, Any]:
 
 
 @router.get("/connections", response_model=list[ConnectionResponse])
-def list_connections(session: Session = Depends(get_session_dep)):
+def list_connections(session: Session = Depends(get_catalog_session_dep)):
     return [_view(c) for c in ConnectionService(session).list()]
 
 
 @router.post("/connections", status_code=status.HTTP_201_CREATED, response_model=ConnectionResponse)
-def create_connection(req: ConnectionCreate, session: Session = Depends(get_session_dep)):
+def create_connection(req: ConnectionCreate, session: Session = Depends(get_catalog_session_dep)):
     fields = req.model_dump(exclude={"name", "db_type", "enabled"})
     conn = ConnectionService(session).add(
         req.name, req.db_type, enabled=req.enabled, **fields
@@ -79,13 +79,13 @@ def create_connection(req: ConnectionCreate, session: Session = Depends(get_sess
 
 
 @router.get("/connections/{id}", response_model=ConnectionResponse)
-def get_connection(id: str, session: Session = Depends(get_session_dep)):
+def get_connection(id: str, session: Session = Depends(get_catalog_session_dep)):
     return _view(ConnectionService(session).get(id))
 
 
 @router.patch("/connections/{id}", response_model=ConnectionResponse)
 def update_connection(
-    id: str, req: ConnectionUpdate, session: Session = Depends(get_session_dep)
+    id: str, req: ConnectionUpdate, session: Session = Depends(get_catalog_session_dep)
 ):
     fields = req.model_dump(exclude_unset=True)
     if "enabled" in fields:
@@ -96,24 +96,24 @@ def update_connection(
 
 
 @router.delete("/connections/{id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_connection(id: str, session: Session = Depends(get_session_dep)) -> Response:
+def delete_connection(id: str, session: Session = Depends(get_catalog_session_dep)) -> Response:
     if not ConnectionService(session).delete(id):
         raise NotFoundError(f"Conexão não encontrada: {id}")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/connections/{id}/test", response_model=ConnectionTestResponse)
-def test_connection(id: str, session: Session = Depends(get_session_dep)):
+def test_connection(id: str, session: Session = Depends(get_catalog_session_dep)):
     return ConnectionService(session).test(id)
 
 
 @router.put("/connections/{id}/default", response_model=ConnectionResponse)
-def set_default_connection(id: str, session: Session = Depends(get_session_dep)):
+def set_default_connection(id: str, session: Session = Depends(get_catalog_session_dep)):
     return _view(ConnectionService(session).set_default(id))
 
 
 @router.post("/connections/{id}/schema-sync", response_model=SchemaSyncResponse)
 def sync_connection_schema(
-    id: str, dry_run: bool = True, session: Session = Depends(get_session_dep)
+    id: str, dry_run: bool = True, session: Session = Depends(get_catalog_session_dep)
 ):
     return ConnectionService(session).sync_schema(id, dry_run=dry_run)

@@ -29,6 +29,9 @@ __all__ = [
     "close_engines",
     "create_db_engine",
     "create_fts_trigger",
+    "check_connection",
+    "connection_id_of",
+    "default_connection_id",
     "ensure_connection_row",
     "get_engine",
     "get_session",
@@ -64,6 +67,25 @@ def ensure_connection_row(
                 )
             )
             s.commit()
+
+
+def default_connection_id() -> str:
+    """Id da conexão default do connections.json (relido a cada chamada); "default" = catálogo."""
+    try:
+        return ConfigManager.load_or_create().default
+    except Exception as exc:
+        raise ConfigError(f"connections.json inválido: {exc}") from None
+
+
+def check_connection(connection_id: str) -> None:
+    """NotFoundError se a conexão não existe; ValidationError se está desabilitada."""
+    if connection_id != DEFAULT_CONNECTION_ID:
+        ConnectionManager._resolve(connection_id)
+
+
+def connection_id_of(engine: Engine) -> str | None:
+    """Id da conexão dona do engine, se ele veio do ConnectionManager (senão None)."""
+    return _connection_manager.id_of(engine)
 
 
 def redact_url(url: str) -> str:
@@ -111,12 +133,12 @@ class ConnectionManager:
         return self._engines[DEFAULT_CONNECTION_ID]
 
     def get_engine(self, connection_id: str | None = None) -> Engine:
-        """Engine da conexão (cria e inicializa no primeiro uso). None = banco default.
+        """Engine da conexão (cria e inicializa no primeiro uso). None = default do JSON.
 
         O connections.json é relido a cada chamada: o engine em cache é descartado se a
         conexão foi removida, desabilitada ou teve a URL alterada.
         """
-        cid = connection_id or DEFAULT_CONNECTION_ID
+        cid = connection_id or default_connection_id()
         with self._lock:
             if cid == DEFAULT_CONNECTION_ID:
                 return self._default()
@@ -165,6 +187,13 @@ class ConnectionManager:
             ) from None
         return engine
 
+    def id_of(self, engine: Engine) -> str | None:
+        with self._lock:
+            for cid, known in self._engines.items():
+                if known is engine:
+                    return cid
+        return None
+
     def get_session(self, connection_id: str | None = None) -> Session:
         engine = self.get_engine(connection_id)
         return sessionmaker(autocommit=False, autoflush=False, bind=engine)()
@@ -191,12 +220,12 @@ _connection_manager = ConnectionManager()
 
 
 def get_engine(connection_id: str | None = None) -> Engine:
-    """Engine da conexão informada; sem argumento, o banco default (inicializado no 1º uso)."""
+    """Engine da conexão informada; sem argumento, o da conexão default do connections.json."""
     return _connection_manager.get_engine(connection_id)
 
 
 def get_session(target: Engine | str | None = None) -> Session:
-    """Nova sessão. `target` pode ser um Engine ou um connection_id (None = default)."""
+    """Nova sessão. `target` pode ser um Engine ou um connection_id (None = default do JSON)."""
     if isinstance(target, Engine):
         return sessionmaker(autocommit=False, autoflush=False, bind=target)()
     return _connection_manager.get_session(target)

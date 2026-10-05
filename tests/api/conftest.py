@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from src.api import auth as auth_mod
-from src.api.deps import get_artifacts_dir, get_engine_dep
+from src.api.deps import get_artifacts_dir, get_catalog_engine_dep, get_engine_dep
 from src.api.main import app
 from src.db.migrations import bootstrap_labels
 from src.db.session import create_db_engine, init_db
@@ -29,6 +29,7 @@ def token():
 def client(engine, tmp_path, token):
     art_dir = tmp_path / "artifacts"
     app.dependency_overrides[get_engine_dep] = lambda: engine
+    app.dependency_overrides[get_catalog_engine_dep] = lambda: engine
     app.dependency_overrides[get_artifacts_dir] = lambda: art_dir
     auth_mod.set_token(token)
     yield TestClient(app)

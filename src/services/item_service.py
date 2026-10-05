@@ -14,7 +14,6 @@ from sqlalchemy.orm import Session
 
 from src.db.dialects import get_dialect
 from src.db.models import (
-    DEFAULT_CONNECTION_ID,
     Artifact,
     Domain,
     Item,
@@ -25,7 +24,7 @@ from src.db.models import (
     Tag,
     Workspace,
 )
-from src.db.session import get_engine, get_session
+from src.db.session import connection_id_of, default_connection_id, get_engine, get_session
 from src.exceptions import NotFoundError, ValidationError
 from src.schemas.item_schemas import ItemCreate, ItemUpdate
 
@@ -57,7 +56,16 @@ class ItemService:
     def _get_engine(self) -> Engine:
         if self._engine is not None:
             return self._engine
-        return get_engine(self._connection_id) if self._connection_id else get_engine()
+        return get_engine(self._connection_id)
+
+    @property
+    def _cid(self) -> str:
+        """Connection dona dos workspaces: a informada, a do engine ou a default do JSON."""
+        if self._connection_id:
+            return self._connection_id
+        if self._engine is not None and (known := connection_id_of(self._engine)):
+            return known
+        return default_connection_id()
 
     @contextmanager
     def _session(self) -> Iterator[Session]:
@@ -79,7 +87,7 @@ class ItemService:
             ws_id = s.scalar(
                 select(Workspace.id).where(
                     (Workspace.name == ref) | (Workspace.id == ref),
-                    Workspace.connection_id == (self._connection_id or DEFAULT_CONNECTION_ID),
+                    Workspace.connection_id == self._cid,
                 )
             )
         if ws_id is None:

@@ -22,7 +22,6 @@ from sqlalchemy.orm import Session
 
 from src.config import ARTIFACTS_DIR
 from src.db.models import (
-    DEFAULT_CONNECTION_ID,
     Artifact,
     Domain,
     Item,
@@ -31,6 +30,7 @@ from src.db.models import (
     Tag,
     Workspace,
 )
+from src.db.session import default_connection_id
 from src.exceptions import NotFoundError, ValidationError
 from src.schemas.item_schemas import ItemCreate
 from src.services._common import (
@@ -202,7 +202,7 @@ class ImportExportService:
                 try:
                     wd = payload["workspace"]
                     name = wd["name"]
-                    cid = self._connection_id or DEFAULT_CONNECTION_ID
+                    cid = self._connection_id or default_connection_id()
                     if s.scalar(
                         select(Workspace.id).where(
                             Workspace.name == name, Workspace.connection_id == cid

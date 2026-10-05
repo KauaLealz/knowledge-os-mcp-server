@@ -19,7 +19,7 @@ EXPORT_VERSION = "1.0"
 def session_scope(session: Session | None, connection_id: str | None = None) -> Iterator[Session]:
     """Usa a sessão informada ou abre (e fecha) uma no banco da connection.
 
-    Sem connection_id usa o banco default (get_engine() sem argumentos).
+    Sem connection_id usa o banco da conexão default do connections.json.
     """
     if session is not None:
         yield session
