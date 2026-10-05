@@ -16,7 +16,8 @@ ITEM_TYPES: tuple[str, ...] = (
     "task",
 )
 MEMORY_CLASSES: tuple[str, ...] = ("ephemeral", "working", "longterm", "canonical")
-ITEM_STATUSES: tuple[str, ...] = ("active", "superseded", "deprecated")
+# done: mudança concluída (type task) — continua na busca, sai do pacote de contexto.
+ITEM_STATUSES: tuple[str, ...] = ("active", "done", "superseded", "deprecated")
 # Chave estável: minúsculas, números e . _ / - (ex.: "regra/money-em-pagamentos").
 KEY_PATTERN = r"^[a-z0-9][a-z0-9._/-]{0,199}$"
 

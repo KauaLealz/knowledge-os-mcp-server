@@ -98,17 +98,47 @@ def test_falha_vira_aviso_e_nao_quebra_a_sessao(env, project):
     assert "indisponível" in json.loads(out.stdout)["hookSpecificOutput"]["additionalContext"]
 
 
-def test_fila_offline_e_gravada_no_inicio_da_sessao(env, project):
+def _entry(key: str, title: str, **extra) -> str:
+    return json.dumps({"key": key, "type": "knowledge", "memory_class": "working",
+                       "title": title, "summary": "veio da fila", "content": "...", **extra})
+
+
+def test_fila_offline_no_home_e_gravada_no_inicio_da_sessao(env, project, tmp_path):
     cli(env, "link", "--project", str(project), "--workspace", "W", "--domain", "D")
-    queue = project / ".plumb" / "pending-brain.jsonl"
-    queue.parent.mkdir()
-    queue.write_text(json.dumps({"key": "gotcha/offline", "type": "knowledge",
-                                 "memory_class": "working", "title": "Gravado depois",
-                                 "summary": "veio da fila", "content": "..."}) + "\n",
+    other = tmp_path / "outro"
+    (other / ".git").mkdir(parents=True)
+    cli(env, "link", "--project", str(other), "--workspace", "W", "--domain", "Outro")
+    queue = Path(env["KNOWLEDGE_OS_HOME"]) / "pending.jsonl"
+    queue.write_text(_entry("gotcha/a", "Gravado depois") + "\n"
+                     + _entry("gotcha/b", "Do outro projeto", project=str(other)) + "\n",
                      encoding="utf-8")
     out = cli(env, "context", "--project", str(project))
-    assert "1 item(ns) da fila offline gravados" in out.stdout
-    assert "Gravado depois" in out.stdout and not queue.exists()
+    assert "2 item(ns) da fila offline gravados" in out.stdout
+    assert "Gravado depois" in out.stdout and "Do outro projeto" not in out.stdout
+    assert "Do outro projeto" in cli(env, "context", "--project", str(other)).stdout
+    assert not queue.exists()
+
+
+def test_fila_antiga_do_projeto_ainda_e_lida(env, project):
+    cli(env, "link", "--project", str(project), "--workspace", "W", "--domain", "D")
+    legacy = project / ".plumb" / "pending-brain.jsonl"
+    legacy.parent.mkdir()
+    legacy.write_text(_entry("gotcha/velha", "Fila antiga") + "\n", encoding="utf-8")
+    out = cli(env, "context", "--project", str(project))
+    assert "Fila antiga" in out.stdout and not legacy.exists()
+
+
+def test_mudanca_em_andamento_aparece_e_concluida_some(env, project):
+    cli(env, "link", "--project", str(project), "--workspace", "W", "--domain", "D")
+    _save(env, project, [{"key": "mudanca/pay-142", "type": "task", "memory_class": "working",
+                          "title": "PAY-142 — Pix no checkout",
+                          "summary": "Construindo: falta recusar método inválido",
+                          "content": "# PAY-142 ..."}])
+    out = cli(env, "context", "--project", str(project)).stdout
+    assert "## Mudanças em andamento" in out and "falta recusar método inválido" in out
+    _save(env, project, [{"key": "mudanca/pay-142", "status": "done",
+                          "summary": "Concluída: Pix devolve QR code"}])
+    assert "PAY-142" not in cli(env, "context", "--project", str(project)).stdout
 
 
 def test_recent_json(env, project):

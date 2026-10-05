@@ -80,7 +80,7 @@ knowledge-mcp context --project . --paths src/payments/Charge.java --budget 1500
 knowledge-mcp context --hook claude|cursor      # hook de início de sessão (lê o JSON no stdin)
 knowledge-mcp link --project . --workspace Polara --domain projpro
 knowledge-mcp recent --since 2026-10-01 --json  # o que mudou (usado pela daily)
-knowledge-mcp pending --project .               # grava a fila .plumb/pending-brain.jsonl
+knowledge-mcp pending --project .               # grava a fila offline (~/.knowledge-os/pending.jsonl)
 knowledge-mcp ui [--port 8765]                  # UI web local (127.0.0.1)
 knowledge-mcp --check-db | --bootstrap | --version
 ```
@@ -105,7 +105,7 @@ ruff check src tests
 ```
 
 Arquitetura: [docs/ARQUITETURA.md](docs/ARQUITETURA.md). Mudanças são conduzidas pelo
-Plumb (`.plumb/changes/`).
+Plumb (o plano de cada mudança fica no próprio cérebro, como item `task`).
 
 ## Licença
 

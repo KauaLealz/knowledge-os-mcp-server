@@ -27,6 +27,7 @@ _CLASS_ORDER = {"canonical": 0, "longterm": 1, "working": 2}
 
 # (título, tipos, limite, ordenação) — em ordem de prioridade dentro do orçamento.
 _SECTIONS: tuple[tuple[str, tuple[str, ...], int], ...] = (
+    ("Mudanças em andamento", ("task",), 5),
     ("Regras", ("rule",), 40),
     ("Contexto", ("context",), 10),
     ("Decisões recentes", ("insight",), 8),
@@ -220,7 +221,7 @@ class ContextService:
                         scoped_hidden.append(item)
                     continue
                 chosen.append((item, scope))
-            if title == "Decisões recentes":
+            if title in ("Decisões recentes", "Mudanças em andamento"):
                 chosen.sort(key=lambda p: p[0].updated_at or datetime.min, reverse=True)
             else:
                 chosen.sort(key=lambda p: (

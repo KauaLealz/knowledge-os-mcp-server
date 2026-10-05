@@ -15,7 +15,8 @@ from typing import Any
 from src import __version__
 
 BRAIN_COMMANDS = ("context", "recent", "pending", "link")
-PENDING_FILE = Path(".plumb") / "pending-brain.jsonl"
+PENDING_NAME = "pending.jsonl"  # no home do cérebro, fora de qualquer repositório
+LEGACY_PENDING = Path(".plumb") / "pending-brain.jsonl"  # versões antigas do Plumb
 HOOK_BUDGET = 1200
 
 
@@ -36,7 +37,7 @@ def _parser() -> argparse.ArgumentParser:
     rec.add_argument("--until", help="AAAA-MM-DD ou ISO (padrão: agora)")
     rec.add_argument("--json", action="store_true", help="saída em JSON")
 
-    pen = sub.add_parser("pending", help="grava a fila de .plumb/pending-brain.jsonl")
+    pen = sub.add_parser("pending", help="grava a fila offline (<home>/pending.jsonl)")
     pen.add_argument("--project", default=".", help="pasta do projeto (padrão: atual)")
 
     lnk = sub.add_parser("link", help="liga o projeto a um workspace/domain")
@@ -53,27 +54,50 @@ def _init() -> None:
     validate_and_init_config()
 
 
-def _flush_pending(project: Path) -> tuple[int, str | None]:
-    """Grava a fila do projeto (uma entrada de item_save por linha). (gravados, erro)."""
-    path = project / PENDING_FILE
-    if not path.exists():
-        return 0, None
+def _pending_file() -> Path:
+    from src.config import KNOWLEDGE_HOME
+
+    return KNOWLEDGE_HOME / PENDING_NAME
+
+
+def _flush_file(path: Path, project: Path) -> tuple[int, str | None]:
+    """Grava uma fila (uma entrada de item_save por linha, com `project` opcional).
+
+    Entradas sem `project` vão para o projeto da sessão. O que falhar continua no arquivo.
+    """
     from src.services.item_service import ItemService
     from src.services.project_service import ProjectService
 
     lines = [ln for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
-    if not lines:
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for ln in lines:
+        entry = json.loads(ln)
+        groups.setdefault(entry.pop("project", None) or str(project), []).append(entry)
+    saved, errors, left = 0, [], []
+    for proj, entries in groups.items():
+        try:
+            link = ProjectService().resolve(proj)
+            default = (link["workspace_id"], link["domain_id"]) if link else None
+            ItemService().save(entries, default_location=default)
+            saved += len(entries)
+        except Exception as exc:  # noqa: BLE001 - a fila fica para a próxima tentativa
+            errors.append(f"{type(exc).__name__}: {exc}")
+            left += [json.dumps({**e, "project": proj}, ensure_ascii=False) for e in entries]
+    if left:
+        path.write_text("\n".join(left) + "\n", encoding="utf-8")
+    else:
         path.unlink(missing_ok=True)
-        return 0, None
-    try:
-        entries = [json.loads(ln) for ln in lines]
-        link = ProjectService().resolve(str(project))
-        default = (link["workspace_id"], link["domain_id"]) if link else None
-        ItemService().save(entries, default_location=default)
-    except Exception as exc:  # noqa: BLE001 - a fila fica para a próxima tentativa
-        return 0, f"{type(exc).__name__}: {exc}"
-    path.unlink(missing_ok=True)
-    return len(entries), None
+    return saved, "; ".join(errors) or None
+
+
+def _flush_pending(project: Path) -> tuple[int, str | None]:
+    """Grava a fila offline do cérebro (no home) e a fila antiga do projeto, se existir."""
+    total, error = 0, None
+    for path in (_pending_file(), project / LEGACY_PENDING):
+        if path.exists():
+            n, err = _flush_file(path, project)
+            total, error = total + n, error or err
+    return total, error
 
 
 def _is_project(path: Path) -> bool:
@@ -105,11 +129,13 @@ def _context(args: argparse.Namespace) -> int:
         if flushed:
             text += f"\n\n_{flushed} item(ns) da fila offline gravados._"
         if flush_error:
-            text += f"\n\n_Fila offline não gravada ({flush_error}); continua em {PENDING_FILE}._"
+            text += (f"\n\n_Fila offline não gravada ({flush_error}); "
+                     f"continua em {_pending_file()}._")
     except Exception as exc:  # noqa: BLE001 - hook nunca pode quebrar a sessão
         text = (
             f"_Segundo cérebro indisponível ({type(exc).__name__}). Siga o trabalho e avise o "
-            f"usuário; grave o que for durável em {PENDING_FILE.as_posix()}._"
+            f"usuário; grave o que for durável em {_pending_file().as_posix()} (uma entrada de "
+            f"item_save por linha, com \"project\": caminho do repositório)._"
         )
 
     # JSON só em ASCII (acentos como \uXXXX): no Windows a ferramenta pode ler a saída do hook

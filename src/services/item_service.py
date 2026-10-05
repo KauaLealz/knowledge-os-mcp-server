@@ -554,7 +554,7 @@ class ItemService:
             params["mclasses"] = list(memory_classes)
             expanding.append("mclasses")
         if not include_inactive:
-            where.append("COALESCE(i.status, 'active') = 'active'")
+            where.append("COALESCE(i.status, 'active') IN ('active', 'done')")
             where.append("(i.expires_at IS NULL OR i.expires_at > :now)")
             params["now"] = datetime.utcnow()
 

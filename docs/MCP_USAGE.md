@@ -63,6 +63,19 @@ item_save(project=".", items=[
 Convenção de keys: `regra/...`, `decisao/...`, `proc/...`, `padrao/...`, `gotcha/...`,
 `contexto/...` — minúsculas, números, `.` `_` `/` `-`.
 
+### Planos de mudança (`task`)
+
+O Plumb guarda o plano de cada mudança como item `task` (`key: "mudanca/<id>"`): o `summary`
+é o andamento em uma linha ("Construindo: falta recusar método inválido"), o `content` é o plano.
+Enquanto `status` é `active`, ele aparece em "Mudanças em andamento" no pacote do início da
+sessão; ao concluir, `status: "done"` — sai do pacote e continua na busca, como histórico.
+
+```python
+item_save(project=".", items=[{"key": "mudanca/pay-142", "summary": "Construindo: 1 de 2 feitos"}])
+item_save(project=".", items=[{"key": "mudanca/pay-142", "status": "done",
+                               "summary": "Concluída: Pix devolve o QR code"}])
+```
+
 ### Promover, renovar, aposentar
 
 ```python
@@ -117,5 +130,5 @@ workspaces. As conexões ficam em `<home>/connections.json`; todas as ferramenta
 | Busca não acha | sinônimo; `include_inactive=True` se pode ter sido substituído |
 | `Entrada N (...)` | corrija a entrada N; nada do lote foi gravado |
 | "parece conter um segredo" | tire o valor; descreva onde ele fica |
-| Servidor fora do ar | o Plumb segue com aviso e guarda em `.plumb/pending-brain.jsonl`; `knowledge-mcp pending` grava depois |
+| Servidor fora do ar | o Plumb segue com aviso e guarda em `~/.knowledge-os/pending.jsonl` (uma entrada de `item_save` por linha, com `project`); o hook da próxima sessão grava, ou `knowledge-mcp pending` |
 | Banco remoto inacessível | `health_check`; a UI testa a conexão |

@@ -16,7 +16,8 @@ contexto e aprendizados. Busque antes de supor; grave o que vale para depois.
   duplicar. Com `id`, atualiza; sem key nem id, cria e avisa `similar`.
 - Um conhecimento por item; `summary` em 1–2 frases (é o que aparece no contexto).
 - `type`: rule (sempre/nunca), insight (decisão e porquê), procedure (passo a passo), pattern,
-  knowledge (fato, gotcha), context (pano de fundo).
+  knowledge (fato, gotcha), context (pano de fundo), task (plano de uma mudança; `status: done`
+  ao concluir).
 - `memory_class`: grave `working`; subir para `longterm`/`canonical` só com o "sim" do usuário.
 - Regra de parte do código: `scope_paths` (globs). Origem em `source` (mudança, commit).
   Sinônimos em `keywords` (a palavra `sensivel` marca área de risco). Substituiu algo: `relations: [{type: "supersedes", target: key}]`.
@@ -24,7 +25,7 @@ contexto e aprendizados. Busque antes de supor; grave o que vale para depois.
 
 **Projeto sem ligação:** sugira ao usuário rodar `/plumb-setup` (ou `project_link`).
 **Servidor fora do ar:** siga o trabalho e avise; o Plumb guarda o que gravaria em
-`.plumb/pending-brain.jsonl`.
+`~/.knowledge-os/pending.jsonl` (uma entrada por linha, com `project`).
 
 **Administração** (perfil `all`)
 - `structure_list` (árvore workspaces → domains), `structure_delete` (preview e depois

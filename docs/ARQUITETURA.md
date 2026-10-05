@@ -37,7 +37,7 @@ segredo) ficam nos services, e por isso CLI, MCP e UI se comportam igual.
 | Ligação de projeto (`ProjectService`) | chave = remote do git normalizado (ou `path:` + raiz) → workspace/domain | o mesmo repositório em qualquer pasta ou máquina acha o mesmo conhecimento |
 | Ciclo de vida | `ephemeral` expira (`expires_at`); classe só sobe; `supersedes` marca o alvo `superseded`; `deprecated` sai da busca | o contexto não acumula lixo nem conselho velho |
 | `secret_guard` | padrões de chaves, tokens, JWT, `password=`, URL com senha; placeholders passam | o cérebro é lido em toda sessão; segredo ali vaza para todo agente |
-| CLI leve (`src/cli.py`) | subcomandos do cérebro não importam fastmcp; erro vira aviso; grava a fila offline `.plumb/pending-brain.jsonl` | o hook roda em toda sessão e nunca pode travá-la |
+| CLI leve (`src/cli.py`) | subcomandos do cérebro não importam fastmcp; erro vira aviso; grava a fila offline `<home>/pending.jsonl` (entradas com `project`) | o hook roda em toda sessão e nunca pode travá-la |
 | `schema_sync` | adiciona colunas e índices novos em bancos existentes e recria o FTS quando a definição muda | atualizar o pacote não exige migração manual |
 
 ## Modelo de dados
