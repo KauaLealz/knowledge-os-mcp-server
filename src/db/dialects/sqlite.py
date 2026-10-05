@@ -9,7 +9,13 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.pool import StaticPool
 
-from src.db.dialects.base import FTS_COLUMNS, FTS_TABLE, DatabaseDialect
+from src.db.dialects.base import (
+    FTS_COLUMNS,
+    FTS_TABLE,
+    FTS_TOKENIZE,
+    FTS_WEIGHTS,
+    DatabaseDialect,
+)
 from src.exceptions import DatabaseError
 
 logger = logging.getLogger(__name__)
@@ -51,13 +57,32 @@ def create_fts_trigger(engine: Engine) -> None:
         raise DatabaseError(f"Falha ao criar triggers FTS5: {exc}") from exc
 
 
-def _fts_exists(engine: Engine) -> bool:
+_TRIGGERS = ("items_fts_ai", "items_fts_ad", "items_fts_au")
+
+
+def _fts_ddl() -> str:
+    cols = ", ".join(FTS_COLUMNS)
+    return (
+        f"CREATE VIRTUAL TABLE {FTS_TABLE} USING fts5({cols}, content='items', "
+        f"content_rowid='rowid', tokenize='{FTS_TOKENIZE}')"
+    )
+
+
+def _fts_sql(engine: Engine) -> str | None:
+    """DDL atual da tabela FTS (None se ela não existe)."""
     with engine.connect() as conn:
-        row = conn.execute(
-            text("SELECT 1 FROM sqlite_master WHERE type='table' AND name=:n"),
+        return conn.execute(
+            text("SELECT sql FROM sqlite_master WHERE type='table' AND name=:n"),
             {"n": FTS_TABLE},
-        ).first()
-    return row is not None
+        ).scalar()
+
+
+def _fts_exists(engine: Engine) -> bool:
+    return _fts_sql(engine) is not None
+
+
+def _normalize(sql: str) -> str:
+    return " ".join(sql.replace('"', "'").split()).lower()
 
 
 class SQLiteDialect(DatabaseDialect):
@@ -86,19 +111,23 @@ class SQLiteDialect(DatabaseDialect):
 
     @staticmethod
     def create_fts_table(engine: Engine) -> None:
-        """Cria a tabela virtual FTS5 (external content sobre items) e os triggers."""
-        existed = _fts_exists(engine)
-        cols = ", ".join(FTS_COLUMNS)
+        """Cria (ou recria, se a definição mudou) a tabela FTS5 e os triggers.
+
+        Uma definição antiga (outras colunas ou outro tokenizer) é descartada e o índice é
+        reconstruído a partir de `items`: nenhum dado se perde, só o índice é refeito.
+        """
+        current = _fts_sql(engine)
+        outdated = current is not None and _normalize(current) != _normalize(_fts_ddl())
         try:
             with engine.begin() as conn:
-                conn.execute(
-                    text(
-                        f"CREATE VIRTUAL TABLE IF NOT EXISTS {FTS_TABLE} "
-                        f"USING fts5({cols}, content='items', content_rowid='rowid')"
-                    )
-                )
-                if not existed:
-                    # Indexa linhas que já existiam antes da criação do índice.
+                if outdated:
+                    logger.info("Recriando %s: definição mudou", FTS_TABLE)
+                    for trigger in _TRIGGERS:
+                        conn.execute(text(f"DROP TRIGGER IF EXISTS {trigger}"))
+                    conn.execute(text(f"DROP TABLE IF EXISTS {FTS_TABLE}"))
+                if current is None or outdated:
+                    conn.execute(text(_fts_ddl()))
+                    # Indexa as linhas que já existiam antes da (re)criação do índice.
                     conn.execute(text(f"INSERT INTO {FTS_TABLE}({FTS_TABLE}) VALUES('rebuild')"))
         except SQLAlchemyError as exc:
             raise DatabaseError(f"Falha ao criar tabela FTS5: {exc}") from exc
@@ -109,6 +138,6 @@ class SQLiteDialect(DatabaseDialect):
         return (
             f"{FTS_TABLE} JOIN items i ON i.rowid = {FTS_TABLE}.rowid",
             f"{FTS_TABLE} MATCH :q",
-            f"-bm25({FTS_TABLE})",
+            f"-bm25({FTS_TABLE}, {', '.join(str(w) for w in FTS_WEIGHTS)})",
             {"q": query},
         )

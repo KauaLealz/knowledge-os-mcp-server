@@ -1,6 +1,7 @@
 """Memory service: promover e renovar itens."""
 
 import logging
+from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -59,6 +60,7 @@ class MemoryService:
                 )
             if item.memory_class == "ephemeral":
                 item.ttl_days = None
+                item.expires_at = None
             item.memory_class = target_memory
             logger.info("Item %s promovido para %s", item_id, target_memory)
             return self._finish(s, item)
@@ -74,5 +76,7 @@ class MemoryService:
                     f"Só itens ephemeral têm TTL (classe atual: {item.memory_class})"
                 )
             item.ttl_days = ttl_days
+            # Renovar conta a partir de agora: é o que o agente espera ao estender o prazo.
+            item.expires_at = datetime.utcnow() + timedelta(days=ttl_days)
             logger.info("TTL do item %s renovado para %d dias", item_id, ttl_days)
             return self._finish(s, item)

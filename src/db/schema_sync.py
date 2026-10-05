@@ -6,7 +6,7 @@ O aditivo é aplicado (tabelas, colunas, índices, FTS do dialect). O que não �
 
 import hashlib
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import (
@@ -112,6 +112,24 @@ def _write_version(engine: Engine, version: str) -> None:
         )
 
 
+def _backfill_expires_at(engine: Engine) -> None:
+    """Calcula expires_at dos ephemeral criados antes da coluna existir."""
+    with engine.begin() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT id, created_at, ttl_days FROM items "
+                "WHERE memory_class = 'ephemeral' AND ttl_days IS NOT NULL AND expires_at IS NULL"
+            )
+        ).all()
+        for item_id, created_at, ttl_days in rows:
+            if isinstance(created_at, str):
+                created_at = datetime.fromisoformat(created_at)
+            expires = (created_at or datetime.utcnow()) + timedelta(days=int(ttl_days))
+            conn.execute(
+                text("UPDATE items SET expires_at = :e WHERE id = :i"), {"e": expires, "i": item_id}
+            )
+
+
 def schema_sync(engine: Engine, dry_run: bool = False) -> dict[str, Any]:
     """Sincroniza o schema do banco com o modelo.
 
@@ -174,6 +192,8 @@ def _sync(engine: Engine, dry_run: bool) -> dict[str, Any]:
                     conn.execute(CreateIndex(index))
         if items_present and dialect.supports_fts():
             dialect.create_fts_table(engine)
+        if "items.expires_at" in {f"{t.name}.{c.name}" for t, c in columns_to_add}:
+            _backfill_expires_at(engine)
         if not pending_manual and _read_version(engine) != version:
             _write_version(engine, version)
 

@@ -32,7 +32,7 @@ class MySQLDialect(DatabaseDialect):
         escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         return (
             "items i",
-            "(i.title LIKE :q OR i.summary LIKE :q OR i.content LIKE :q)",
+            "(i.title LIKE :q OR i.summary LIKE :q OR i.keywords LIKE :q OR i.content LIKE :q)",
             "0.0",
             {"q": f"%{escaped}%"},
         )

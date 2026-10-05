@@ -28,7 +28,9 @@ def test_search_nao_retorna_content(svc, sample_workspace, sample_domain):
         content="ConditionalOnProperty detalhado")
     res = svc.search(sample_workspace.id, None, "ConditionalOnProperty")
     assert len(res) == 1
-    assert set(res[0]) == {"id", "title", "summary", "score"}
+    assert set(res[0]) == {
+        "id", "key", "type", "memory_class", "domain", "title", "summary", "score"}
+    assert "content" not in res[0]
     assert isinstance(res[0]["score"], float)
 
 

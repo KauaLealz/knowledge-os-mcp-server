@@ -84,7 +84,7 @@ class TestService:
     ):
         it = svc.create(**_kw(sample_workspace, sample_domain))
         with pytest.raises(ValidationError):
-            svc.update(it.id, title="x")
+            svc.update(it.id, workspace_id="x")  # mover de workspace não é edição
         eph = svc.create(
             **_kw(sample_workspace, sample_domain, memory_class="ephemeral", ttl_days=7)
         )

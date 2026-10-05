@@ -56,6 +56,9 @@ class RelationService:
                 relation_type=relation_type,
             )
             s.add(rel)
+            if relation_type == "supersedes":
+                # O substituído sai da busca e do pacote de contexto, sem perder o histórico.
+                s.get(Item, target_item_id).status = "superseded"
             s.commit()
             s.refresh(rel)
             if self._session is None:

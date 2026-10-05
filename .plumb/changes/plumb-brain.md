@@ -1,5 +1,5 @@
 # plumb-brain: Knowledge OS como segundo cérebro obrigatório do Plumb
-Status: construindo T2 · Trilha: profunda · Branch: feature/plumb-brain
+Status: construindo T5 · Trilha: profunda · Branch: feature/plumb-brain
 
 ## Objetivo
 Tornar o Knowledge OS a memória central do Plumb com custo baixo de contexto:
@@ -39,9 +39,9 @@ master e `schema_sync` (colunas extras são ignoradas pelo código antigo).
 
 ## Tasks
 - [x] T1 Dependências fixadas, testes compatíveis com fastmcp 4, ruff em `[tool.ruff.lint]` — prova: AC1 — verificar: `pytest -q`
-- [ ] T2 Modelo: colunas novas, `project_links`, migração do FTS — prova: AC8 — verificar: `pytest tests/test_schema_sync.py tests/test_fts.py`
-- [ ] T3 Busca: BM25 primeiro, PT-BR (diacríticos, plural, prefixo), sem workspace obrigatório, filtra inativos e vencidos — prova: AC3 — verificar: `pytest tests/test_fts.py tests/test_brain_search.py`
-- [ ] T4 Upsert, lote, similares, tags/labels editáveis, segredo bloqueado — prova: AC5, AC6 — verificar: `pytest tests/test_brain_write.py`
+- [x] T2 Modelo: colunas novas, `project_links`, migração do FTS — prova: AC8 — verificar: `pytest tests/test_schema_sync.py tests/test_fts.py`
+- [x] T3 Busca: BM25 primeiro, PT-BR (diacríticos, plural, prefixo), sem workspace obrigatório, filtra inativos e vencidos — prova: AC3 — verificar: `pytest tests/test_fts.py tests/test_brain_search.py`
+- [x] T4 Upsert, lote, similares, tags/labels editáveis, segredo bloqueado — prova: AC5, AC6 — verificar: `pytest tests/test_brain_write.py`
 - [ ] T5 Projetos e pacote de contexto (`project_link`, `context_get`, escopo por caminho, orçamento) — prova: AC4 — verificar: `pytest tests/test_brain_context.py`
 - [ ] T6 Perfil `agent` e instruções curtas; versão no health — prova: AC2, AC9 — verificar: `pytest tests/test_toolsets.py`
 - [ ] T7 CLI: `context` (com `--hook`), `recent`, `import-pending`, `--version` — prova: AC4, AC7 — verificar: `pytest tests/test_cli_brain.py`
