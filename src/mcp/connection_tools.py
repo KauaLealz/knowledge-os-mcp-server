@@ -174,7 +174,8 @@ def register(mcp: FastMCP) -> None:
             is_active). A senha nunca é devolvida.
         **Exemplo:** connection_create(name="postgres_prod", db_type="postgresql",
             url="postgresql://user@host:5432/knowledge")
-        **Notas:** Exemplos de url: sqlite:///./database/x.db, mysql://user@host/db. Com
+        **Notas:** Exemplos de url: sqlite:///./database/x.db (caminho relativo resolve contra o
+            home de dados e a pasta é criada), sqlite:///~/x.db, mysql://user@host/db. Com
             test=True (padrão) a conexão é testada antes de ser gravada. Depois rode
             schema_sync. A url não leva senha e esta tool não recebe senha: peça ao usuário
             para informá-la na UI ou no campo password do connections.json.

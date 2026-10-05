@@ -1,9 +1,11 @@
 """Dialect SQLite: WAL + FTS5 (tabela external content + triggers)."""
 
 import logging
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import Engine, create_engine, event, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.pool import StaticPool
 
@@ -68,6 +70,12 @@ class SQLiteDialect(DatabaseDialect):
             # Banco em memória: uma única conexão compartilhada, senão cada conexão
             # enxergaria um banco vazio diferente.
             kwargs["poolclass"] = StaticPool
+        db_path = make_url(url).database
+        if db_path and db_path != ":memory:":
+            try:  # arquivo em subpasta ainda inexistente (ex.: <home>/database/x.db)
+                Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                pass  # o erro de abertura do SQLite descreve o problema
         engine = create_engine(url, connect_args=connect_args, **kwargs)
         event.listen(engine, "connect", _set_sqlite_pragmas)
         return engine

@@ -199,3 +199,24 @@ def test_knowledge_os_home_resolve_til_e_relativo(tmp_path):
 
     assert home_for("rel/../meu-home") == (tmp_path / "meu-home").resolve()
     assert home_for("~/kos-teste") == (Path.home() / "kos-teste").resolve()
+
+
+def test_sqlite_path_relativo_em_subpasta_cria_o_diretorio_no_home(_isolated_home):
+    from src.services.connection_service import ConnectionService
+
+    row = ConnectionService().create("sub", "sqlite", "sqlite:///./database/x.db", test=True)
+    assert (_isolated_home / "database" / "x.db").is_file()
+    assert row.name == "sub"
+
+
+def test_sqlite_path_com_til_expande_para_o_home_do_usuario(tmp_path, monkeypatch):
+    from src.services.connection_service import ConnectionService
+
+    fake = tmp_path / "usuario"
+    fake.mkdir()
+    monkeypatch.setenv("HOME", str(fake))
+    monkeypatch.setenv("USERPROFILE", str(fake))
+    ConnectionService().add("til", "sqlite", test=True, path="~/dados/x.db")
+    assert (fake / "dados" / "x.db").is_file()
+    conn = ConfigManager.load_or_create().connections[0]
+    assert conn.resolved_path() == (fake / "dados" / "x.db").as_posix()

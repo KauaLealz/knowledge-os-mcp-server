@@ -162,7 +162,7 @@ class ConnectionConfig(BaseModel):
 
     def resolved_path(self) -> str:
         """Path do SQLite; o relativo resolve contra o home no momento da chamada."""
-        path = Path(self.path or "")
+        path = Path(self.path or "").expanduser()
         return (path if path.is_absolute() else KNOWLEDGE_HOME / path).as_posix()
 
     def get_url(self) -> str:
