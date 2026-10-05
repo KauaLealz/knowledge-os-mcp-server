@@ -20,7 +20,11 @@ function slugify(text) {
 /** Renderiza Markdown em um DocumentFragment sanitizado e devolve os H2/H3 para a TOC. */
 export function render(src) {
   const dirty = marked.parse(src || '', { async: false });
-  const fragment = DOMPurify.sanitize(dirty, { RETURN_DOM_FRAGMENT: true });
+  const fragment = DOMPurify.sanitize(dirty, {
+    RETURN_DOM_FRAGMENT: true,
+    FORBID_TAGS: ['style', 'form', 'input', 'button', 'textarea', 'select'],
+    FORBID_ATTR: ['style', 'action', 'formaction'],
+  });
 
   const headings = [];
   const used = new Set();

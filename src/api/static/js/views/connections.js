@@ -83,13 +83,14 @@ export function register(Alpine) {
       try {
         await this.app.loadConnections();
       } catch (e) {
-        if (e.status !== 401) this.error = e.message;
+        this.error = e.message;
       } finally {
         this.loading = false;
       }
       if (this.isNew) {
         this.form = blankForm();
       } else if (this.sub) {
+        if (this.app.connError) return;
         const c = this.conn;
         if (!c) {
           this.notFound = true;
@@ -118,7 +119,7 @@ export function register(Alpine) {
       try {
         await this.app.loadConnections();
       } catch (e) {
-        if (e.status !== 401) this.error = e.message;
+        this.error = e.message;
       }
     },
 
@@ -174,7 +175,7 @@ export function register(Alpine) {
         else this.fill(this.conn || saved);
         return saved;
       } catch (e) {
-        if (e.status !== 401) this.error = e.message;
+        this.error = e.message;
         return null;
       } finally {
         this.password = '';
@@ -206,7 +207,7 @@ export function register(Alpine) {
         this.alert = { kind: r.status === 'ok' ? 'ok' : 'error', message: r.message || r.status, latency: r.latency_ms };
         await this.refreshList();
       } catch (e) {
-        if (e.status !== 401) this.alert = { kind: 'error', message: e.message, latency: null };
+        this.alert = { kind: 'error', message: e.message, latency: null };
       } finally {
         this.testing = false;
       }
@@ -219,7 +220,7 @@ export function register(Alpine) {
         await this.refreshList();
         this.app.toast('Conexão definida como default');
       } catch (e) {
-        if (e.status !== 401) this.error = e.message;
+        this.error = e.message;
       }
     },
 
@@ -239,7 +240,7 @@ export function register(Alpine) {
           this.app.toast('Schema sincronizado');
         }
       } catch (e) {
-        if (e.status !== 401) this.error = e.message;
+        this.error = e.message;
       } finally {
         this.syncing = false;
       }
@@ -261,7 +262,7 @@ export function register(Alpine) {
         this.app.toast('Conexão excluída');
         go(hrefs.connections());
       } catch (e) {
-        if (e.status !== 401) this.error = e.message;
+        this.error = e.message;
       } finally {
         this.deleting = false;
       }

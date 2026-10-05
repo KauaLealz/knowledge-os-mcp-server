@@ -38,7 +38,7 @@ export function registerShortcuts(app) {
     if (e.key === 'Escape') {
       if (app.paletteOpen) app.paletteOpen = false;
       else if (app.helpOpen) app.helpOpen = false;
-      else if (app.modal) app.modal = null;
+      else if (app.modal) app.closeModal();
       else if (app.drawer) app.drawer = false;
       else if (app.route.params.edit) app.toggleEdit();
       return;

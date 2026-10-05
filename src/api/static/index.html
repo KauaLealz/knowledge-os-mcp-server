@@ -93,6 +93,11 @@
         Knowledge OS
       </a>
 
+      <div class="tree-empty" x-show="$store.app.connError" role="alert">
+        <span x-text="'Conexões indisponíveis: ' + $store.app.connError"></span>
+        <button class="btn" @click="$store.app.boot()">Tentar de novo</button>
+      </div>
+
       <div class="switcher">
         <!-- Connection -->
         <div class="dd" x-data="dropdown" @click.outside="close()" @keydown.escape.window="close()">
@@ -353,6 +358,10 @@
                   <div class="page-meta"><span><b x-text="$store.app.domain.item_count"></b> itens</span></div>
                   <div class="toolbar"><button class="btn primary" @click="$store.app.openModal('item')"><svg class="ic"><use href="#i-plus"/></svg> Novo item</button></div>
 
+                  <div class="banner" role="status" x-show="truncated">
+                    <svg class="ic"><use href="#i-alert"/></svg><span x-text="'Mostrando ' + items.length + ' de ' + totalItems + ' itens'"></span>
+                  </div>
+
                   <div class="toolbar" x-show="items.length">
                     <select class="select sm" x-model="typeFilter" aria-label="Filtrar por type">
                       <option value="">Todos os types</option>
@@ -466,7 +475,7 @@
                       </div>
                     </template>
 
-                    <template x-if="$store.app.route.params.edit">
+                    <template x-if="$store.app.route.params.edit && item && item.id === $store.app.route.params.item">
                       <div class="editor" x-data="itemEditor(item, (u) => applyUpdate(u))">
                         <div class="editor-meta">
                           <div class="field grow"><label for="ed-summary">Summary</label>
@@ -597,13 +606,13 @@
                   <h1 class="page-title">Conexões</h1>
                   <p class="page-lead">Bancos usados pela API e pelas tools MCP. O cadastro vive no <code>connections.json</code> do home.</p>
                   <div class="toolbar"><a class="btn primary" href="#/settings/connections/new"><svg class="ic"><use href="#i-plus"/></svg> Nova conexão</a></div>
-                  <div class="state error" x-show="error" role="alert">
+                  <div class="state error" x-show="error || $store.app.connError" role="alert">
                     <svg class="ic"><use href="#i-alert"/></svg>
                     <h3>Não foi possível listar as conexões</h3>
-                    <p x-text="error"></p>
+                    <p x-text="error || $store.app.connError"></p>
                     <button class="btn" @click="load()">Tentar de novo</button>
                   </div>
-                  <div class="conn-list" x-show="!error">
+                  <div class="conn-list" x-show="!error && !$store.app.connError">
                     <template x-for="c in $store.app.connections" :key="c.id">
                       <a class="conn-row" :href="'#/settings/connections/' + encodeURIComponent(c.id)">
                         <span class="dot" :class="dotClass(c)" :title="lastTest(c)"></span>

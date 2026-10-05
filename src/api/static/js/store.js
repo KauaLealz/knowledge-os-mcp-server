@@ -44,9 +44,11 @@ export const appStore = {
   route: { name: 'home', params: {} },
 
   connections: [],
+  connError: null,
   connId: null,
   workspaces: [],
   wsLoading: false,
+  wsSeq: 0,
   wsError: null,
 
   tree: null,
@@ -64,6 +66,7 @@ export const appStore = {
   helpOpen: false,
   paletteOpen: false,
   modal: null,
+  modalGuard: null, // devolve true quando o formulário do modal tem alterações não enviadas
   dirty: false,
   saveHook: null,
   lastHash: '',
@@ -101,12 +104,14 @@ export const appStore = {
   },
 
   async loadConnections() {
-    let list = [];
+    this.connError = null;
+    let list;
     try {
       list = (await api('GET', '/connections')).map(normalizeConnection);
     } catch (e) {
-      if (e.status === 401) throw e;
-      list = [];
+      // Erro real: mostra (banner) e não fabrica conexão. Mantém o que já havia carregado.
+      this.connError = e.message;
+      return;
     }
     if (!list.length) list = [{ id: 'default', name: 'default', enabled: true, is_default: true }];
     if (!list.some((c) => c.is_default)) {
@@ -122,6 +127,7 @@ export const appStore = {
     this.route = r;
     this.drawer = false;
     if (r.name === 'home') {
+      if (!this.connections.length) return; // sem lista de conexões (erro já exibido)
       const saved = lsGet('kos.conn');
       const conn =
         this.connections.find((c) => c.id === saved && c.enabled) ||
@@ -168,22 +174,23 @@ export const appStore = {
   },
 
   async loadWorkspaces() {
+    const seq = ++this.wsSeq; // resposta de chamada antiga (outra conexão) é descartada
     this.wsLoading = true;
     this.wsError = null;
     try {
-      this.workspaces = await api('GET', '/workspaces');
-      const stats = await Promise.allSettled(
-        this.workspaces.map((w) => api('GET', `/workspaces/${w.id}/stats`)),
-      );
-      this.workspaces = this.workspaces.map((w, i) => ({
+      const list = await api('GET', '/workspaces');
+      const stats = await Promise.allSettled(list.map((w) => api('GET', `/workspaces/${w.id}/stats`)));
+      if (seq !== this.wsSeq) return;
+      this.workspaces = list.map((w, i) => ({
         ...w,
         stats: stats[i].status === 'fulfilled' ? stats[i].value : null,
       }));
     } catch (e) {
+      if (seq !== this.wsSeq) return;
       this.workspaces = [];
-      if (e.status !== 401) this.wsError = e.message;
+      this.wsError = e.message;
     } finally {
-      this.wsLoading = false;
+      if (seq === this.wsSeq) this.wsLoading = false;
     }
   },
 
@@ -208,7 +215,7 @@ export const appStore = {
     } catch (e) {
       if (this.treeWs === wsId) {
         this.tree = null;
-        if (e.status !== 401) this.treeError = e.message;
+        this.treeError = e.message;
       }
     } finally {
       if (this.treeWs === wsId) this.treeLoading = false;
@@ -290,6 +297,12 @@ export const appStore = {
     const p = this.route.params;
     if (this.route.name !== 'item') return;
     go(p.edit ? hrefs.item(p.conn, p.ws, p.dm, p.item) : hrefs.edit(p.conn, p.ws, p.dm, p.item));
+  },
+  /** Fecha o modal; se o formulário está sujo, confirma antes de descartar. */
+  closeModal() {
+    if (this.modalGuard?.() && !window.confirm('Descartar o que foi digitado?')) return;
+    this.modalGuard = null;
+    this.modal = null;
   },
   openModal(kind) {
     this.paletteOpen = false;

@@ -86,7 +86,7 @@ export function register(Alpine) {
           this.app.toast('Alterações salvas');
           this.app.loadTree(); // atualiza updated_at na árvore
         } catch (e) {
-          if (e.status !== 401) this.error = e.message;
+          this.error = e.message;
         } finally {
           this.saving = false;
         }
@@ -98,6 +98,7 @@ export function register(Alpine) {
     types: ITEM_TYPES,
     classes: MEMORY_CLASSES,
     form: {},
+    initial: '',
     saving: false,
     error: null,
 
@@ -131,11 +132,17 @@ export function register(Alpine) {
         importance: '',
         ttl_days: '',
       };
+      this.initial = JSON.stringify(this.form);
+      this.app.modalGuard = () => JSON.stringify(this.form) !== this.initial;
       this.$nextTick(() => this.$refs.first?.focus());
     },
 
+    destroy() {
+      this.app.modalGuard = null;
+    },
+
     close() {
-      this.app.modal = null;
+      this.app.closeModal();
     },
 
     async submit() {
@@ -147,7 +154,7 @@ export function register(Alpine) {
         else if (this.kind === 'domain') await this.createDomain();
         else await this.createItem();
       } catch (e) {
-        if (e.status !== 401) this.error = e.message;
+        this.error = e.message;
       } finally {
         this.saving = false;
       }

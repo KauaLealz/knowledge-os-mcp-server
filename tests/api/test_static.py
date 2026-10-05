@@ -151,6 +151,7 @@ def _js(name: str) -> str:
 def test_markdown_passa_pelo_dompurify_e_nunca_por_x_html():
     md = _js("markdown.js")
     assert "DOMPurify.sanitize" in md and "marked" in md and "hljs" in md
+    assert "FORBID_TAGS" in md and "FORBID_ATTR" in md
     assert "x-html" not in (STATIC / "index.html").read_text(encoding="utf-8")
     for f in (STATIC / "js").rglob("*.js"):
         assert ".innerHTML" not in f.read_text(encoding="utf-8"), f.name
@@ -202,3 +203,43 @@ def test_responsivo_e_estados():
     # a falha de listagem aparece também na página de Workspace, não só na lista da conexão
     assert html.count("$store.app.wsError") >= 3
     assert "Tentar de novo" in html and 'role="alert"' in html
+
+
+def test_editor_so_renderiza_com_o_item_da_rota():
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert "route.params.edit && item && item.id === $store.app.route.params.item" in html
+    assert "this.item.id !== id) this.item = null" in _js("views/item.js")
+
+
+def test_erro_de_conexoes_nao_fabrica_default():
+    st = _js("store.js")
+    assert "connError" in st
+    assert "list = [];" not in st
+    assert "this.connError = e.message" in st
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert html.count("$store.app.connError") >= 3
+
+
+def test_load_workspaces_descarta_resposta_antiga():
+    st = _js("store.js")
+    assert "++this.wsSeq" in st and st.count("seq !== this.wsSeq") >= 2
+
+
+def test_pagina_de_domain_usa_limite_maximo_e_avisa():
+    dm = _js("views/domain.js")
+    assert "LIMIT = 500" in dm and "limit: LIMIT" in dm
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert "Mostrando " in html and "truncated" in html
+
+
+def test_nenhum_arquivo_estatico_menciona_401():
+    for f in _static_files():
+        assert "401" not in f.read_text(encoding="utf-8"), f.name
+
+
+def test_fechar_modal_sujo_pede_confirmacao():
+    assert "app.closeModal()" in _js("shortcuts.js")
+    assert "Descartar o que foi digitado?" in _js("store.js")
+    assert "modalGuard" in _js("views/editor.js")
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert html.count("close()") >= 3
