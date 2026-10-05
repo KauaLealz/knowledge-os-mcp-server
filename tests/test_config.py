@@ -143,3 +143,59 @@ def test_campos_rejeitam_caracteres_de_injecao(field, bad):
 def test_sqlite_exige_path():
     with pytest.raises(ValueError):
         ConnectionConfig(id="s", name="S", db_type="sqlite")
+
+
+def test_save_usa_tmp_unico_com_permissao_restrita(monkeypatch):
+    import os
+
+    opened, replaced = [], []
+    real_open, real_replace = os.open, os.replace
+
+    def spy_open(path, flags, mode=0o777, **kw):
+        opened.append((str(path), mode))
+        return real_open(path, flags, mode, **kw)
+
+    def spy_replace(src, dst):
+        replaced.append(str(src))
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(os, "open", spy_open)
+    monkeypatch.setattr(os, "replace", spy_replace)
+    ConfigManager.save(ConfigManager.create_default_config())
+    ConfigManager.save(ConfigManager.create_default_config())
+    assert len(opened) == 2 and all(m == 0o600 for _, m in opened)
+    assert opened[0][0] != opened[1][0]  # tmp único a cada save (nada de nome fixo)
+    assert str(os.getpid()) in opened[0][0]
+    assert not list(ConfigManager.CONNECTIONS_FILE.parent.glob("*.tmp"))
+
+
+def test_save_fallback_quando_replace_falha(monkeypatch):
+    import os
+
+    def boom(src, dst):
+        raise OSError("destino aberto")
+
+    monkeypatch.setattr(os, "replace", boom)
+    ConfigManager.save(ConfigManager.create_default_config())
+    assert ConfigManager.load_or_create().default == "default"
+    assert not list(ConfigManager.CONNECTIONS_FILE.parent.glob("*.tmp"))
+
+
+def test_knowledge_os_home_resolve_til_e_relativo(tmp_path):
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    code = "import src.config as c; print(c.KNOWLEDGE_HOME)"
+
+    def home_for(value):
+        env = {**os.environ, "KNOWLEDGE_OS_HOME": value, "PYTHONPATH": str(root)}
+        env.pop("MCP_DB_PATH", None)
+        out = subprocess.run([sys.executable, "-c", code], cwd=tmp_path, env=env,
+                             capture_output=True, text=True, check=True)
+        return Path(out.stdout.strip())
+
+    assert home_for("rel/../meu-home") == (tmp_path / "meu-home").resolve()
+    assert home_for("~/kos-teste") == (Path.home() / "kos-teste").resolve()

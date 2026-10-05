@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import sys
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -25,9 +26,9 @@ MIN_DB_KEY_LENGTH = 16
 
 # Home de dados: connections.json, banco catálogo, artifacts, exports e backups.
 # As constantes são lidas no import; o diretório só é criado em ensure_home().
-KNOWLEDGE_HOME: Path = Path(
-    os.getenv("KNOWLEDGE_OS_HOME") or Path.home() / ".knowledge-os"
-).expanduser()
+KNOWLEDGE_HOME: Path = (
+    Path(os.getenv("KNOWLEDGE_OS_HOME") or Path.home() / ".knowledge-os").expanduser().resolve()
+)
 ARTIFACTS_DIR: Path = KNOWLEDGE_HOME / "artifacts"
 EXPORTS_DIR: Path = KNOWLEDGE_HOME / "exports"
 BACKUPS_DIR: Path = KNOWLEDGE_HOME / "backups"
@@ -247,16 +248,19 @@ class ConfigManager:
     def save(config: ConnectionsFile) -> None:
         path = ConfigManager.CONNECTIONS_FILE
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(path.name + ".tmp")
-        tmp.write_text(json.dumps(config.model_dump(mode="json"), indent=2), encoding="utf-8")
+        payload = json.dumps(config.model_dump(mode="json"), indent=2)
+        # tmp único por processo/chamada (MCP + UI podem salvar ao mesmo tempo), só do dono.
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0)
+        fd = os.open(tmp, flags, 0o600)
         try:
-            os.chmod(tmp, 0o600)  # best-effort: o arquivo guarda senhas
-        except OSError:
-            pass
-        try:
-            os.replace(tmp, path)
-        except OSError:  # Windows: destino aberto por outro processo (ex.: MCP + UI)
-            path.write_text(tmp.read_text(encoding="utf-8"), encoding="utf-8")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(payload)
+            try:
+                os.replace(tmp, path)
+            except OSError:  # Windows: destino aberto por outro processo (ex.: MCP + UI)
+                path.write_text(payload, encoding="utf-8")
+        finally:
             tmp.unlink(missing_ok=True)
 
     @staticmethod
