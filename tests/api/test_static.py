@@ -208,3 +208,12 @@ def test_editor_so_renderiza_com_o_item_da_rota():
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     assert "route.params.edit && item && item.id === $store.app.route.params.item" in html
     assert "this.item.id !== id) this.item = null" in _js("views/item.js")
+
+
+def test_erro_de_conexoes_nao_fabrica_default():
+    st = _js("store.js")
+    assert "connError" in st
+    assert "list = [];" not in st
+    assert "this.connError = e.message" in st
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert html.count("$store.app.connError") >= 3

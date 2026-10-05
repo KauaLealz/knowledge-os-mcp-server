@@ -44,6 +44,7 @@ export const appStore = {
   route: { name: 'home', params: {} },
 
   connections: [],
+  connError: null,
   connId: null,
   workspaces: [],
   wsLoading: false,
@@ -101,12 +102,14 @@ export const appStore = {
   },
 
   async loadConnections() {
-    let list = [];
+    this.connError = null;
+    let list;
     try {
       list = (await api('GET', '/connections')).map(normalizeConnection);
     } catch (e) {
-      if (e.status === 401) throw e;
-      list = [];
+      // Erro real: mostra (banner) e não fabrica conexão. Mantém o que já havia carregado.
+      this.connError = e.message;
+      return;
     }
     if (!list.length) list = [{ id: 'default', name: 'default', enabled: true, is_default: true }];
     if (!list.some((c) => c.is_default)) {
@@ -122,6 +125,7 @@ export const appStore = {
     this.route = r;
     this.drawer = false;
     if (r.name === 'home') {
+      if (!this.connections.length) return; // sem lista de conexões (erro já exibido)
       const saved = lsGet('kos.conn');
       const conn =
         this.connections.find((c) => c.id === saved && c.enabled) ||

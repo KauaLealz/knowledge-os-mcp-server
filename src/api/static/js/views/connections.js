@@ -90,6 +90,7 @@ export function register(Alpine) {
       if (this.isNew) {
         this.form = blankForm();
       } else if (this.sub) {
+        if (this.app.connError) return;
         const c = this.conn;
         if (!c) {
           this.notFound = true;
