@@ -28,6 +28,10 @@ dependencies = [
     "keyring>=24",
 ]
 
+[project.urls]
+Homepage = "https://github.com/KauaLealz/knowledge-os-mcp-server"
+Issues = "https://github.com/KauaLealz/knowledge-os-mcp-server/issues"
+
 [project.optional-dependencies]
 # Só para MCP_DB_KEY (SQLCipher). Sem wheel para Windows/cp312, por isso é opcional.
 postgres = ["psycopg[binary]>=3.1"]

@@ -19,17 +19,16 @@ o que valeu, numa chamada.
 ## Instalar
 
 ```bash
-uv tool install --editable <caminho-do-repo>      # comando `knowledge-mcp`
+uv tool install "git+https://github.com/KauaLealz/knowledge-os-mcp-server"      # comando `knowledge-mcp`
 knowledge-mcp --version
 ```
 
-Se o repositório estiver num remoto Git, também dá para instalar direto dele:
-`uv tool install "git+<url-do-repositorio>"`.
+Para desenvolver, clone e instale editável: `uv tool install --editable <pasta-do-clone>`.
 
 O SQLite (padrão) já vem incluído. Os drivers de Postgres e MySQL são opcionais:
 
 ```bash
-uv tool install --editable "<caminho-do-repo>[postgres]"   # ou [mysql], ou [all]
+uv tool install "knowledge-mcp[postgres] @ git+https://github.com/KauaLealz/knowledge-os-mcp-server"   # ou [mysql], ou [all]
 ```
 
 Sem o driver, conectar a esse banco falha com a mensagem "instale knowledge-mcp[postgres]"
