@@ -185,7 +185,7 @@ def _recent(args: argparse.Namespace) -> int:
             "action": "created" if item.created_at and item.created_at >= since_utc else "updated",
             "workspace": ws, "domain": dm, "key": item.key, "type": item.type,
             "memory_class": item.memory_class, "title": item.title, "summary": item.summary,
-            "source": item.source,
+            "source": item.source, "status": item.status,
         }
         for item, ws, dm in rows
     ]

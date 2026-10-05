@@ -147,5 +147,5 @@ def test_recent_json(env, project):
                           "title": "Decisão Y", "summary": "porque sim", "content": "...",
                           "source": "PAY-1"}])
     data = json.loads(cli(env, "recent", "--json").stdout)
-    assert [(d["title"], d["action"], d["source"]) for d in data] == [
-        ("Decisão Y", "created", "PAY-1")]
+    assert [(d["title"], d["action"], d["source"], d["status"]) for d in data] == [
+        ("Decisão Y", "created", "PAY-1", "active")]
