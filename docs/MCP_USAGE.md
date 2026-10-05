@@ -21,8 +21,8 @@ python src/main.py        # inicia o servidor MCP (stdio)
 Na inicialização o servidor escreve em **stderr** (o stdout é o canal do protocolo):
 
 ```
-Loaded: .knowledge/connections.json
-Connected: Local SQLite (sqlite_local)
+Loaded: <home>/connections.json
+Connected: <nome da conexão> (<id>)
 ```
 
 Comandos úteis antes de subir o servidor:
@@ -119,18 +119,20 @@ Tags e labels entram **na criação** do item. Para ver o vocabulário existente
 mcp call connection_create \
   --name "postgres_prod" \
   --db-type postgresql \
-  --url "postgresql://user:pass@prod.example.com:5432/knowledge"
+  --url "postgresql://user@prod.example.com:5432/knowledge"
+# A senha não entra aqui: informe-a na UI (Configurações > Conexões) ou no campo
+# `password` do connections.json.
 
 # 2. Testar a conexão
 mcp call connection_test --connection-id postgres_prod
 # Retorna: {"status": "ok", "message": "connected", "latency_ms": 42}
 
 # 3. Preparar o banco (cria tabelas e índices; idempotente)
-mcp call connection_init_db --connection-id postgres_prod
+mcp call schema_sync --connection-id postgres_prod
 
 # 4. Migrar tudo (replace: limpa o destino antes de copiar)
 mcp call migrate_workspaces \
-  --from-connection-id sqlite_local \
+  --from-connection-id sqlite_backup \
   --to-connection-id postgres_prod \
   --mode replace
 
@@ -269,13 +271,13 @@ mcp call artifact_get --artifact-id art_123    # conteúdo em base64 (até 100MB
 | Connection não encontrada | Rodar `connection_list` para ver os ids disponíveis |
 | Workspace/domain não encontrado | Rodar `workspace_list` / `domain_list` e usar o **nome** exato |
 | Não conecta ao PostgreSQL/MySQL | `connection_test --connection-id <id>`; conferir URL, rede e a variável de ambiente da senha |
-| Erro de tabela/schema ausente | `connection_init_db --connection-id <id>` e depois `health_check` |
+| Erro de tabela/schema ausente | `schema_sync --connection-id <id>` e depois `health_check` |
 | Item `ephemeral` rejeitado | Informar `ttl_days` ao criar |
 | `memory_promote` recusado | Só é possível subir de classe (nunca rebaixar nem voltar a `ephemeral`) |
 | `memory_renew` recusado | Só vale para items `ephemeral` |
 | Busca sem resultado | Usar menos palavras, outro `domain`, sinônimos; confirmar o `workspace` |
 | `workspace_import` falha por nome | Já existe um workspace com esse nome na connection; renomeie ou remova |
-| Migração falha | Garantir que o destino foi inicializado (`connection_init_db`); em `merge`, ids repetidos abortam, então use `replace` num destino descartável |
+| Migração falha | Garantir que o destino foi inicializado (`schema_sync`); em `merge`, ids repetidos abortam, então use `replace` num destino descartável |
 | `artifact_attach` falha | O caminho precisa ser um arquivo regular existente de até 100MB |
 | Servidor não inicia | `python src/main.py --check-db` mostra o problema de banco/configuração |
 

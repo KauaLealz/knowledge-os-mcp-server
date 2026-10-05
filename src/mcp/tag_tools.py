@@ -19,7 +19,7 @@ def tag_create(name: str, connection_id: str | None = None) -> dict[str, Any]:
     **Retorna:** {id, name}.
     **Exemplo:** tag_create(name="asyncio")
     **Notas:** Tags são livres e criadas dinamicamente. connection_id: opcional; sem ele usa a
-        connection default (`default`).
+        connection default (a do JSON).
     """
     req = TagCreate(name=name)
     tag = TagService(connection_id=connection_id).create(req.name)
@@ -32,7 +32,7 @@ def tag_list(connection_id: str | None = None) -> list[dict[str, Any]]:
     **Use quando:** Ver o vocabulário existente para reutilizar tags em vez de criar variantes.
     **Retorna:** Lista de {id, name}.
     **Exemplo:** tag_list()
-    **Notas:** connection_id: opcional; sem ele usa a connection default (`default`).
+    **Notas:** connection_id: opcional; sem ele usa a connection default (a do JSON).
     """
     tags = TagService(connection_id=connection_id).list()
     return TagListResponse.model_validate(tags, from_attributes=True).model_dump(mode="json")
@@ -45,7 +45,7 @@ def tag_delete(tag_id: str, connection_id: str | None = None) -> dict[str, str]:
     **Retorna:** {status: ok, message}.
     **Exemplo:** tag_delete(tag_id="tag_123")
     **Notas:** Os items permanecem; só a associação some. connection_id: opcional; sem ele usa a
-        connection default (`default`).
+        connection default (a do JSON).
     """
     TagService(connection_id=connection_id).delete(tag_id)
     return {"status": "ok", "message": f"Tag removida: {tag_id}"}

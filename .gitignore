@@ -71,5 +71,7 @@ Thumbs.db
 .DS_Store
 
 # Misc
+.tmpv/
+.claude/worktrees/
 .plumb/changes/archive/
 *.log

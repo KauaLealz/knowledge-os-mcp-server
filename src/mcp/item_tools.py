@@ -49,7 +49,7 @@ def register(mcp: FastMCP) -> None:
         **Notas:** workspace e domain aceitam nome ou id. type: context, rule, pattern, procedure,
             knowledge, insight, artifact. memory_class: ephemeral (exige ttl_days), working,
             longterm, canonical. confidence 0-100, importance 0-10. connection_id: opcional; sem ele
-            usa a connection default (`default`).
+            usa a connection default (a do JSON).
         """
         svc = _service(connection_id)
         workspace_id = svc.resolve_workspace_id(workspace)
@@ -79,7 +79,7 @@ def register(mcp: FastMCP) -> None:
         **Exemplo:** item_update(item_id="item_def456", summary="Novo resumo", importance=8)
         **Notas:** Só summary, content, confidence, importance e ttl_days são alteráveis, e só os
             informados mudam. Para mudar a classe de memória use memory_promote. connection_id:
-            opcional; sem ele usa a connection default (`default`).
+            opcional; sem ele usa a connection default (a do JSON).
         """
         fields = {
             k: v
@@ -100,7 +100,7 @@ def register(mcp: FastMCP) -> None:
         **Retorna:** {status: ok, message}.
         **Exemplo:** item_delete(item_id="item_def456")
         **Notas:** Destrutivo. Se o histórico importar, prefira uma relation supersedes.
-            connection_id: opcional; sem ele usa a connection default (`default`).
+            connection_id: opcional; sem ele usa a connection default (a do JSON).
         """
         _service(connection_id).delete(item_id)
         return {"status": "ok", "message": f"Item {item_id} removido"}
@@ -113,7 +113,7 @@ def register(mcp: FastMCP) -> None:
         **Retorna:** Item completo (content, tags, labels, metadados, relations).
         **Exemplo:** item_get(item_id="item_def456")
         **Notas:** item_search nunca devolve content; use este tool para lê-lo. connection_id:
-            opcional; sem ele usa a connection default (`default`).
+            opcional; sem ele usa a connection default (a do JSON).
         """
         data = ItemResponse.from_item(_service(connection_id).get(item_id)).model_dump(mode="json")
         rels = RelationService(connection_id=connection_id).list(item_id)
@@ -141,7 +141,7 @@ def register(mcp: FastMCP) -> None:
             types=["knowledge"], limit=5)
         **Notas:** workspace é obrigatório (nome ou id); domain, types e memory_classes filtram.
             Ordena por importance, confidence, access_count e updated_at (desc). limit padrão 10.
-            connection_id: opcional; sem ele usa a connection default (`default`).
+            connection_id: opcional; sem ele usa a connection default (a do JSON).
         """
         svc = _service(connection_id)
         workspace_id = svc.resolve_workspace_id(workspace)

@@ -165,8 +165,7 @@ JSON não aceita comentários: não os coloque no arquivo.
    `connection_create`, que não aceita senha).
 2. A senha é informada pelo usuário na UI ou editando o campo `password` no JSON.
    Nunca peça nem repita a senha na conversa.
-3. Valide com `connection_test` e prepare o banco com `schema_sync`
-   (ou `connection_init_db`).
+3. Valide com `connection_test` e prepare o banco com `schema_sync`.
 4. Use: `workspace_create(name="Shared", connection_id="postgres_prod")`.
 
 ## Convenções de parâmetros
@@ -202,7 +201,7 @@ para não duplicar contexto, tópico ou conhecimento que já está guardado.
 ```
 1. connection_create(name, db_type, url)  → registra o banco novo
 2. connection_test(connection_id)         → valida a conectividade
-3. connection_init_db(connection_id)      → cria o schema no banco novo
+3. schema_sync(connection_id)             → cria o schema no banco novo
 4. workspace_list(connection_id=...)      → vazio no início
 5. migrate_workspaces(from, to, mode)     → copia o conhecimento entre bancos
 ```
@@ -215,10 +214,10 @@ para operar nela. A connection default não muda sozinha.
 | Objetivo | Tool(s) | Observação |
 |----------|---------|------------|
 | Ver connections | `connection_list`, `connection_get` | Comece sempre por aqui em sessão nova |
-| Adicionar banco remoto | `connection_create` → `connection_test` → `connection_init_db` | Nessa ordem |
+| Adicionar banco remoto | `connection_create` → `connection_test` → `schema_sync` | Nessa ordem |
 | Pausar/renomear connection | `connection_update` | Não altera a URL |
 | Remover connection | `connection_delete` | Peça confirmação ao usuário |
-| Mover dados entre bancos | `migrate_workspaces` | `replace` apaga o destino; `merge` une |
+| Mover dados entre bancos | `migrate_workspaces` | `replace` apaga o destino; `merge` une; só entre connections cadastradas no JSON (o catálogo `default` não entra) |
 | Criar contexto | `workspace_create` | Novo projeto/assunto |
 | Listar/ler contextos | `workspace_list`, `workspace_get` | |
 | Estruturar tópico | `domain_create`, `domain_list`, `domain_get` | Dentro de um workspace |
@@ -284,7 +283,7 @@ para operar nela. A connection default não muda sozinha.
 | Connection não encontrada | `connection_list` e use o id exato |
 | Workspace/domain não encontrado | `workspace_list` / `domain_list` e use o nome exato |
 | Não conecta ao banco | `connection_test`; confira a URL e a senha (`password_set`) |
-| Tabelas ausentes / erro de schema | `connection_init_db`, depois `health_check` |
+| Tabelas ausentes / erro de schema | `schema_sync(connection_id)`, depois `health_check` |
 | Nome duplicado ao criar | Já existe: use `*_get` / `*_list` e reaproveite |
 | `ephemeral` rejeitado | Faltou `ttl_days` |
 
