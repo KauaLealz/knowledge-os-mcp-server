@@ -5,12 +5,14 @@ import logging
 import os
 import re
 import sys
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
 from urllib.parse import quote
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import ValidationError as PydanticValidationError
 
 if __name__ == "__main__":
     # `python src/config.py` põe src/ em sys.path[0]; troca pela raiz do projeto.
@@ -24,12 +26,15 @@ MIN_DB_KEY_LENGTH = 16
 
 # Home de dados: connections.json, banco catálogo, artifacts, exports e backups.
 # As constantes são lidas no import; o diretório só é criado em ensure_home().
-KNOWLEDGE_HOME: Path = Path(
-    os.getenv("KNOWLEDGE_OS_HOME") or Path.home() / ".knowledge-os"
-).expanduser()
+KNOWLEDGE_HOME: Path = (
+    Path(os.getenv("KNOWLEDGE_OS_HOME") or Path.home() / ".knowledge-os").expanduser().resolve()
+)
 ARTIFACTS_DIR: Path = KNOWLEDGE_HOME / "artifacts"
 EXPORTS_DIR: Path = KNOWLEDGE_HOME / "exports"
 BACKUPS_DIR: Path = KNOWLEDGE_HOME / "backups"
+
+_DEFAULT_PORTS = {"postgresql": 5432, "mysql": 3306}
+_FORBIDDEN_CHARS = set("?#/\\@")
 
 # Id reservado do catálogo (banco padrão, virtual: não consta da lista de conexões).
 CATALOG_ID = "default"
@@ -96,6 +101,11 @@ def validate_and_init_config() -> None:
     bootstrap()
 
 
+def config_error(exc: Exception) -> ConfigError:
+    """ConfigError seguro para propagar: o texto de `exc` só passa se já for de ConfigError."""
+    return exc if isinstance(exc, ConfigError) else ConfigError("connections.json inválido")
+
+
 class ConnectionConfig(BaseModel):
     """Uma conexão do connections.json do home (SQLite, PostgreSQL ou MySQL)."""
 
@@ -133,9 +143,26 @@ class ConnectionConfig(BaseModel):
             raise ValueError("Port must be 1-65535")
         return v
 
+    @model_validator(mode="after")
+    def shape_valid(self) -> "ConnectionConfig":
+        if self.db_type == "sqlite":
+            if not self.path:
+                raise ValueError("path é obrigatório para SQLite")
+            return self
+        if self.port is None:
+            self.port = _DEFAULT_PORTS[self.db_type]
+        for field in ("host", "database"):
+            if not getattr(self, field):
+                raise ValueError(f"{field} é obrigatório")
+        for field in ("host", "database", "username"):
+            value = getattr(self, field)
+            if value and any(ch in _FORBIDDEN_CHARS or ch.isspace() for ch in value):
+                raise ValueError(f"{field} contém caracteres inválidos (? # / \\ @ ou espaço)")
+        return self
+
     def resolved_path(self) -> str:
         """Path do SQLite; o relativo resolve contra o home no momento da chamada."""
-        path = Path(self.path or "")
+        path = Path(self.path or "").expanduser()
         return (path if path.is_absolute() else KNOWLEDGE_HOME / path).as_posix()
 
     def get_url(self) -> str:
@@ -186,11 +213,33 @@ class ConfigManager:
         return ConnectionsFile(default=CATALOG_ID, connections=[])
 
     @staticmethod
+    def _parse(path: Path) -> ConnectionsFile:
+        """Lê o JSON; o erro diz onde (conexão e campo) sem ecoar valores (há senhas)."""
+        try:
+            return ConnectionsFile(**json.loads(path.read_text(encoding="utf-8")))
+        except PydanticValidationError as exc:
+            details = []
+            for e in exc.errors(include_input=False):
+                loc = list(e["loc"])
+                where = ".".join(str(p) for p in loc)
+                if loc[:1] == ["connections"] and len(loc) > 1 and isinstance(loc[1], int):
+                    try:
+                        raw = json.loads(path.read_text(encoding="utf-8"))
+                        cid = raw["connections"][loc[1]].get("id")
+                        where = f"conexão {cid!r}: " + ".".join(str(p) for p in loc[2:])
+                    except Exception:
+                        pass
+                details.append(f"{where}: {e['msg']}")
+            raise ConfigError(f"connections.json inválido: {'; '.join(details)}") from None
+        except (ValueError, OSError, TypeError, AttributeError):
+            raise ConfigError("connections.json inválido: JSON malformado ou ilegível") from None
+
+    @staticmethod
     def load_or_create() -> ConnectionsFile:
         """Carrega o arquivo, ou grava e devolve o default se ele não existe."""
         path = ConfigManager.CONNECTIONS_FILE
         if path.exists():
-            return ConnectionsFile(**json.loads(path.read_text(encoding="utf-8")))
+            return ConfigManager._parse(path)
         config = ConfigManager.create_default_config()
         ConfigManager.save(config)
         return config
@@ -199,16 +248,19 @@ class ConfigManager:
     def save(config: ConnectionsFile) -> None:
         path = ConfigManager.CONNECTIONS_FILE
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(path.name + ".tmp")
-        tmp.write_text(json.dumps(config.model_dump(mode="json"), indent=2), encoding="utf-8")
+        payload = json.dumps(config.model_dump(mode="json"), indent=2)
+        # tmp único por processo/chamada (MCP + UI podem salvar ao mesmo tempo), só do dono.
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0)
+        fd = os.open(tmp, flags, 0o600)
         try:
-            os.chmod(tmp, 0o600)  # best-effort: o arquivo guarda senhas
-        except OSError:
-            pass
-        try:
-            os.replace(tmp, path)
-        except OSError:  # Windows: destino aberto por outro processo (ex.: MCP + UI)
-            path.write_text(tmp.read_text(encoding="utf-8"), encoding="utf-8")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(payload)
+            try:
+                os.replace(tmp, path)
+            except OSError:  # Windows: destino aberto por outro processo (ex.: MCP + UI)
+                path.write_text(payload, encoding="utf-8")
+        finally:
             tmp.unlink(missing_ok=True)
 
     @staticmethod

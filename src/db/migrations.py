@@ -5,7 +5,7 @@ import uuid
 
 from sqlalchemy.orm import Session
 
-from src.db.models import Label
+from src.db.models import DEFAULT_CONNECTION_ID, Label
 from src.db.session import get_engine, init_db
 
 logger = logging.getLogger(__name__)
@@ -34,14 +34,14 @@ def bootstrap_labels(session: Session) -> None:
 def bootstrap() -> None:
     """
     Executa bootstrap completo:
-    1. Cria engine e inicializa banco (schema)
+    1. Inicializa o banco catálogo (schema); o default do connections.json só abre no uso
     2. Insere labels padrão
 
     Idempotente: seguro rodar múltiplas vezes.
     """
     try:
         # Inicializa banco (cria tabelas, FTS5, triggers)
-        engine = init_db(get_engine())
+        engine = init_db(get_engine(DEFAULT_CONNECTION_ID))
 
         # Insere labels padrão
         session = Session(bind=engine)

@@ -122,9 +122,18 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 
 def run_ui(port: int, open_browser: bool) -> None:
     """Sobe a UI/API em 127.0.0.1, sem login. A URL vai ao stdout (não é modo MCP)."""
+    import socket
+
     import uvicorn
 
     from src.api.main import app
+
+    # Testa o bind antes de anunciar a URL: porta ocupada = URL de outro processo.
+    with socket.socket() as probe:
+        try:
+            probe.bind(("127.0.0.1", port))
+        except OSError:
+            raise ConfigError(f"Porta {port} ocupada em 127.0.0.1; use --port") from None
 
     url = f"http://127.0.0.1:{port}/ui/"
     print(url, flush=True)

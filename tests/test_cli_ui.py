@@ -94,3 +94,15 @@ def test_ui_de_verdade_responde_sem_token_e_recusa_escrita_de_outra_origem(tmp_p
         watchdog.cancel()
         proc.terminate()
         proc.wait(timeout=10)
+
+
+def test_ui_porta_ocupada_falha_antes_de_imprimir_a_url(fake_uvicorn, capsys):
+    with socket.socket() as busy:
+        busy.bind(("127.0.0.1", 0))
+        busy.listen()
+        port = busy.getsockname()[1]
+        assert main_mod.main(["ui", "--port", str(port), "--no-browser"]) == 1
+    captured = capsys.readouterr()
+    assert "/ui/" not in captured.out
+    assert str(port) in captured.err and "ocupada" in captured.err
+    assert fake_uvicorn == []

@@ -215,3 +215,17 @@ def test_connection_test_postgresql_real(svc):
 def test_connection_test_mysql_real(svc):
     conn = svc.create("MyLive", "mysql", os.environ["KOS_TEST_MYSQL_URL"])
     assert svc.test(conn.id)["status"] == "ok"
+
+
+def test_test_do_catalogo_usa_o_engine_vivo_e_nao_a_url_do_espelho(svc, monkeypatch):
+    from sqlalchemy import text
+
+    from src.services import connection_service
+
+    monkeypatch.setattr(connection_service, "_last_tests", {})  # estado global do módulo
+
+    with get_engine(DEFAULT_CONNECTION_ID).begin() as c:  # espelho com URL gravada errada
+        c.execute(text("UPDATE connections SET db_url = 'postgresql://u@127.0.0.1:1/d' "
+                       "WHERE id = 'default'"))
+    result = svc.test(DEFAULT_CONNECTION_ID)
+    assert result["status"] == "ok", result

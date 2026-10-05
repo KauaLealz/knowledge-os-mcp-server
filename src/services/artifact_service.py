@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from src.config import ARTIFACTS_DIR
 from src.db.models import Artifact, Item
 from src.exceptions import NotFoundError, ValidationError
-from src.services._common import session_scope
+from src.services._common import refuse_home_source, session_scope
 
 logger = logging.getLogger(__name__)
 
@@ -45,13 +45,15 @@ class ArtifactService:
         self._connection_id = connection_id
         self._dir = artifacts_dir or ARTIFACTS_DIR
 
-    def attach(self, item_id: str, file_path: str) -> Artifact:
+    def attach(self, item_id: str, file_path: str, *, check_origin: bool = True) -> Artifact:
         """Copia o arquivo para ARTIFACTS_DIR (nome UUID) e registra no banco.
 
         NotFoundError se o item ou o arquivo não existem; ValidationError se o caminho
         não é um arquivo regular ou excede MAX_ARTIFACT_BYTES.
         """
         source = Path(file_path)
+        if check_origin:
+            refuse_home_source(source)
         if not source.exists():
             raise NotFoundError(f"Arquivo não encontrado: {file_path}")
         if not source.is_file():

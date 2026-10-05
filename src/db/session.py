@@ -7,7 +7,7 @@ from sqlalchemy import Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
-from src.config import DB_URL, ConfigManager, ConnectionConfig
+from src.config import DB_URL, ConfigManager, ConnectionConfig, config_error
 from src.db.dialects import detect_type, get_dialect, redact
 from src.db.dialects.base import FTS_COLUMNS, FTS_TABLE
 from src.db.dialects.sqlite import create_fts_trigger
@@ -17,7 +17,7 @@ from src.db.models import (
     Connection,
 )
 from src.db.schema_sync import schema_sync
-from src.exceptions import ConfigError, DatabaseError, NotFoundError, ValidationError
+from src.exceptions import DatabaseError, NotFoundError, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +74,7 @@ def default_connection_id() -> str:
     try:
         return ConfigManager.load_or_create().default
     except Exception as exc:
-        raise ConfigError(f"connections.json inválido: {exc}") from None
+        raise config_error(exc) from None
 
 
 def check_connection(connection_id: str) -> None:
@@ -161,7 +161,7 @@ class ConnectionManager:
         try:
             config = ConfigManager.load_or_create()
         except Exception as exc:
-            raise ConfigError(f"connections.json inválido: {exc}") from None
+            raise config_error(exc) from None
         try:
             conn = config.get_connection(connection_id)
         except ValueError:

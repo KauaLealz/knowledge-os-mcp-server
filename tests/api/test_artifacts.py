@@ -61,3 +61,18 @@ def test_delete_removes_record_and_file(client, mk, tmp_path):
 
 def test_delete_missing_is_404(client):
     assert client.delete("/api/artifacts/nope").status_code == 404
+
+
+def test_download_com_nome_com_aspas_e_nao_latin1(client, mk, engine):
+    from sqlalchemy import text
+
+    _, _, it = mk.tree()
+    art = _upload(client, it["id"]).json()
+    with engine.begin() as c:  # o multipart do cliente escapa as aspas: grava o nome direto
+        c.execute(text("UPDATE artifacts SET filename = :n"), {"n": 'a"b ç.txt'})
+    r = client.get(f"/api/artifacts/{art['id']}")
+    assert r.status_code == 200 and r.content == b"hello"
+    cd = r.headers["content-disposition"]
+    assert "filename*=UTF-8''a%22b%20%C3%A7.txt" in cd
+    ascii_part = cd.split(";")[1].strip()
+    assert ascii_part == 'filename="a_b _.txt"'

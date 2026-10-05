@@ -96,3 +96,127 @@ def test_validate_connection_error():
         database="d", username="u",
     )
     assert ConfigManager.validate_connection(conn)["status"] == "error"
+
+
+def _write_json(conns):
+    import json
+
+    ConfigManager.CONNECTIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    ConfigManager.CONNECTIONS_FILE.write_text(
+        json.dumps({"version": "1.0", "default": "default", "connections": conns}),
+        encoding="utf-8",
+    )
+
+
+def test_json_a_mao_sem_port_assume_o_padrao():
+    _write_json([{"id": "pg", "name": "PG", "db_type": "postgresql", "host": "h",
+                  "database": "d", "username": "u"},
+                 {"id": "my", "name": "My", "db_type": "mysql", "host": "h", "database": "d"}])
+    config = ConfigManager.load_or_create()
+    assert config.get_connection("pg").get_url() == "postgresql://u@h:5432/d"
+    assert config.get_connection("my").port == 3306
+
+
+def test_json_com_host_ausente_aponta_conexao_e_campo_sem_vazar_senha():
+    from src.exceptions import ConfigError
+    from src.services.connection_service import ConnectionService
+
+    _write_json([{"id": "pg", "name": "PG", "db_type": "postgresql",
+                  "database": "d", "username": "u", "password": "SEGREDO-123"}])
+    for call in (ConfigManager.load_or_create, ConnectionService().list):
+        with pytest.raises(ConfigError) as err:
+            call()
+        msg = str(err.value)
+        assert "pg" in msg and "host" in msg
+        assert "SEGREDO" not in msg and "123" not in msg
+        assert msg.count("connections.json inválido") == 1
+
+
+@pytest.mark.parametrize("field", ["host", "database", "username"])
+@pytest.mark.parametrize("bad", ["d?host=outro", "a#b", "a/b", "a\\b", "a@b", "a b"])
+def test_campos_rejeitam_caracteres_de_injecao(field, bad):
+    kw = {"host": "h", "database": "d", "username": "u", field: bad}
+    with pytest.raises(ValueError):
+        ConnectionConfig(id="pg", name="PG", db_type="postgresql", **kw)
+
+
+def test_sqlite_exige_path():
+    with pytest.raises(ValueError):
+        ConnectionConfig(id="s", name="S", db_type="sqlite")
+
+
+def test_save_usa_tmp_unico_com_permissao_restrita(monkeypatch):
+    import os
+
+    opened, replaced = [], []
+    real_open, real_replace = os.open, os.replace
+
+    def spy_open(path, flags, mode=0o777, **kw):
+        opened.append((str(path), mode))
+        return real_open(path, flags, mode, **kw)
+
+    def spy_replace(src, dst):
+        replaced.append(str(src))
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(os, "open", spy_open)
+    monkeypatch.setattr(os, "replace", spy_replace)
+    ConfigManager.save(ConfigManager.create_default_config())
+    ConfigManager.save(ConfigManager.create_default_config())
+    assert len(opened) == 2 and all(m == 0o600 for _, m in opened)
+    assert opened[0][0] != opened[1][0]  # tmp único a cada save (nada de nome fixo)
+    assert str(os.getpid()) in opened[0][0]
+    assert not list(ConfigManager.CONNECTIONS_FILE.parent.glob("*.tmp"))
+
+
+def test_save_fallback_quando_replace_falha(monkeypatch):
+    import os
+
+    def boom(src, dst):
+        raise OSError("destino aberto")
+
+    monkeypatch.setattr(os, "replace", boom)
+    ConfigManager.save(ConfigManager.create_default_config())
+    assert ConfigManager.load_or_create().default == "default"
+    assert not list(ConfigManager.CONNECTIONS_FILE.parent.glob("*.tmp"))
+
+
+def test_knowledge_os_home_resolve_til_e_relativo(tmp_path):
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    code = "import src.config as c; print(c.KNOWLEDGE_HOME)"
+
+    def home_for(value):
+        env = {**os.environ, "KNOWLEDGE_OS_HOME": value, "PYTHONPATH": str(root)}
+        env.pop("MCP_DB_PATH", None)
+        out = subprocess.run([sys.executable, "-c", code], cwd=tmp_path, env=env,
+                             capture_output=True, text=True, check=True)
+        return Path(out.stdout.strip())
+
+    assert home_for("rel/../meu-home") == (tmp_path / "meu-home").resolve()
+    assert home_for("~/kos-teste") == (Path.home() / "kos-teste").resolve()
+
+
+def test_sqlite_path_relativo_em_subpasta_cria_o_diretorio_no_home(_isolated_home):
+    from src.services.connection_service import ConnectionService
+
+    row = ConnectionService().create("sub", "sqlite", "sqlite:///./database/x.db", test=True)
+    assert (_isolated_home / "database" / "x.db").is_file()
+    assert row.name == "sub"
+
+
+def test_sqlite_path_com_til_expande_para_o_home_do_usuario(tmp_path, monkeypatch):
+    from src.services.connection_service import ConnectionService
+
+    fake = tmp_path / "usuario"
+    fake.mkdir()
+    monkeypatch.setenv("HOME", str(fake))
+    monkeypatch.setenv("USERPROFILE", str(fake))
+    ConnectionService().add("til", "sqlite", test=True, path="~/dados/x.db")
+    assert (fake / "dados" / "x.db").is_file()
+    conn = ConfigManager.load_or_create().connections[0]
+    assert conn.resolved_path() == (fake / "dados" / "x.db").as_posix()

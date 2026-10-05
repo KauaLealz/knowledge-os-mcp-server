@@ -16,12 +16,18 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from src.config import CATALOG_ID, ConfigManager, ConnectionConfig, ConnectionsFile
+from src.config import (
+    CATALOG_ID,
+    ConfigManager,
+    ConnectionConfig,
+    ConnectionsFile,
+    config_error,
+)
 from src.db import session as db_session
 from src.db.dialects import detect_type, get_dialect, normalize_url, redact
 from src.db.models import DEFAULT_CONNECTION_ID, DEFAULT_CONNECTION_NAME, Connection
 from src.db.schema_sync import schema_sync
-from src.exceptions import ConfigError, NotFoundError, ValidationError
+from src.exceptions import NotFoundError, ValidationError
 from src.services._common import session_scope
 
 logger = logging.getLogger(__name__)
@@ -30,6 +36,8 @@ UPDATABLE_FIELDS = (
     "name", "is_active", "path", "host", "port", "database", "username", "password",
 )
 _SERVER_FIELDS = ("host", "port", "database", "username", "password")
+# Mudar o destino com a senha guardada a enviaria a outro servidor: exige senha de novo.
+_DESTINATION_FIELDS = ("path", "host", "port", "database", "username")
 _HOST_FORBIDDEN = set("@/?# \t\r\n\\")
 _PROBE_TABLE = "_kos_connection_probe"
 _DEFAULT_PORTS = {"postgresql": 5432, "mysql": 3306}
@@ -118,7 +126,7 @@ def _load() -> ConnectionsFile:
     try:
         return ConfigManager.load_or_create()
     except Exception as exc:
-        raise ConfigError(f"connections.json inválido: {exc}") from None
+        raise config_error(exc) from None
 
 
 def _find(config: ConnectionsFile, key: str) -> ConnectionConfig:
@@ -356,8 +364,11 @@ class ConnectionService:
         """Testa a conexão e guarda o resultado (em memória). Não levanta por falha de rede."""
         if _is_default_row(connection_id):
             key = DEFAULT_CONNECTION_ID
-            row = self._default_row(_load().default)
-            db_type, url = row.db_type, row.db_url
+            # engine vivo (como em sync_schema): a db_url do espelho pode estar defasada
+            db_type = self._default_row(_load().default).db_type
+            url = db_session.get_engine(DEFAULT_CONNECTION_ID).url.render_as_string(
+                hide_password=False
+            )
         else:
             conn = _find(_load(), connection_id)
             key, db_type, url = conn.id, conn.db_type, _url_of(conn)
@@ -397,6 +408,14 @@ class ConnectionService:
             if old.db_type != "sqlite" and data.get("port") is None:
                 data["port"] = _DEFAULT_PORTS[old.db_type]
             new = _build(data)
+            if (
+                old.password
+                and "password" not in fields
+                and any(getattr(new, k) != getattr(old, k) for k in _DESTINATION_FIELDS)
+            ):
+                raise ValidationError(
+                    "Informe a senha de novo ao mudar host, porta, banco ou usuário"
+                )
             config.connections = [new if c.id == old.id else c for c in config.connections]
             ConfigManager.save(config)
         db_session._connection_manager.invalidate(new.id)
