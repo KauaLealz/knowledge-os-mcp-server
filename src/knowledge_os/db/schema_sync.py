@@ -24,7 +24,7 @@ from sqlalchemy import (
     select,
     text,
 )
-from sqlalchemy.exc import OperationalError, SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError, SQLAlchemyError
 from sqlalchemy.schema import CreateIndex
 
 from knowledge_os.db.dialects import get_dialect
@@ -122,7 +122,7 @@ def _read_version(engine: Engine) -> str | None:
 
 
 def _write_version(engine: Engine, version: str) -> None:
-    _meta.create_all(bind=engine)
+    _create_tolerant(lambda: _meta.create_all(bind=engine), engine, _SCHEMA_META_ONLY)
     with engine.begin() as conn:
         conn.execute(_schema_meta.delete().where(_schema_meta.c.key == _VERSION_KEY))
         conn.execute(
@@ -130,6 +130,20 @@ def _write_version(engine: Engine, version: str) -> None:
                 key=_VERSION_KEY, value=version, updated_at=utcnow()
             )
         )
+
+
+_SCHEMA_META_ONLY = (SCHEMA_META_TABLE,)
+
+
+def _create_tolerant(create: Any, engine: Engine, tables: Any) -> None:
+    """Roda uma criação de tabelas; "already exists" de outro processo subindo junto é ok."""
+    try:
+        create()
+    except (OperationalError, ProgrammingError) as exc:
+        if "already exists" not in str(exc).lower():
+            raise
+        if not set(tables) <= set(inspect(engine).get_table_names()):
+            raise
 
 
 def _backfill_expires_at(engine: Engine) -> None:
@@ -161,6 +175,25 @@ def _backup_before_changes(engine: Engine) -> None:
         backup("pre-schema", engine)
     except Exception:  # noqa: BLE001 - sem backup não deve impedir a atualização
         logger.warning("Backup pre-schema falhou; seguindo com a atualização", exc_info=True)
+
+
+def _create_fts(engine: Engine, dialect: Any) -> None:
+    try:
+        dialect.create_fts_table(engine)
+    except DatabaseError as exc:
+        # Outro processo subindo junto criou a FTS primeiro: é o resultado desejado.
+        if "already exists" not in str(exc).lower():
+            raise
+        dialect.create_fts_table(engine)  # idempotente: confirma que ficou íntegra
+
+
+def _record_version(engine: Engine, version: str) -> None:
+    try:
+        _write_version(engine, version)
+    except IntegrityError:
+        # Conflito de PK com outro processo gravando a versão: relê e, se preciso, regrava.
+        if _read_version(engine) != version:
+            _write_version(engine, version)
 
 
 def schema_sync(engine: Engine, dry_run: bool = False) -> dict[str, Any]:
@@ -219,18 +252,21 @@ def _sync(engine: Engine, dry_run: bool) -> dict[str, Any]:
         if has_changes and existing:
             _backup_before_changes(engine)
         if tables_created:
-            Base.metadata.create_all(bind=engine, tables=[model_tables[t] for t in tables_created])
+            _create_tolerant(
+                lambda: Base.metadata.create_all(
+                    bind=engine, tables=[model_tables[t] for t in tables_created]),
+                engine, tables_created)
         for table, column in columns_to_add:
             _add_column(engine, table, column)
         if indexes_to_create:
             for index in indexes_to_create:
                 _create_index(engine, index)
         if items_present and dialect.supports_fts():
-            dialect.create_fts_table(engine)
+            _create_fts(engine, dialect)
         if "items.expires_at" in {f"{t.name}.{c.name}" for t, c in columns_to_add}:
             _backfill_expires_at(engine)
         if not pending_manual and _read_version(engine) != version:
-            _write_version(engine, version)
+            _record_version(engine, version)
 
     columns_added = [f"{t.name}.{c.name}" for t, c in columns_to_add]
     indexes_created = [f"{i.table.name}.{i.name}" for i in indexes_to_create]

@@ -162,3 +162,64 @@ def test_dois_processos_subindo_juntos_com_coluna_nova(tmp_path):
     check = create_db_engine(f"sqlite:///{db_path}")
     assert "expires_at" in {c["name"] for c in inspect(check).get_columns("items")}
     check.dispose()
+
+
+class _BackupQuebrado:
+    """Conexão de origem cujo backup morre no meio (servidor morto)."""
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def backup(self, target):
+        raise RuntimeError("morreu no meio")
+
+    def close(self):
+        self._conn.close()
+
+
+def _backup_que_morre(monkeypatch):
+    import types
+
+    real = sqlite3.connect
+    first = []
+
+    def fake(path, *a, **kw):
+        conn = real(path, *a, **kw)
+        if not first:
+            first.append(1)
+            return _BackupQuebrado(conn)
+        return conn
+
+    monkeypatch.setattr(maintenance, "sqlite3", types.SimpleNamespace(connect=fake))
+
+
+def test_backup_interrompido_nao_deixa_arquivo_com_nome_final(db, monkeypatch):
+    _backup_que_morre(monkeypatch)
+    with pytest.raises(RuntimeError):
+        maintenance.backup("daily", db)
+    assert list(config.BACKUPS_DIR.glob("knowledge-*.db")) == []
+    assert list(config.BACKUPS_DIR.glob("*.tmp")) == []
+
+
+def test_run_daily_que_falha_nao_marca_o_dia(db, monkeypatch):
+    monkeypatch.setattr("knowledge_os.db.session.get_engine", lambda *a: db)
+    monkeypatch.setattr(config, "KNOWLEDGE_HOME", config.BACKUPS_DIR.parent)
+    _backup_que_morre(monkeypatch)
+    now = datetime(2026, 1, 10, 12)
+    with pytest.raises(RuntimeError):
+        maintenance.run_daily(now)
+    assert not (config.KNOWLEDGE_HOME / maintenance.MARKER_NAME).exists()
+    assert maintenance.run_daily(now)["ran"] is True
+
+
+def test_run_daily_deixa_o_wal_com_zero_bytes(db, monkeypatch):
+    monkeypatch.setattr("knowledge_os.db.session.get_engine", lambda *a: db)
+    _seed(db)
+    s = get_session(db)
+    _item(s, "w", "d", "regra/a")
+    s.commit()
+    s.close()
+    wal = Path(str(db.url.database) + "-wal")
+    assert wal.exists() and wal.stat().st_size > 0
+    maintenance.run_daily(datetime(2026, 1, 10, 12))
+    assert not wal.exists() or wal.stat().st_size == 0

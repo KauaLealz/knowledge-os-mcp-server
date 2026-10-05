@@ -201,3 +201,113 @@ def test_linha_acrescentada_durante_a_gravacao_nao_se_perde(env, project, monkey
     assert cli._flush_file(queue, project)[0] == 1
     assert "gotcha/nova" in queue.read_text(encoding="utf-8")
     assert cli_env_home is not None
+
+
+def _link_inprocess(project):
+    from knowledge_os import cli
+
+    cli.main(["link", "--project", str(project), "--workspace", "W", "--domain", "D"])
+    return cli
+
+
+def test_linha_json_que_nao_e_objeto_vai_para_as_rejeitadas(env, project):
+    cli = _link_inprocess(project)
+    queue = cli._pending_file()
+    queue.write_text("[1, 2]\nnull\n\"texto\"\n" + _entry("gotcha/ok", "Ok") + "\n",
+                     encoding="utf-8")
+    saved, err = cli._flush_file(queue, project)
+    assert saved == 1 and "linha inválida" in err
+    assert queue.read_text(encoding="utf-8").splitlines() == ["[1, 2]", "null", '"texto"']
+    assert not list(queue.parent.glob("pending*.claimed"))
+
+
+def test_erro_inesperado_devolve_o_conteudo_a_fila(env, project, monkeypatch):
+    cli = _link_inprocess(project)
+    queue = cli._pending_file()
+    queue.write_text(_entry("gotcha/a", "A") + "\n", encoding="utf-8")
+
+    def boom(*a, **k):
+        raise RuntimeError("estourou")
+
+    monkeypatch.setattr(cli, "_rewrite_claimed", boom)
+    saved, err = cli._flush_file(queue, project)
+    assert "estourou" in err
+    assert "gotcha/a" in queue.read_text(encoding="utf-8")
+    assert not list(queue.parent.glob("pending*.claimed"))
+
+
+def test_rename_negado_vira_erro_visivel(env, project, monkeypatch):
+    cli = _link_inprocess(project)
+    queue = cli._pending_file()
+    queue.write_text(_entry("gotcha/a", "A") + "\n", encoding="utf-8")
+
+    def denied(self, target):
+        raise PermissionError("negado")
+
+    monkeypatch.setattr(Path, "rename", denied)
+    saved, err = cli._flush_file(queue, project)
+    assert saved == 0 and "PermissionError" in err
+    assert "gotcha/a" in queue.read_text(encoding="utf-8")
+
+
+def test_linha_escrita_no_arquivo_tomado_depois_da_leitura_volta_a_fila(env, project,
+                                                                         monkeypatch):
+    from knowledge_os.services.item_service import ItemService
+
+    cli = _link_inprocess(project)
+    queue = cli._pending_file()
+    queue.write_text(_entry("gotcha/a", "A") + "\n", encoding="utf-8")
+    real_save = ItemService.save
+
+    def save_and_append(self, entries, **kw):
+        claimed = next(queue.parent.glob("pending.*.claimed"))
+        with claimed.open("a", encoding="utf-8") as f:  # escritor com o arquivo já aberto
+            f.write(_entry("gotcha/tarde", "Tarde") + "\n")
+        return real_save(self, entries, **kw)
+
+    monkeypatch.setattr(ItemService, "save", save_and_append)
+    assert cli._flush_file(queue, project)[0] == 1
+    assert "gotcha/tarde" in queue.read_text(encoding="utf-8")
+    assert not list(queue.parent.glob("pending*.claimed"))
+
+
+def test_crash_depois_de_gravar_um_grupo_nao_reprocessa_o_grupo(env, project, tmp_path,
+                                                                 monkeypatch):
+    from knowledge_os.services.item_service import ItemService
+
+    cli = _link_inprocess(project)
+    other = tmp_path / "outro"
+    (other / ".git").mkdir(parents=True)
+    cli.main(["link", "--project", str(other), "--workspace", "W", "--domain", "Outro"])
+    queue = cli._pending_file()
+    queue.write_text(_entry("gotcha/a", "A") + "\n"
+                     + _entry("gotcha/b", "B", project=str(other)) + "\n", encoding="utf-8")
+    real_save = ItemService.save
+    calls = []
+
+    def save_then_die(self, entries, **kw):
+        if calls:
+            raise SystemExit("morreu")
+        calls.append(1)
+        return real_save(self, entries, **kw)
+
+    monkeypatch.setattr(ItemService, "save", save_then_die)
+    with pytest.raises(SystemExit):
+        cli._flush_file(queue, project)
+    left = next(queue.parent.glob("pending.*.claimed")).read_text(encoding="utf-8")
+    assert "gotcha/b" in left and "gotcha/a" not in left
+
+
+def test_backup_pela_cli_gera_arquivo_que_abre(env, project):
+    import sqlite3
+
+    cli(env, "link", "--project", str(project), "--workspace", "W", "--domain", "D")
+    out = cli(env, "backup")
+    assert out.returncode == 0, out.stderr
+    files = list((Path(env["KNOWLEDGE_OS_HOME"]) / "backups").glob("knowledge-*.db"))
+    assert len(files) == 1
+    conn = sqlite3.connect(files[0])
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM workspaces").fetchone()[0] >= 1
+    finally:
+        conn.close()

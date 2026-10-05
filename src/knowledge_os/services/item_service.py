@@ -410,7 +410,7 @@ class ItemService:
             fields = {k: v for k, v in e.items() if v is not None}
             plans.append((i, item_id, key, location, fields, relations))
 
-        return run_with_retry(lambda: self._save_plans(plans))
+        return run_with_retry(lambda: self._save_plans(plans), retry_conflict=True)
 
     def _save_plans(self, plans: list[tuple]) -> list[dict[str, Any]]:
         """Executa o plano numa transação (reexecutável: cada tentativa copia os campos)."""

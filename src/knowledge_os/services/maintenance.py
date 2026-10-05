@@ -51,13 +51,20 @@ def backup(reason: str, engine: Engine | None = None) -> Path | None:
     while dest.exists():  # dois backups no mesmo segundo: avança o carimbo
         stamp += timedelta(seconds=1)
         dest = folder / f"knowledge-{stamp:%Y%m%d-%H%M%S}-{reason}.db"
+    # Nome temporário + rename: um backup interrompido nunca ocupa o nome final (nem a rotação).
+    partial = dest.with_name(dest.name + ".tmp")
     source = sqlite3.connect(src, timeout=30)
-    target = sqlite3.connect(dest)
+    target = sqlite3.connect(partial)
     try:
         source.backup(target)
-    finally:
+    except BaseException:
         target.close()
         source.close()
+        partial.unlink(missing_ok=True)
+        raise
+    target.close()
+    source.close()
+    partial.replace(dest)
     if reason == "daily":
         for old in sorted(folder.glob("knowledge-*-daily.db"))[:-KEEP_DAILY]:
             old.unlink(missing_ok=True)
@@ -105,8 +112,6 @@ def run_daily(now: datetime | None = None) -> dict[str, Any]:
             return {"ran": False}
     except OSError:
         pass
-    marker.parent.mkdir(parents=True, exist_ok=True)
-    marker.write_text(today, encoding="utf-8")
     engine = get_engine()
     result: dict[str, Any] = {"ran": True}
     result["backup"] = backup("daily", engine)
@@ -114,4 +119,8 @@ def run_daily(now: datetime | None = None) -> dict[str, Any]:
     if engine.dialect.name == "sqlite":
         with engine.connect() as conn:
             conn.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))
+    # Marca só depois de concluir: servidor morto no meio não pula a manutenção do dia.
+    # Duas execuções simultâneas são inofensivas (rotação e purga são idempotentes).
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(today, encoding="utf-8")
     return result

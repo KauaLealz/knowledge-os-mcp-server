@@ -68,30 +68,50 @@ ORPHAN_AFTER_S = 600  # `.claimed` abandonado (processo morreu no meio) é repro
 
 
 def _claim(src: Path, base: Path) -> Path | None:
-    """Toma posse de `src` renomeando-o (atômico): só um processo vence. None se perdeu."""
+    """Toma posse de `src` renomeando-o (atômico): só um processo vence.
+
+    None se perdeu a corrida (o arquivo sumiu: outro processo tomou). Outro erro de
+    rename (permissão, arquivo aberto por um escritor) sobe para quem chama reportar.
+    """
     claimed = base.with_name(f"{base.stem}.{os.getpid()}-{time.time_ns()}.claimed")
     try:
         src.rename(claimed)
-        os.utime(claimed)  # a idade de um `.claimed` conta a partir da posse, não da última linha
-    except OSError:  # sumiu (outro processo tomou) ou está aberta por um escritor (Windows)
+    except FileNotFoundError:
         return None
+    try:
+        os.utime(claimed)  # a idade de um `.claimed` conta a partir da posse, não da última linha
+    except OSError:
+        pass
     return claimed
 
 
-def _claimed_files(path: Path) -> list[Path]:
-    """Fila do arquivo mais `.claimed` órfãos, já tomados por este processo."""
+def _claimed_files(path: Path) -> tuple[list[Path], list[str]]:
+    """Fila do arquivo mais `.claimed` órfãos, já tomados por este processo (e os erros)."""
     found: list[Path] = []
-    if path.exists() and (mine := _claim(path, path)):
-        found.append(mine)
+    errors: list[str] = []
+    candidates: list[Path] = []
+    if path.exists():
+        candidates.append(path)
     now = time.time()
     for orphan in path.parent.glob(f"{path.stem}.*.claimed"):
         try:
-            old = now - orphan.stat().st_mtime > ORPHAN_AFTER_S
+            if now - orphan.stat().st_mtime > ORPHAN_AFTER_S:
+                candidates.append(orphan)
         except OSError:
             continue
-        if old and (mine := _claim(orphan, path)):
-            found.append(mine)
-    return found
+    for src in candidates:
+        try:
+            if mine := _claim(src, path):
+                found.append(mine)
+        except OSError as exc:
+            errors.append(f"{type(exc).__name__}: {exc}")
+    return found, errors
+
+
+def _requeue(queue: Path, lines: list[str]) -> None:
+    if lines:
+        with queue.open("a", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
 
 
 def _flush_file(path: Path, project: Path) -> tuple[int, str | None]:
@@ -101,31 +121,63 @@ def _flush_file(path: Path, project: Path) -> tuple[int, str | None]:
     mesmas linhas, e o que o agente acrescentar depois cai num arquivo novo. Entradas sem
     `project` vão para o projeto da sessão. O que falhar volta para a fila.
     """
-    saved, errors = 0, []
-    for claimed in _claimed_files(path):
-        n, err = _flush_claimed(claimed, path, project)
+    claimed_files, errors = _claimed_files(path)
+    saved = 0
+    for claimed in claimed_files:
+        try:
+            n, err = _flush_claimed(claimed, path, project)
+        except Exception as exc:  # noqa: BLE001 - nunca deixar um `.claimed` órfão quebrar a sessão
+            n, err = 0, f"{type(exc).__name__}: {exc}"
+            try:
+                _requeue(path, [ln for ln in claimed.read_text(encoding="utf-8").splitlines()
+                                if ln.strip()])
+                claimed.unlink(missing_ok=True)
+            except OSError:
+                pass  # fica como `.claimed`; é reprocessado quando envelhecer
         saved += n
         if err:
             errors.append(err)
     return saved, "; ".join(errors) or None
 
 
+def _rewrite_claimed(claimed: Path, lines: list[str], read_size: int) -> int:
+    """Reescreve o `.claimed` só com `lines` + o que foi acrescentado depois da leitura.
+
+    Devolve o novo tamanho da parte já lida.
+    """
+    head = ("\n".join(lines) + "\n").encode("utf-8") if lines else b""
+    tmp = claimed.with_suffix(".tmp")
+    tmp.write_bytes(head + claimed.read_bytes()[read_size:])
+    os.replace(tmp, claimed)
+    return len(head)
+
+
 def _flush_claimed(claimed: Path, queue: Path, project: Path) -> tuple[int, str | None]:
     from knowledge_os.services.item_service import ItemService
     from knowledge_os.services.project_service import ProjectService
 
-    lines = [ln for ln in claimed.read_text(encoding="utf-8").splitlines() if ln.strip()]
-    groups: dict[str, list[dict[str, Any]]] = {}
-    saved, errors, left = 0, [], []
+    raw = claimed.read_bytes()
+    read_size = len(raw)
+    lines = [ln for ln in raw.decode("utf-8").splitlines() if ln.strip()]
+    groups: dict[str, list[tuple[dict[str, Any], str]]] = {}
+    saved, errors, invalid = 0, [], []
     for ln in lines:
         try:
             entry = json.loads(ln)
         except ValueError:
+            entry = None
+        if not isinstance(entry, dict):
             errors.append("linha inválida na fila")
-            left.append(ln)
+            invalid.append(ln)
             continue
-        groups.setdefault(entry.pop("project", None) or str(project), []).append(entry)
-    for proj, entries in groups.items():
+        groups.setdefault(entry.pop("project", None) or str(project), []).append((entry, ln))
+    _requeue(queue, invalid)
+    pending = {proj: [ln for _, ln in items] for proj, items in groups.items()}
+    if invalid:
+        read_size = _rewrite_claimed(claimed, [ln for v in pending.values() for ln in v],
+                                     read_size)
+    for proj, items in groups.items():
+        entries = [e for e, _ in items]
         try:
             link = ProjectService().resolve(proj)
             default = (link["workspace_id"], link["domain_id"]) if link else None
@@ -133,10 +185,14 @@ def _flush_claimed(claimed: Path, queue: Path, project: Path) -> tuple[int, str 
             saved += len(entries)
         except Exception as exc:  # noqa: BLE001 - a fila fica para a próxima tentativa
             errors.append(f"{type(exc).__name__}: {exc}")
-            left += [json.dumps({**e, "project": proj}, ensure_ascii=False) for e in entries]
-    if left:
-        with queue.open("a", encoding="utf-8") as f:
-            f.write("\n".join(left) + "\n")
+            _requeue(queue, [json.dumps({**e, "project": proj}, ensure_ascii=False)
+                             for e in entries])
+        del pending[proj]
+        read_size = _rewrite_claimed(claimed, [ln for v in pending.values() for ln in v],
+                                     read_size)
+    late = claimed.read_bytes()[read_size:]  # acrescentado ao arquivo tomado após a leitura
+    if late:
+        _requeue(queue, late.decode("utf-8").splitlines())
     claimed.unlink(missing_ok=True)
     return saved, "; ".join(errors) or None
 

@@ -127,3 +127,95 @@ def test_sync_records_version():
             text(f"SELECT value FROM {SCHEMA_META_TABLE} WHERE key = 'schema_version'")
         ).scalar()
     assert stored == result["version"]
+
+
+def _fresh(tmp_path):
+    from knowledge_os.db.session import create_db_engine
+
+    return create_db_engine(f"sqlite:///{tmp_path / 'novo.db'}")
+
+
+def test_primeiro_start_tolera_create_all_que_outro_processo_ganhou(tmp_path, monkeypatch):
+    from sqlalchemy.exc import OperationalError
+
+    from knowledge_os.db.models import Base
+
+    real = Base.metadata.create_all
+
+    def create_then_lose(*a, **kw):
+        real(*a, **kw)  # o outro processo criou primeiro
+        raise OperationalError("CREATE TABLE", {}, Exception("table items already exists"))
+
+    monkeypatch.setattr(Base.metadata, "create_all", create_then_lose)
+    engine = _fresh(tmp_path)
+    assert schema_sync(engine)["status"] == "created"
+    engine.dispose()
+
+
+def test_primeiro_start_tolera_fts_que_outro_processo_criou(tmp_path, monkeypatch):
+    from knowledge_os.db.dialects.sqlite import SQLiteDialect
+    from knowledge_os.exceptions import DatabaseError
+
+    real = SQLiteDialect.create_fts_table
+
+    calls = []
+
+    def create_then_lose(engine):
+        real(engine)
+        if not calls:
+            calls.append(1)
+            raise DatabaseError("Falha ao criar tabela FTS5: table items_fts already exists")
+
+    monkeypatch.setattr(SQLiteDialect, "create_fts_table", staticmethod(create_then_lose))
+    engine = _fresh(tmp_path)
+    schema_sync(engine)
+    engine.dispose()
+
+
+def test_conflito_ao_gravar_a_versao_le_de_novo_e_segue(tmp_path, monkeypatch):
+    from sqlalchemy.exc import IntegrityError
+
+    from knowledge_os.db import schema_sync as mod
+
+    real = mod._write_version
+    calls = []
+
+    def lose_once(engine, version):
+        calls.append(1)
+        real(engine, version)  # o outro processo gravou a mesma versão
+        raise IntegrityError("INSERT", {}, Exception("duplicate key schema_meta_pkey"))
+
+    monkeypatch.setattr(mod, "_write_version", lose_once)
+    engine = _fresh(tmp_path)
+    schema_sync(engine)
+    assert mod._read_version(engine) == mod.model_version()
+    engine.dispose()
+
+
+def test_dois_processos_subindo_num_home_vazio(tmp_path):
+    import os
+    import subprocess
+    import sys
+    import time
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    go = tmp_path / "go"
+    code = (
+        "import sys, time, pathlib\n"
+        "from knowledge_os.db.session import create_db_engine\n"
+        "from knowledge_os.db.schema_sync import schema_sync\n"
+        "e = create_db_engine(sys.argv[1])\n"
+        "while not pathlib.Path(sys.argv[2]).exists(): time.sleep(0.001)\n"
+        "print(schema_sync(e)['status'])\n"
+    )
+    env = {**os.environ, "PYTHONPATH": str(root / "src"),
+           "KNOWLEDGE_OS_HOME": str(tmp_path / "home")}
+    url = f"sqlite:///{tmp_path / 'vazio.db'}"
+    procs = [subprocess.Popen([sys.executable, "-c", code, url, str(go)], env=env, cwd=root,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+             for _ in range(2)]
+    time.sleep(3)
+    go.write_text("go")
+    outs = [p.communicate(timeout=120) for p in procs]
+    assert [p.returncode for p in procs] == [0, 0], outs

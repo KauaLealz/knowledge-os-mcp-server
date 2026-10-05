@@ -4,6 +4,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,8 @@ WORKER = (
     "import sys\n"
     "from knowledge_os.config import ensure_home, validate_and_init_config\n"
     "ensure_home(); validate_and_init_config()\n"
+    "from knowledge_os.config import ConfigManager\n"
+    "ConfigManager.load_or_create()  # o preparo cria o connections.json antes da disputa\n"
     "from knowledge_os.services.item_service import ItemService\n"
     "n = int(sys.argv[2])\n"
     "svc = ItemService()\n"
@@ -102,3 +105,64 @@ def test_contexto_nao_cai_quando_track_nao_consegue_gravar(banco):
         lock.close()
     assert result["linked"] is True
     assert "Em foco" in result["markdown"]
+
+
+WORKER_TAG = (
+    "import sys\n"
+    "from knowledge_os.config import ensure_home, validate_and_init_config\n"
+    "ensure_home(); validate_and_init_config()\n"
+    "from knowledge_os.config import ConfigManager\n"
+    "ConfigManager.load_or_create()  # o preparo cria o connections.json antes da disputa\n"
+    "from knowledge_os.services.item_service import ItemService\n"
+    "import pathlib, time\n"
+    "n = int(sys.argv[2])\n"
+    "while not pathlib.Path(sys.argv[3]).exists(): time.sleep(0.001)\n"
+    "ItemService().save([{'workspace': 'W', 'domain': 'D', 'key': f'k{i}', 'type': 'knowledge',\n"
+    "    'memory_class': 'working', 'title': f't{n}-{i}', 'summary': 's', 'content': 'c',\n"
+    "    'tags': ['tag-nova-compartilhada']} for i in range(3)]\n"
+    "    + [{'workspace': 'W', 'domain': 'D', 'key': f'p{n}', 'type': 'knowledge',\n"
+    "        'memory_class': 'working', 'title': 'u', 'summary': 's', 'content': 'c',\n"
+    "        'tags': ['tag-nova-compartilhada']}])\n"
+)
+
+
+def test_quatro_processos_com_tag_nova_e_key_nova_em_comum(tmp_path):
+    home = tmp_path / "home"
+    env = _env(home)
+    subprocess.run([sys.executable, "-c", WORKER.replace("range(25)", "range(0)"), "x", "0"],
+                   env=env, cwd=ROOT, check=True, capture_output=True, timeout=120)
+    go = tmp_path / "go"
+    procs = [
+        subprocess.Popen([sys.executable, "-c", WORKER_TAG, "x", str(n), str(go)], env=env,
+                         cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        for n in range(4)
+    ]
+    time.sleep(3)  # todos importados e esperando a largada
+    go.write_text("go")
+    outs = [p.communicate(timeout=240) for p in procs]
+    assert [p.returncode for p in procs] == [0, 0, 0, 0], [o[1][-600:] for o in outs]
+    conn = sqlite3.connect(next(home.rglob("*.db")))
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM items").fetchone()[0] == 3 + 4
+        assert conn.execute("SELECT COUNT(*) FROM tags").fetchone()[0] == 1
+    finally:
+        conn.close()
+
+
+def test_conflito_de_unicidade_no_save_e_reexecutado(banco, monkeypatch):
+    from sqlalchemy.exc import IntegrityError
+
+    engine, _ = banco
+    svc = ItemService(engine)
+    real = ItemService._save_plans
+    calls = []
+
+    def conflict_once(self, plans):
+        calls.append(1)
+        if len(calls) == 1:  # outro processo criou a mesma tag/key primeiro
+            raise IntegrityError("INSERT", {}, Exception("UNIQUE constraint failed"))
+        return real(self, plans)
+
+    monkeypatch.setattr(ItemService, "_save_plans", conflict_once)
+    svc.save([{**ENTRY, "tags": ["nova"]}])
+    assert len(calls) == 2
