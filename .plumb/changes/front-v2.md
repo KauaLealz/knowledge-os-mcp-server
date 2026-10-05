@@ -20,13 +20,13 @@ API
 - AC7: `GET /api/workspaces/{id}/tree` devolve, numa chamada só, os domains com item_count e os items (id, title, type, memory_class, confidence, updated_at).
 
 UI (roteiros no navegador embutido, em Design › Provas)
-- AC8 (R1): O token sai da barra de endereço. A sidebar tem o switcher Connection → Workspace e a árvore Domain (com contagem) → Item (ícone por type). As páginas de Workspace e de Domain mostram cards. O tema system/light/dark persiste ao recarregar.
+- AC8 (R1): A sidebar tem o switcher Connection → Workspace e a árvore Domain (com contagem) → Item (ícone por type). As páginas de Workspace e de Domain mostram cards. O tema system/light/dark persiste ao recarregar.
 - AC9 (R2): Página de item com breadcrumb, chips (type, memory_class, barra de confidence, importance, tags, labels, "atualizado há X"), banner quando confidence < 60 ou quando um ephemeral está a ≤ 2 dias do TTL, Markdown sanitizado (`<img onerror>` não entra no DOM), código com highlight, TOC de H2/H3, relações saindo e chegando, artifacts, prev/next, "Copiar como Markdown" e "Ver Markdown".
 - AC10 (R3): Ctrl/Cmd+K abre a paleta com os grupos Recentes / Items / Domains-Workspaces / Ações / Configurações. Enter navega, `?` abre os atalhos, Esc fecha.
 - AC11 (R4): `e` alterna entre Ler e Editar no mesmo lugar (textarea mono + preview). Ctrl/Cmd+S salva, e a alteração persiste ao recarregar. Os modais Novo item, Novo workspace e Novo domain funcionam.
 - AC12 (R5): A tela Conexões tem a lista (ponto de status, último teste, selo Default) e o detalhe com formulário (inclui senha), Testar, "Salvar e testar" (mensagem + latência), Definir como default, Sincronizar schema (dry-run e depois aplicar) e a Zona de perigo com confirmação digitada. Trocar a conexão recarrega os workspaces.
 - AC13: A senha só trafega no corpo de POST/PATCH, e só quando preenchida. O campo é `type=password`, vem vazio ao editar (com "definida" quando password_set) e é limpo depois de salvar. A senha não vai em URL, localStorage, sessionStorage nem aparece no DOM, em toast ou em log do console.
-- AC14 (R6): Em 375px a sidebar vira drawer e não há scroll horizontal. Abaixo de 1000px a TOC some. Depois de reiniciar o servidor, aparece a tela "Sessão expirada".
+- AC14 (R6): Em 375px a sidebar vira drawer e não há scroll horizontal. Abaixo de 1000px a TOC some. Se a API cair, aparece um estado de erro com "Tentar de novo" (não há mais tela de sessão expirada).
 - AC15: O `projpro` é refeito pelas tools MCP a partir de C:\Polara\projpro\AGENTS.md e .claude/rules/*.md: um domain por área, items fiéis à fonte citando o arquivo de origem, label `reference` e relações entre eles.
 
 ## Design
@@ -61,9 +61,11 @@ As rotas usam `#/c/:conn/w/:ws/d/:dm/i/:item[/edit]` e `#/settings/connections[/
 - [x] T7 Edição inline + modais Novo item, Novo workspace e Novo domain. Arquivos: js/views/editor.js, js/views/item.js, index.html, css/app.css. Prova: AC11. Verificar: test_static + R4.
 - [ ] T8 Configurações → Conexões (com campo de senha) + asserções no test_static de que a senha não é lida de volta nem guardada em storage. Arquivos: js/views/connections.js, index.html, css/app.css, tests/api/test_static.py. Prova: AC12, AC13. Verificar: test_static + R5.
 - [x] T9 Responsivo, estados vazio/erro/sessão expirada, README e STATUS. Prova: AC14. Verificar: test_static + R6.
+- [ ] T11 Remover o token da UI (decisão do usuário em 2026-10-04): sem `verify_token` nas rotas, `knowledge-mcp ui` imprime só a URL, o front não lê `#token=` nem guarda token, sai a tela "Sessão expirada"; mantém 127.0.0.1, TrustedHost, sem CORS e entra a checagem de `Origin` em POST/PUT/PATCH/DELETE (403 para outra origem). Arquivos: src/api/auth.py (remover), src/api/main.py, src/api/routes/*.py, src/main.py, src/api/static/js/{api,main,store}.js, src/api/static/index.html, tests/api/conftest.py, tests/api/test_auth.py, tests/test_cli_ui.py, tests/api/test_static.py, README.md, START.md. Prova: AC6 e AC7 da mcp-stdio-home, AC8 e AC14. Verificar: `python -m pytest tests/api tests/test_cli_ui.py -q` + `knowledge-mcp ui` e abrir a URL sem fragmento no navegador.
 - [ ] T10 Refazer o projpro pelas tools MCP registradas (fluxo na seção projpro). Sem commit. Prova: AC15. Verificar: workspace_list, domain_list e item_search com "Flyway", "filtro Hibernate" e "BFF".
 
 ## Decisões
+- 2026-10-04 usuário: o token da UI "não faz sentido": remover (T11) e terminar o front.
 - 2026-10-02 usuário: front sem build step (rejeitou React+Vite por peso), com libs via CDN e servido pelo FastAPI.
 - 2026-10-02 usuário: front "totalmente refatorado", com navegação no estilo de ferramentas de knowledge-as-a-service e páginas de documentação, e gestão de conexões.
 - 2026-10-02 usuário: senha da conexão no JSON de config; sem retrocompatibilidade.
