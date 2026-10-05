@@ -1,5 +1,5 @@
 # mcp-stdio-home: Knowledge OS instalável via stdio, com home de dados único
-Status: construindo T0 · Trilha: profunda · Branch: feature/mcp-stdio-home
+Status: pronta para entregar (falta só o AC11: health_check numa sessão nova do Claude Code) · Trilha: profunda · Branch: feature/mcp-stdio-home
 
 ## Objetivo
 Registrar o MCP Knowledge OS no Claude Code (stdio, escopo user, igual ao `secrets`) funcionando a partir de qualquer cwd. Os dados passam a viver em um home único (`~/.knowledge-os`), não no projeto aberto nem em site-packages. A senha da conexão fica no connections.json. A UI sobe por `knowledge-mcp ui`, com token real por start.

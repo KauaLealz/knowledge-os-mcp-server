@@ -1,5 +1,5 @@
 # front-v2: front estilo documentação + gestão de conexões
-Status: construindo T3 (trilha B, em paralelo) · Trilha: profunda · Branch: feature/front-v2 · Depende de: mcp-stdio-home
+Status: construindo T10 (falta repopular o projpro pelas tools MCP, em sessão nova) · Trilha: profunda · Branch: feature/front-v2 · Depende de: mcp-stdio-home
 
 ## Objetivo
 Substituir o `src/api/static/index.html` por um front no nível de um produto de documentação/knowledge-as-a-service: sidebar em árvore, página de item com TOC, Ctrl/Cmd+K, edição inline e gestão de conexões (com senha). Tudo sobre a mesma fonte do MCP (connections.json) e sem build step. Por fim, refazer o workspace `projpro` pelas tools MCP.
@@ -61,7 +61,7 @@ As rotas usam `#/c/:conn/w/:ws/d/:dm/i/:item[/edit]` e `#/settings/connections[/
 - [x] T7 Edição inline + modais Novo item, Novo workspace e Novo domain. Arquivos: js/views/editor.js, js/views/item.js, index.html, css/app.css. Prova: AC11. Verificar: test_static + R4.
 - [x] T8 Configurações → Conexões (com campo de senha) + asserções no test_static de que a senha não é lida de volta nem guardada em storage. Arquivos: js/views/connections.js, index.html, css/app.css, tests/api/test_static.py. Prova: AC12, AC13. Verificar: test_static + R5.
 - [x] T9 Responsivo, estados vazio/erro/sessão expirada, README e STATUS. Prova: AC14. Verificar: test_static + R6.
-- [ ] T11 Remover o token da UI (decisão do usuário em 2026-10-04): sem `verify_token` nas rotas, `knowledge-mcp ui` imprime só a URL, o front não lê `#token=` nem guarda token, sai a tela "Sessão expirada"; mantém 127.0.0.1, TrustedHost, sem CORS e entra a checagem de `Origin` em POST/PUT/PATCH/DELETE (403 para outra origem). Arquivos: src/api/auth.py (remover), src/api/main.py, src/api/routes/*.py, src/main.py, src/api/static/js/{api,main,store}.js, src/api/static/index.html, tests/api/conftest.py, tests/api/test_auth.py, tests/test_cli_ui.py, tests/api/test_static.py, README.md, START.md. Prova: AC6 e AC7 da mcp-stdio-home, AC8 e AC14. Verificar: `python -m pytest tests/api tests/test_cli_ui.py -q` + `knowledge-mcp ui` e abrir a URL sem fragmento no navegador.
+- [x] T11 Remover o token da UI (decisão do usuário em 2026-10-04): sem `verify_token` nas rotas, `knowledge-mcp ui` imprime só a URL, o front não lê `#token=` nem guarda token, sai a tela "Sessão expirada"; mantém 127.0.0.1, TrustedHost, sem CORS e entra a checagem de `Origin` em POST/PUT/PATCH/DELETE (403 para outra origem). Arquivos: src/api/auth.py (remover), src/api/main.py, src/api/routes/*.py, src/main.py, src/api/static/js/{api,main,store}.js, src/api/static/index.html, tests/api/conftest.py, tests/api/test_auth.py, tests/test_cli_ui.py, tests/api/test_static.py, README.md, START.md. Prova: AC6 e AC7 da mcp-stdio-home, AC8 e AC14. Verificar: `python -m pytest tests/api tests/test_cli_ui.py -q` + `knowledge-mcp ui` e abrir a URL sem fragmento no navegador.
 - [ ] T10 Refazer o projpro pelas tools MCP registradas (fluxo na seção projpro). Sem commit. Prova: AC15. Verificar: workspace_list, domain_list e item_search com "Flyway", "filtro Hibernate" e "BFF".
 
 ## Decisões
@@ -79,4 +79,14 @@ As rotas usam `#/c/:conn/w/:ws/d/:dm/i/:item[/edit]` e `#/settings/connections[/
 - Lacuna anterior a esta mudança, fora de escopo: `migrate_workspaces` só aceita conexões do JSON (`ConfigManager.get_connection`), então não migra o catálogo `default` (onde ficam os dados) para outro banco. Vale uma mudança própria.
 - Um pytest travou uma vez em tests/test_migration.py (sqlite, Windows), sem repetir nas execuções seguintes (372 passed). Se reaparecer, investigar.
 
+- Verificação em 2026-10-05: suíte 454 passed, 3 skipped; lint limpo; verificador independente aprovou os ACs de API/home; UI exercitada no navegador embutido (abertura sem token, árvore, item com sanitização, banner, paleta, edição e criação de conexão com "Salvar e testar").
+- Revisões: o revisor de segurança respondeu que nenhuma página web consegue ler/alterar dados da API nem extrair senha. Corrigidos: bloqueador de bootstrap com default inacessível (F1), listagem derrubada por entrada malformada (F2), exfiltração da senha por `artifact_attach`/imports (F3) e por PATCH de host (F4), headers anti-iframe, redação de erros, permissão do tmp, DOMPurify, estado do editor ao voltar, erro de conexões engolido, corrida de workspaces e vestígios do 401.
+- Fora de escopo e abertos: libs de CDN sem SRI e `/docs`/`/redoc` carregando swagger da CDN; o título do item não é editável (`item_update` do MCP só aceita summary, content, confidence, importance e ttl_days); `get_engine` segura um lock global durante a abertura de uma conexão remota (até 5 s); `tests/api/test_static.py` é quase todo grep do fonte, sem teste executável de JS; `migrate_workspaces` não migra o catálogo `default`.
+
 ## Retro
+- regra: sem token/login na UI local — decisão do usuário (2026-10-04); a proteção é 127.0.0.1 + TrustedHost + checagem de Origin
+- retrabalho: a trilha B construiu o token (T3 da mcp-stdio-home + front) e a T11 o removeu depois; ~340 usos da fixture `auth` nos testes — um critério "a UI precisa de login?" no gate 1 teria evitado
+- padrão novo: src/api/main.py (middleware de Origin e headers de segurança) e src/services/_common.py (`refuse_home_source`) viraram o modelo para novas rotas e tools que leem caminhos
+- lacuna: nenhum runner JS para o front; a prova de comportamento da UI ficou em roteiros manuais no navegador embutido
+- fato velho: o pyproject exigia `sqlcipher3-binary>=3.0.0` (inexistente, sem wheel para Windows); virou o extra `crypto`
+Números: 21 tasks · 2 rodadas de T-fix (F1–F5, G1–G7) · 1 travamento (pytest único, não repetiu) · 0 gates rejeitados
