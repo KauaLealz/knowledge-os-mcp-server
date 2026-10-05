@@ -100,6 +100,11 @@ def validate_and_init_config() -> None:
     bootstrap()
 
 
+def config_error(exc: Exception) -> ConfigError:
+    """ConfigError seguro para propagar: o texto de `exc` só passa se já for de ConfigError."""
+    return exc if isinstance(exc, ConfigError) else ConfigError("connections.json inválido")
+
+
 class ConnectionConfig(BaseModel):
     """Uma conexão do connections.json do home (SQLite, PostgreSQL ou MySQL)."""
 

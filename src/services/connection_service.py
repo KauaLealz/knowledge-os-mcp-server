@@ -16,12 +16,18 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from src.config import CATALOG_ID, ConfigManager, ConnectionConfig, ConnectionsFile
+from src.config import (
+    CATALOG_ID,
+    ConfigManager,
+    ConnectionConfig,
+    ConnectionsFile,
+    config_error,
+)
 from src.db import session as db_session
 from src.db.dialects import detect_type, get_dialect, normalize_url, redact
 from src.db.models import DEFAULT_CONNECTION_ID, DEFAULT_CONNECTION_NAME, Connection
 from src.db.schema_sync import schema_sync
-from src.exceptions import ConfigError, NotFoundError, ValidationError
+from src.exceptions import NotFoundError, ValidationError
 from src.services._common import session_scope
 
 logger = logging.getLogger(__name__)
@@ -118,7 +124,7 @@ def _load() -> ConnectionsFile:
     try:
         return ConfigManager.load_or_create()
     except Exception as exc:
-        raise ConfigError(f"connections.json inválido: {exc}") from None
+        raise config_error(exc) from None
 
 
 def _find(config: ConnectionsFile, key: str) -> ConnectionConfig:

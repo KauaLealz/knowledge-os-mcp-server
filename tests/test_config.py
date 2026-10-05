@@ -129,6 +129,7 @@ def test_json_com_host_ausente_aponta_conexao_e_campo_sem_vazar_senha():
         msg = str(err.value)
         assert "pg" in msg and "host" in msg
         assert "SEGREDO" not in msg and "123" not in msg
+        assert msg.count("connections.json inválido") == 1
 
 
 @pytest.mark.parametrize("field", ["host", "database", "username"])
