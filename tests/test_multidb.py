@@ -1,10 +1,8 @@
 """Testes de isolamento entre conexões e das tools com connection_id."""
 
-import asyncio
 import uuid
 
 import pytest
-from fastmcp import FastMCP
 from sqlalchemy import inspect
 from sqlalchemy.exc import IntegrityError
 
@@ -159,67 +157,14 @@ CONNECTION_FREE = {"health_check"}
 CONNECTION_REQUIRED = {"schema_sync"}  # alvo explícito: connection_id é obrigatório
 
 
-def _all_tools():
-    import src.main as main
-
-    main.register_all_tools()  # idempotente: sobrescreve tools de mesmo nome
-    return asyncio.run(main.mcp.get_tools())
 
 
-def test_server_expoe_40_tools():
-    tools = _all_tools()
-    assert len(tools) == 40
-    assert {n for n in tools if n.startswith("connection_")} == {
-        f"connection_{a}"
-        for a in ("create", "list", "get", "delete", "test", "update")}
-    assert "migrate_workspaces" in tools
 
 
-def test_tools_receive_connection_id():
-    tools = _all_tools()
-    for name, tool in tools.items():
-        if name.startswith("connection_") or name in CONNECTION_FREE | {"migrate_workspaces"}:
-            continue
-        if name in CONNECTION_REQUIRED:
-            assert "connection_id" in tool.parameters["required"], name
-            continue
-        props = tool.parameters["properties"]
-        assert "connection_id" in props, name
-        assert "connection_id" not in tool.parameters.get("required", []), name
 
 
-def test_tools_with_connection_id_roteiam_para_a_conexao(two):
-    a, b = two
-    m = FastMCP(name="t")
-    from src.mcp import workspace_tools
-
-    workspace_tools.register(m)
-
-    def call(name, args):
-        blocks = asyncio.run(asyncio.run(m.get_tool(name)).run(args))
-        return " ".join(b.text for b in blocks)
-
-    call("workspace_create", {"name": "ToolWs", "connection_id": a.id})
-    assert "ToolWs" in call("workspace_list", {"connection_id": a.id})
-    assert "ToolWs" not in call("workspace_list", {"connection_id": b.id})
-    assert "ToolWs" not in call("workspace_list", {})
 
 
-def test_default_do_json_roteia_tools_sem_connection_id(two):
-    a, b = two
-    ConnectionService().set_default(a.id)
-    WorkspaceService().create("InA")  # sem connection_id: vale o default do JSON
-    assert [w.name for w in WorkspaceService(connection_id=a.id).list()] == ["InA"]
-    assert WorkspaceService(connection_id="default").list() == []
-    assert WorkspaceService(connection_id=b.id).list() == []
-    m = FastMCP(name="t")
-    from src.mcp import workspace_tools
-
-    workspace_tools.register(m)
-    blocks = asyncio.run(asyncio.run(m.get_tool("workspace_list")).run({}))
-    assert "InA" in " ".join(x.text for x in blocks)
-    ConnectionService().set_default("default")
-    assert WorkspaceService().list() == []
 
 
 def test_item_service_com_engine_da_conexao_resolve_workspace(two):

@@ -265,15 +265,19 @@ class ConfigManager:
 
     @staticmethod
     def validate_connection(conn: ConnectionConfig) -> dict[str, str]:
-        """Tenta conectar e rodar SELECT 1. A senha nunca aparece na mensagem de erro."""
-        from sqlalchemy import create_engine, text
+        """Tenta conectar e rodar SELECT 1. A senha nunca aparece na mensagem de erro.
 
-        from src.db.dialects import redact
+        Usa o engine do dialect, que tem connect_timeout: sem ele, uma porta fechada no
+        Windows segura a conexão por ~130 s em vez de falhar em segundos.
+        """
+        from sqlalchemy import text
+
+        from src.db.dialects import get_dialect, redact
 
         url = conn.get_url()
         engine = None
         try:
-            engine = create_engine(url)
+            engine = get_dialect(conn.db_type).create_engine(url)
             with engine.connect() as c:
                 c.execute(text("SELECT 1"))
             return {"status": "ok", "message": "Connection successful"}

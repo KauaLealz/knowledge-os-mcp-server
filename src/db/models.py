@@ -113,6 +113,15 @@ class Item(Base):
     importance = Column(Integer, nullable=True)  # 0-10
 
     ttl_days = Column(Integer, nullable=True)  # Para ephemeral
+    expires_at = Column(DateTime, nullable=True)  # ephemeral: created/renewed + ttl_days
+
+    # Segundo cérebro (Plumb): chave estável por domain, para upsert sem duplicar.
+    # Coluna "item_key": `key` é palavra reservada no MySQL e a busca usa SQL textual.
+    key = Column("item_key", String(200), nullable=True)
+    keywords = Column(Text, nullable=True)  # sinônimos e termos de busca extras
+    source = Column(String(500), nullable=True)  # origem: mudança, commit, sessão
+    status = Column(String(20), nullable=False, default="active")  # active|superseded|deprecated
+    scope_paths = Column(Text, nullable=True)  # JSON: globs onde a regra vale
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -132,6 +141,9 @@ class Item(Base):
         Index("idx_item_memory", "memory_class"),
         Index("idx_item_created", "created_at"),
         Index("idx_item_updated", "updated_at"),
+        Index("idx_item_status", "status"),
+        Index("idx_item_expires", "expires_at"),
+        Index("uq_item_domain_key", "domain_id", "item_key", unique=True),
     )
 
 
@@ -204,3 +216,16 @@ class Artifact(Base):
     __table_args__ = (
         Index("idx_artifact_item", "item_id"),
     )
+
+
+class ProjectLink(Base):
+    """Liga um projeto (remote do git ou caminho normalizado) a um workspace/domain."""
+    __tablename__ = "project_links"
+
+    project_key = Column(String(512), primary_key=True)
+    workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=False)
+    domain_id = Column(String(36), ForeignKey("domains.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (Index("idx_project_link_domain", "domain_id"),)

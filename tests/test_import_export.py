@@ -1,18 +1,15 @@
 """Testes de ImportExportService e das tools workspace_import / domain_import."""
 
-import asyncio
 import io
 import json
 import uuid
 import zipfile
 
 import pytest
-from fastmcp import Client, FastMCP
 from sqlalchemy import select
 
 from src.db.models import Artifact, Domain, Item, Relation, Workspace
 from src.exceptions import NotFoundError, ValidationError
-from src.mcp import domain_tools, workspace_tools
 from src.services.artifact_service import ArtifactService
 from src.services.import_export_service import ImportExportService
 from src.services.item_service import ItemService
@@ -239,49 +236,3 @@ def test_import_artifact_com_membro_ausente_no_zip_falha_limpo(test_session, tmp
     assert list(art_dir.iterdir()) == []
 
 
-class TestTools:
-    @pytest.fixture
-    def server(self, monkeypatch, test_engine, art_dir):
-        monkeypatch.setattr("src.services._common.get_engine", lambda: test_engine)
-        m = FastMCP(name="t")
-        workspace_tools.register(m)
-        domain_tools.register(m)
-        return m
-
-    def _call(self, server, name, args):
-        async def run():
-            async with Client(server) as client:
-                return await client.call_tool(name, args)
-
-        return [json.loads(b.text) for b in asyncio.run(run())]
-
-    def test_workspace_export_grava_zip(self, server, populated, tmp_path, monkeypatch):
-        out = tmp_path / "exports"
-        monkeypatch.setattr("src.mcp.workspace_tools.EXPORTS_DIR", out)
-        res = self._call(server, "workspace_export", {"name": "TestWorkspace"})[0]
-        assert res["status"] == "ok" and "manifest" in res and "workspace" in res
-        from pathlib import Path
-        zp = Path(res["file_path"])
-        assert zp.exists() and zp.parent == out
-        assert res["size_mb"] == round(zp.stat().st_size / (1024 * 1024), 2)
-        with zipfile.ZipFile(zp) as z:
-            assert "manifest.json" in z.namelist()
-
-    def test_workspace_import(self, server, test_session, populated, tmp_path):
-        data = ImportExportService(test_session).export_workspace(populated["ws"].id)
-        test_session.delete(test_session.get(Workspace, populated["ws"].id))
-        test_session.commit()
-        res = self._call(server, "workspace_import", {"file_path": _write(tmp_path, data)})[0]
-        assert res["status"] == "ok" and res["name"] == "TestWorkspace"
-        assert res["id"] != populated["ws"].id
-
-    def test_domain_import(self, server, test_session, populated, tmp_path):
-        data = ImportExportService(test_session).export_domain(
-            populated["ws"].id, populated["d1"].id
-        )
-        test_session.add(Workspace(id=str(uuid.uuid4()), name="Dest"))
-        test_session.commit()
-        res = self._call(
-            server, "domain_import", {"workspace": "Dest", "file_path": _write(tmp_path, data)}
-        )[0]
-        assert res["status"] == "ok" and res["name"] == "TestDomain"

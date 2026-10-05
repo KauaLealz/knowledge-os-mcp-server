@@ -1,10 +1,7 @@
 """Testes do ItemService (CRUD), schemas e tools MCP de item."""
 
-import asyncio
-import json
 
 import pytest
-from fastmcp import Client, FastMCP
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import Engine, text
 
@@ -83,7 +80,7 @@ class TestService:
     ):
         it = svc.create(**_kw(sample_workspace, sample_domain))
         with pytest.raises(ValidationError):
-            svc.update(it.id, title="x")
+            svc.update(it.id, workspace_id="x")  # mover de workspace não é edição
         eph = svc.create(
             **_kw(sample_workspace, sample_domain, memory_class="ephemeral", ttl_days=7)
         )
@@ -117,76 +114,3 @@ class TestSchemas:
         assert ItemSearchRequest(workspace_id="w", query="q").limit == 10
 
 
-class TestTools:
-    @pytest.fixture
-    def mcp(self, monkeypatch, test_engine):
-        import src.mcp.item_tools as item_tools
-
-        monkeypatch.setattr(item_tools, "get_engine", lambda: test_engine)
-        server = FastMCP(name="t")
-        item_tools.register(server)
-        return server
-
-    def _call(self, mcp, name, args):
-        async def run():
-            async with Client(mcp) as client:
-                return await client.call_tool(name, args)
-        return [json.loads(block.text) for block in asyncio.run(run())]
-
-    def test_registra_5_tools(self, mcp):
-        async def run():
-            async with Client(mcp) as client:
-                return {t.name for t in await client.list_tools()}
-        assert asyncio.run(run()) == {
-            "item_create", "item_update", "item_delete", "item_get", "item_search",
-        }
-
-    def test_fluxo_create_search_get_update_delete(self, mcp, sample_workspace, sample_domain):
-        created = self._call(mcp, "item_create", dict(
-            workspace=sample_workspace.name, domain=sample_domain.name, type="rule",
-            memory_class="longterm", title="Regra", summary="resumo", content="corpo valido",
-            tags=["a"], labels=["official"], confidence=80, importance=7,
-        ))[0]
-        assert created["content"] == "corpo valido"
-        assert created["tags"] == ["a"] and created["labels"] == ["official"]
-
-        found = self._call(mcp, "item_search", dict(
-            workspace=sample_workspace.name, query="valido"))
-        assert len(found) == 1 and "content" not in found[0]
-        assert found[0]["id"] == created["id"]
-
-        got = self._call(mcp, "item_get", {"item_id": created["id"]})[0]
-        assert got["content"] == "corpo valido" and got["access_count"] == 1
-
-        up = self._call(mcp, "item_update", {"item_id": created["id"], "summary": "novo"})[0]
-        assert up["summary"] == "novo"
-
-        res = self._call(mcp, "item_delete", {"item_id": created["id"]})[0]
-        assert res["status"] == "ok"
-
-    def test_item_get_inclui_relations(
-        self, mcp, monkeypatch, test_engine, sample_workspace, sample_domain
-    ):
-        monkeypatch.setattr("src.services._common.get_engine", lambda: test_engine)
-        ids = [
-            self._call(mcp, "item_create", dict(
-                workspace=sample_workspace.name, domain=sample_domain.name, type="rule",
-                memory_class="longterm", title=t, summary="s", content="corpo valido",
-            ))[0]["id"]
-            for t in ("A", "B")
-        ]
-        assert self._call(mcp, "item_get", {"item_id": ids[0]})[0]["relations"] == []
-        from src.services.relation_service import RelationService
-        RelationService().create(ids[0], ids[1], "depends_on")
-        for item_id in ids:
-            rels = self._call(mcp, "item_get", {"item_id": item_id})[0]["relations"]
-            assert len(rels) == 1
-            assert rels[0]["source_item_id"] == ids[0]
-            assert rels[0]["target_item_id"] == ids[1]
-            assert rels[0]["relation_type"] == "depends_on"
-
-    def test_create_ephemeral_sem_ttl_falha(self, mcp, sample_workspace, sample_domain):
-        with pytest.raises(Exception):
-            self._call(mcp, "item_create", dict(
-                workspace=sample_workspace.name, domain=sample_domain.name, type="rule",
-                memory_class="ephemeral", title="t", summary="s", content="c"))

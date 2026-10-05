@@ -10,14 +10,14 @@ from typing import Generator
 os.environ["KNOWLEDGE_OS_HOME"] = tempfile.mkdtemp(prefix="kos-test-home-")
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import src.config as config  # noqa: E402
 from src.config import ConfigManager  # noqa: E402
+from src.db.dialects.sqlite import SQLiteDialect  # noqa: E402
 from src.db.models import Base, Domain, Item, Label, Tag, Workspace  # noqa: E402
-from src.db.session import create_fts_trigger  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -42,20 +42,8 @@ def test_engine():
     # Criar tabelas
     Base.metadata.create_all(bind=engine)
 
-    # Criar tabela virtual FTS5
-    with engine.begin() as conn:
-        conn.execute(
-            text(
-                """
-                CREATE VIRTUAL TABLE IF NOT EXISTS items_fts
-                USING fts5(title, summary, content, content='items', content_rowid='rowid')
-                """
-            )
-        )
-        conn.execute(text("INSERT INTO items_fts(items_fts) VALUES('rebuild')"))
-
-    # Criar triggers
-    create_fts_trigger(engine)
+    # FTS5 + triggers pela mesma função do código (tokenizer e colunas iguais aos reais)
+    SQLiteDialect.create_fts_table(engine)
 
     yield engine
 

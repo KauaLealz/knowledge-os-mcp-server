@@ -97,7 +97,7 @@ def test_postgresql_fts():
     conn = engine.begin.return_value.__enter__.return_value
     PostgreSQLDialect.create_fts_table(engine)
     sql = " ".join(str(c.args[0]) for c in conn.execute.call_args_list).lower()
-    assert "pg_trgm" in sql and "items_fts_idx" in sql and "gin" in sql and "to_tsvector" in sql
+    assert "pg_trgm" in sql and "items_fts_v2_idx" in sql and "gin" in sql and "to_tsvector" in sql
 
 
 def test_postgresql_search_parts_usa_tsvector():

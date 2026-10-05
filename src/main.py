@@ -26,11 +26,36 @@ from src.exceptions import ConfigError, DatabaseError  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
-UI_DEFAULT_PORT = 8765
-INSTRUCTIONS_FILE = Path(__file__).resolve().parent / "mcp" / "INSTRUCTIONS.md"
+from src import __version__  # noqa: E402
+from src.mcp.toolset import selected_toolset  # noqa: E402
 
-# Inicializar FastMCP (as instructions chegam ao agente no handshake do protocolo)
-mcp = FastMCP(name="knowledge-mcp", instructions=INSTRUCTIONS_FILE.read_text(encoding="utf-8"))
+UI_DEFAULT_PORT = 8765
+_MCP_DIR = Path(__file__).resolve().parent / "mcp"
+INSTRUCTIONS_FILE = _MCP_DIR / "INSTRUCTIONS.md"
+AGENT_INSTRUCTIONS_FILE = _MCP_DIR / "INSTRUCTIONS_AGENT.md"
+TOOLSET = selected_toolset()
+
+# Inicializar FastMCP (as instructions chegam ao agente no handshake do protocolo e entram
+# no contexto de toda sessão: o perfil `agent` usa a versão curta).
+mcp = FastMCP(
+    name="knowledge-mcp",
+    instructions=(AGENT_INSTRUCTIONS_FILE if TOOLSET == "agent" else INSTRUCTIONS_FILE).read_text(
+        encoding="utf-8"
+    ),
+)
+
+
+def schema_version() -> str | None:
+    """Versão do schema gravada no banco default (None se ainda não sincronizado)."""
+    from src.db.schema_sync import SCHEMA_META_TABLE
+
+    try:
+        with get_engine().connect() as conn:
+            return conn.execute(
+                text(f"SELECT value FROM {SCHEMA_META_TABLE} WHERE key = 'schema_version'")
+            ).scalar()
+    except Exception:
+        return None
 
 
 def check_database() -> dict[str, str]:
@@ -55,36 +80,23 @@ def health_check() -> dict[str, str]:
     """Verifica a saúde do servidor MCP e do banco default.
 
     **Use quando:** Diagnosticar falhas ou confirmar que o servidor está operacional.
-    **Retorna:** {status: ok|error, database: connected | motivo do erro}.
+    **Retorna:** {status: ok|error, database: connected | motivo, version, schema_version,
+        toolset}.
     **Exemplo:** health_check()
     **Notas:** Valida a conexão e a presença de todas as tabelas (inclusive a de busca textual).
     """
-    return check_database()
+    result = check_database()
+    return {**result, "version": __version__, "schema_version": schema_version() or "",
+            "toolset": TOOLSET}
 
 
 def register_all_tools() -> None:
-    """Registra todos os tools no FastMCP."""
-    from src.mcp import (
-        artifact_tools,
-        connection_tools,
-        domain_tools,
-        item_tools,
-        label_tools,
-        memory_tools,
-        relation_tools,
-        tag_tools,
-        workspace_tools,
-    )
+    """Registra os tools do perfil ativo: `agent` (6) ou `all` (+ administração)."""
+    from src.mcp import admin_tools, agent_tools
 
-    workspace_tools.register(mcp)
-    domain_tools.register(mcp)
-    item_tools.register(mcp)
-    relation_tools.register(mcp)
-    memory_tools.register(mcp)
-    tag_tools.register(mcp)
-    label_tools.register(mcp)
-    artifact_tools.register(mcp)
-    connection_tools.register(mcp)  # schema_sync, migrate_workspaces e 6 de connection
+    agent_tools.register(mcp)
+    if TOOLSET == "all":
+        admin_tools.register(mcp)
 
 
 def report_connections() -> None:
@@ -102,6 +114,14 @@ def report_connections() -> None:
             print(f"Connected: {conn.name} ({conn.id})", file=sys.stderr)
         else:
             print(f"Failed: {conn.name} ({conn.id}) - {result['message']}", file=sys.stderr)
+
+
+def _report_connections_safely() -> None:
+    """report_connections para rodar em thread: erro vira linha no stderr, nunca exceção."""
+    try:
+        report_connections()
+    except Exception as exc:  # noqa: BLE001 - diagnóstico não pode derrubar o servidor
+        print(f"Diagnóstico de conexões falhou: {exc}", file=sys.stderr)
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -167,7 +187,11 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if result["status"] == "ok" else 1
 
         validate_and_init_config()
-        report_connections()
+        # Diagnóstico das conexões em segundo plano: uma conexão fora do ar não pode
+        # atrasar o handshake (o cliente MCP desiste em ~30 s).
+        import threading
+
+        threading.Thread(target=_report_connections_safely, daemon=True).start()
         register_all_tools()
         mcp.run()
         return 0

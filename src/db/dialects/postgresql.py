@@ -17,7 +17,8 @@ FTS_CONFIG = "portuguese"
 def _vector(alias: str = "") -> str:
     return (
         f"to_tsvector('{FTS_CONFIG}', coalesce({alias}title, '') || ' ' || "
-        f"coalesce({alias}summary, '') || ' ' || coalesce({alias}content, ''))"
+        f"coalesce({alias}summary, '') || ' ' || coalesce({alias}keywords, '') || ' ' || "
+        f"coalesce({alias}content, ''))"
     )
 
 
@@ -46,9 +47,11 @@ class PostgreSQLDialect(DatabaseDialect):
             logger.warning("pg_trgm indisponível: %s", exc)
         try:
             with engine.begin() as conn:
+                # v2: o vetor passou a incluir keywords; o índice antigo não serviria à busca.
+                conn.execute(text("DROP INDEX IF EXISTS items_fts_idx"))
                 conn.execute(
                     text(
-                        "CREATE INDEX IF NOT EXISTS items_fts_idx ON items "
+                        "CREATE INDEX IF NOT EXISTS items_fts_v2_idx ON items "
                         f"USING gin({_vector()})"
                     )
                 )

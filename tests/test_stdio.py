@@ -15,7 +15,7 @@ from mcp.client.stdio import stdio_client
 from mcp import ClientSession, StdioServerParameters
 
 ROOT = Path(__file__).resolve().parent.parent
-EXPECTED_TOOLS = 40
+EXPECTED_TOOLS = 15
 
 
 @pytest.fixture
@@ -48,10 +48,12 @@ def test_handshake_stdio_initialize_list_tools_health_check(server_env):
                 return init, tools, health
 
     init, tools, health = asyncio.run(asyncio.wait_for(scenario(), timeout=60))
-    assert init.serverInfo.name == "knowledge-mcp"
+    assert init.server_info.name == "knowledge-mcp"
     assert len(tools.tools) == EXPECTED_TOOLS
-    assert not health.isError
-    assert json.loads(health.content[0].text) == {"status": "ok", "database": "connected"}
+    assert not health.is_error
+    report = json.loads(health.content[0].text)
+    assert (report["status"], report["database"]) == ("ok", "connected")
+    assert report["version"] and report["schema_version"] and report["toolset"] == "all"
     assert list(cwd.iterdir()) == []  # nada criado no cwd
     assert {p.name for p in home.iterdir()} >= {"connections.json", "knowledge.db"}
 
@@ -66,7 +68,7 @@ def test_stdout_so_tem_protocolo(server_env):
         {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
     ]
     proc = subprocess.Popen(
-        [sys.executable, "-m", "src.main"], cwd=cwd, env=env, text=True,
+        [sys.executable, "-m", "src.main"], cwd=cwd, env=env, text=True, encoding="utf-8",
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
     )
     try:
@@ -91,12 +93,17 @@ def test_wheel_inclui_instructions_e_static(tmp_path):
     # Constrói a partir de uma cópia: o build não deixa build/ nem egg-info no repo.
     proj = tmp_path / "proj"
     shutil.copytree(ROOT, proj, ignore=shutil.ignore_patterns(
-        ".git", ".venv", ".plumb", ".tmp*", ".uv*", ".*cache", "build", "dist*", "database",
-        "*.egg-info", "__pycache__", ".knowledge"))
+        ".git", ".venv", ".plumb", ".claude", ".tmp*", ".uv*", ".*cache", "build", "dist*",
+        "database", "*.egg-info", "__pycache__", ".knowledge"))
     out = tmp_path / "out"
+    # Cache e temporários isolados: o build não depende do cache global do uv (que pode
+    # estar inacessível, ex.: dentro de apps empacotados no Windows).
+    scratch = tmp_path / "uv"
+    scratch.mkdir()
+    env = dict(os.environ, UV_CACHE_DIR=str(scratch / "cache"), TMP=str(scratch), TEMP=str(scratch))
     subprocess.run(
         ["uv", "build", "--wheel", "-o", str(out), str(proj)],
-        check=True, capture_output=True, text=True, timeout=300,
+        check=True, capture_output=True, text=True, timeout=300, env=env,
     )
     (wheel,) = out.glob("knowledge_mcp-*.whl")
     names = set(zipfile.ZipFile(wheel).namelist())
@@ -104,3 +111,25 @@ def test_wheel_inclui_instructions_e_static(tmp_path):
     static = {p.relative_to(ROOT).as_posix() for p in (ROOT / "src/api/static").rglob("*")
               if p.is_file()}
     assert static and static <= names
+
+
+def test_perfil_agent_expoe_6_tools_e_instrucoes_curtas(server_env):
+    cwd, env, _ = server_env
+    params = StdioServerParameters(
+        command=sys.executable, args=["-m", "src.main"],
+        env={**env, "KNOWLEDGE_OS_TOOLSET": "agent"}, cwd=str(cwd),
+    )
+
+    async def scenario():
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                init = await session.initialize()
+                tools = await session.list_tools()
+                health = await session.call_tool("health_check", {})
+                return init, tools, health
+
+    init, tools, health = asyncio.run(asyncio.wait_for(scenario(), timeout=60))
+    assert {t.name for t in tools.tools} == {
+        "context_get", "item_search", "item_get", "item_save", "project_link", "health_check"}
+    assert len(init.instructions.encode()) < 2000
+    assert json.loads(health.content[0].text)["toolset"] == "agent"

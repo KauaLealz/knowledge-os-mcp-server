@@ -23,11 +23,3 @@ contexto e aprendizados. Busque antes de supor; grave o que vale para depois.
 **Projeto sem ligação:** sugira ao usuário rodar `/plumb-setup` (ou `project_link`).
 **Servidor fora do ar:** siga o trabalho e avise; o Plumb guarda o que gravaria em
 `.plumb/pending-brain.jsonl`.
-
-**Administração** (perfil `all`)
-- `structure_list` (árvore workspaces → domains), `structure_delete` (preview e depois
-  `confirm=True`), `item_delete`, `relation_delete`: destrutivos só com pedido do usuário.
-- `vocabulary` (tags e labels), `backup_export` / `backup_import` (ZIP em `<home>/exports`),
-  `artifact_attach` / `artifact_get`.
-- Conexões com outros bancos (Postgres, MySQL), `schema_sync` e migração entre bancos ficam na
-  UI: `knowledge-mcp ui`. Senhas nunca passam pela conversa.

@@ -83,6 +83,13 @@ class DomainService:
             if dm is None:
                 logger.debug("Domain inexistente para delete: %s", name)
                 return False
+            from sqlalchemy import delete, select
+
+            from src.db.models import Item, ProjectLink
+            from src.services._common import purge_item_links
+
+            purge_item_links(s, list(s.scalars(select(Item.id).where(Item.domain_id == dm.id))))
+            s.execute(delete(ProjectLink).where(ProjectLink.domain_id == dm.id))
             s.delete(dm)
             s.commit()
             logger.info("Domain removido: %s", name)

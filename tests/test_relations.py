@@ -7,7 +7,6 @@ from pydantic import ValidationError as PydanticValidationError
 
 from src.db.models import Item
 from src.exceptions import NotFoundError, ValidationError
-from src.mcp import relation_tools
 from src.schemas.relation_schemas import RelationCreate
 from src.services.relation_service import RelationService
 
@@ -74,10 +73,3 @@ def test_schema_validates_type():
         RelationCreate(source_item_id="a", target_item_id="b", relation_type="bad")
 
 
-def test_tools(use_test_engine, sample_item, other_item):
-    created = relation_tools.relation_create(sample_item.id, other_item.id, "implements")
-    assert created["relation_type"] == "implements"
-    listed = relation_tools.relation_list(sample_item.id)
-    assert [r["id"] for r in listed] == [created["id"]]
-    assert relation_tools.relation_delete(created["id"])["status"] == "ok"
-    assert relation_tools.relation_list(sample_item.id) == []

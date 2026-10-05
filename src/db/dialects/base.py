@@ -10,7 +10,11 @@ from sqlalchemy.exc import ArgumentError
 from src.exceptions import ValidationError
 
 FTS_TABLE = "items_fts"
-FTS_COLUMNS = ("title", "summary", "content")
+FTS_COLUMNS = ("title", "summary", "keywords", "content")
+# Peso de cada coluna no BM25 (mesma ordem de FTS_COLUMNS): o título decide mais que o corpo.
+FTS_WEIGHTS = (6.0, 3.0, 4.0, 1.0)
+# Sem acentos no índice: "migração" e "migracao" casam (a consulta passa pelo mesmo tokenizer).
+FTS_TOKENIZE = "unicode61 remove_diacritics 2"
 
 # Nome do backend na URL -> tipo canônico
 _BACKEND_TYPES = {

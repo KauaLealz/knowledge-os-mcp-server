@@ -4,15 +4,13 @@ from src.main import mcp
 
 
 def test_mcp_has_instructions():
-    """FastMCP tem instructions setadas."""
+    """Instruções enxutas: dizem quando ler, quando gravar e com que ferramentas."""
     assert mcp.instructions is not None
-    assert "Configurar conexões" in mcp.instructions
-    assert "password_set" in mcp.instructions
-    assert "password_env" not in mcp.instructions
-    assert "enabled" in mcp.instructions
+    for word in ("context_get", "item_search", "item_get", "item_save", "/plumb-setup"):
+        assert word in mcp.instructions, word
+    assert len(mcp.instructions.encode()) < 3000  # entram em toda sessão
 
 
-def test_instructions_descrevem_home_e_catalogo():
-    assert "KNOWLEDGE_OS_HOME" in mcp.instructions
-    assert "~/.knowledge-os" in mcp.instructions
-    assert "knowledge.db" in mcp.instructions
+def test_instructions_nao_pedem_senha_e_apontam_ui_para_conexoes():
+    assert "knowledge-mcp ui" in mcp.instructions
+    assert "Senhas nunca passam pela conversa" in mcp.instructions

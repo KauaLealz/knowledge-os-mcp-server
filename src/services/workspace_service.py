@@ -92,6 +92,13 @@ class WorkspaceService:
             if ws is None:
                 logger.debug("Workspace inexistente para delete: %s", name)
                 return False
+            from sqlalchemy import delete, select
+
+            from src.db.models import Item, ProjectLink
+            from src.services._common import purge_item_links
+
+            purge_item_links(s, list(s.scalars(select(Item.id).where(Item.workspace_id == ws.id))))
+            s.execute(delete(ProjectLink).where(ProjectLink.workspace_id == ws.id))
             s.delete(ws)
             s.commit()
             logger.info("Workspace removido: %s", name)
