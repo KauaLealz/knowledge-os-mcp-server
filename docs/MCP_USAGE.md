@@ -111,7 +111,7 @@ item_delete(item_id="...")                          # prefira status=deprecated
 relation_delete(relation_id="...")                  # id vem em item_get → relations
 vocabulary(kind="tags")                             # reaproveite antes de criar variações
 vocabulary(kind="labels", action="create", name="lgpd")
-backup_export(workspace="Polara")                   # ZIP em <home>/exports
+backup_export(workspace="agenda-api")                # ZIP em <home>/exports
 backup_import(file_path="...zip")                   # workspace novo, ids novos
 artifact_attach(item_id="...", file_path="C:/docs/arquitetura.png")
 artifact_get(artifact_id="...")                     # base64; confira file_size antes

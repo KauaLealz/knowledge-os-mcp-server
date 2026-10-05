@@ -35,7 +35,7 @@ def structure_list(
 
     **Use quando:** Ver o que existe antes de organizar, ligar um projeto ou fazer backup.
     **Retorna:** [{workspace, description, items, domains: [{name, items}]}].
-    **Exemplo:** structure_list() · structure_list(workspace="Polara")
+    **Exemplo:** structure_list() · structure_list(workspace="agenda-api")
     **Notas:** Criar workspace/domain é implícito em item_save e project_link.
     """
     engine = get_engine(connection_id) if connection_id else get_engine()
@@ -162,7 +162,7 @@ def backup_export(
 
     **Use quando:** Antes de mudanças grandes ou para levar conhecimento a outra máquina.
     **Retorna:** {status: ok, file_path, size_mb}.
-    **Exemplo:** backup_export(workspace="Polara") · backup_export(workspace="Polara",
+    **Exemplo:** backup_export(workspace="agenda-api") · backup_export(workspace="agenda-api",
         domain="projpro")
     **Notas:** backup_import restaura (o workspace importado ganha ids novos).
     """

@@ -23,6 +23,7 @@ contexto e aprendizados. Busque antes de supor; grave o que vale para depois.
   Sinônimos em `keywords` (a palavra `sensivel` marca área de risco). Substituiu algo: `relations: [{type: "supersedes", target: key}]`.
 - Nunca grave segredos (são recusados) nem dados pessoais.
 
-**Projeto sem ligação:** sugira ao usuário rodar `/plumb-setup` (ou `project_link`).
+**Projeto sem ligação:** sugira ao usuário rodar `/plumb-setup` (ou `project_link(project=".")`, sem
+workspace: cada projeto tem o seu, com o nome do repositório; `Global` é só para o que vale em todos).
 **Servidor fora do ar:** siga o trabalho e avise; o Plumb guarda o que gravaria em
 `~/.knowledge-os/pending.jsonl` (uma entrada por linha, com `project`).
