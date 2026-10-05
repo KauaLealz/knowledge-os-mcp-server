@@ -592,16 +592,170 @@
 
           <!-- Configurações · Conexões (T8) -->
           <template x-if="$store.app.route.name === 'connections'">
-            <div class="page"><div class="doc">
-              <nav class="crumbs"><span>Configurações</span></nav>
-              <h1 class="page-title">Conexões</h1>
-              <div class="state">
-                <svg class="ic"><use href="#i-settings"/></svg>
-                <h3>Em construção</h3>
-                <p>A gestão de conexões chega na próxima etapa.</p>
-              </div>
+            <div class="page"><div class="doc" x-data="connectionsView">
+              <nav class="crumbs">
+                <a href="#/settings/connections" x-show="sub">Conexões</a><span class="sep" x-show="sub">/</span>
+                <span x-show="!sub">Configurações</span>
+                <span x-show="isNew">Nova conexão</span>
+                <span x-show="conn" x-text="conn?.name"></span>
+              </nav>
+
+              <!-- Lista -->
+              <template x-if="!sub">
+                <div>
+                  <h1 class="page-title">Conexões</h1>
+                  <p class="page-lead">Bancos usados pela API e pelas tools MCP. O cadastro vive no <code>connections.json</code> do home.</p>
+                  <div class="toolbar"><a class="btn primary" href="#/settings/connections/new"><svg class="ic"><use href="#i-plus"/></svg> Nova conexão</a></div>
+                  <div class="state error" x-show="error" role="alert">
+                    <svg class="ic"><use href="#i-alert"/></svg>
+                    <h3>Não foi possível listar as conexões</h3>
+                    <p x-text="error"></p>
+                    <button class="btn" @click="load()">Tentar de novo</button>
+                  </div>
+                  <div class="conn-list" x-show="!error">
+                    <template x-for="c in $store.app.connections" :key="c.id">
+                      <a class="conn-row" :href="'#/settings/connections/' + encodeURIComponent(c.id)">
+                        <span class="dot" :class="dotClass(c)" :title="lastTest(c)"></span>
+                        <span class="conn-main">
+                          <span class="conn-name"><b x-text="c.name"></b>
+                            <span class="chip outline" x-text="c.db_type"></span>
+                            <span class="chip accent" x-show="c.is_default">Default</span>
+                            <span class="chip outline" x-show="c.is_catalog">Catálogo</span>
+                            <span class="chip outline" x-show="!c.enabled">Desabilitada</span>
+                          </span>
+                          <span class="conn-sub" x-text="target(c)"></span>
+                        </span>
+                        <span class="conn-test muted">
+                          <span x-text="lastTest(c)"></span>
+                          <span x-show="c.last_test" x-text="' · ' + $ago(c.last_test?.tested_at)"></span>
+                        </span>
+                      </a>
+                    </template>
+                  </div>
+                </div>
+              </template>
+
+              <!-- Detalhe / nova -->
+              <template x-if="sub">
+                <div>
+                  <h1 class="page-title" x-text="isNew ? 'Nova conexão' : (conn ? conn.name : 'Conexão')"></h1>
+                  <p class="page-meta" x-show="conn">
+                    <span class="chip outline" x-text="conn?.db_type"></span>
+                    <span class="chip accent" x-show="conn?.is_default">Default</span>
+                    <span class="chip outline" x-show="conn?.is_catalog">Catálogo (somente leitura)</span>
+                  </p>
+
+                  <div class="state error" x-show="notFound" role="alert">
+                    <svg class="ic"><use href="#i-alert"/></svg>
+                    <h3>Conexão não encontrada</h3>
+                    <a class="btn" href="#/settings/connections">Voltar às conexões</a>
+                  </div>
+
+                  <div x-show="!notFound">
+                    <p class="form-error" x-show="error" x-text="error" role="alert"></p>
+
+                    <!-- Formulário (não existe para o catálogo) -->
+                    <form x-show="isNew || editable" @submit.prevent="save()" autocomplete="off">
+                      <div class="form-row">
+                        <div class="field grow"><label for="c-name">Nome</label>
+                          <input id="c-name" class="input" type="text" x-model="form.name" maxlength="255" required></div>
+                        <div class="field"><label for="c-type">Tipo</label>
+                          <select id="c-type" class="select" x-model="form.db_type" :disabled="!isNew">
+                            <option value="sqlite">SQLite</option>
+                            <option value="postgresql">PostgreSQL</option>
+                            <option value="mysql">MySQL</option>
+                          </select></div>
+                      </div>
+
+                      <div class="field" x-show="form.db_type === 'sqlite'"><label for="c-path">Arquivo</label>
+                        <input id="c-path" class="input mono" type="text" x-model="form.path" placeholder="extra.db" :required="form.db_type === 'sqlite'">
+                        <span class="form-hint-text">Caminho relativo vale a partir do home de dados; também aceita caminho absoluto.</span></div>
+
+                      <template x-if="form.db_type !== 'sqlite'">
+                        <div>
+                          <div class="form-row">
+                            <div class="field grow"><label for="c-host">Host</label>
+                              <input id="c-host" class="input" type="text" x-model="form.host" required></div>
+                            <div class="field"><label for="c-port">Porta</label>
+                              <input id="c-port" class="input num" type="number" min="1" max="65535" x-model="form.port"
+                                     :placeholder="form.db_type === 'mysql' ? '3306' : '5432'"></div>
+                          </div>
+                          <div class="form-row">
+                            <div class="field"><label for="c-db">Banco</label>
+                              <input id="c-db" class="input" type="text" x-model="form.database" required></div>
+                            <div class="field"><label for="c-user">Usuário</label>
+                              <input id="c-user" class="input" type="text" x-model="form.username" autocomplete="off"></div>
+                          </div>
+                          <div class="field"><label for="c-pass">Senha</label>
+                            <input id="c-pass" class="input" type="password" autocomplete="new-password" x-model="password"
+                                   :placeholder="passwordSet ? 'senha definida · deixe em branco para manter' : 'sem senha'"
+                                   :disabled="removePassword">
+                            <span class="chip accent" x-show="passwordSet && !password && !removePassword" style="justify-self:start">senha definida</span>
+                            <label class="check" x-show="passwordSet"><input type="checkbox" x-model="removePassword"> Remover senha</label>
+                            <span class="form-hint-text">A senha é só de escrita: fica no <code>connections.json</code> e nunca volta para esta tela.</span></div>
+                        </div>
+                      </template>
+
+                      <label class="check"><input type="checkbox" x-model="form.enabled"> Habilitada</label>
+
+                      <div class="toolbar" style="margin-top:14px">
+                        <button type="submit" class="btn primary" :disabled="saving" x-text="saving ? 'Salvando…' : (isNew ? 'Criar' : 'Salvar')"></button>
+                        <button type="button" class="btn" :disabled="saving || testing" @click="saveAndTest()">Salvar e testar</button>
+                        <a class="btn ghost" href="#/settings/connections">Cancelar</a>
+                      </div>
+                    </form>
+
+                    <!-- Resultado do teste: mensagem + latência (a mensagem vem sem a senha) -->
+                    <div class="alert-inline" :class="alert?.kind" x-show="alert" role="status">
+                      <svg class="ic"><use :href="alert?.kind === 'ok' ? '#i-check' : '#i-alert'"/></svg>
+                      <span x-text="alert?.message"></span>
+                      <b x-show="alert && alert.latency !== null" x-text="alert?.latency + ' ms'"></b>
+                    </div>
+
+                    <template x-if="conn">
+                      <div>
+                        <h2 class="section-title">Ações</h2>
+                        <div class="toolbar">
+                          <button class="btn" :disabled="testing" @click="test()"><svg class="ic"><use href="#i-refresh"/></svg> <span x-text="testing ? 'Testando…' : 'Testar'"></span></button>
+                          <button class="btn" :disabled="conn.is_default || !conn.enabled" @click="makeDefault()">Definir como default</button>
+                        </div>
+                        <p class="form-hint-text">“Testar” usa a configuração salva. “Definir como default” também muda a conexão usada pelas tools MCP quando elas são chamadas sem <code>connection_id</code>.</p>
+
+                        <h2 class="section-title">Schema</h2>
+                        <div class="toolbar">
+                          <button class="btn" :disabled="syncing" @click="syncSchema(true)">Sincronizar schema (dry-run)</button>
+                          <button class="btn primary" x-show="plan" :disabled="syncing || !canApply" @click="syncSchema(false)">Aplicar</button>
+                        </div>
+                        <div class="plan" x-show="plan">
+                          <p class="plan-title">Plano (nada foi gravado): <b x-text="plan?.status"></b></p>
+                          <p class="muted" x-show="planEmpty && !plan?.pending_manual.length">O schema já está em dia.</p>
+                          <template x-for="g in [['Tabelas a criar', plan?.tables_created], ['Colunas a adicionar', plan?.columns_added], ['Índices a criar', plan?.indexes_created], ['Diferenças manuais (não aplicadas)', plan?.pending_manual]]" :key="g[0]">
+                            <div x-show="g[1] && g[1].length"><div class="rel-h" x-text="g[0]"></div>
+                              <ul class="mini-list"><template x-for="x in g[1]" :key="x"><li x-text="x"></li></template></ul></div>
+                          </template>
+                          <p x-show="plan?.fts_created">Busca textual (FTS) a criar.</p>
+                        </div>
+                        <p class="form-hint-text" x-show="syncMessage" x-text="syncMessage"></p>
+
+                        <div class="danger-zone" x-show="editable">
+                          <h2 class="section-title">Zona de perigo</h2>
+                          <p x-show="!canDelete">Esta é a conexão default: defina outra como default antes de excluí-la.</p>
+                          <div x-show="canDelete">
+                            <p>Exclui o cadastro da conexão (os dados do banco não são tocados). Digite <b x-text="conn.name"></b> para confirmar.</p>
+                            <div class="toolbar">
+                              <input class="input" type="text" x-model="confirmName" :placeholder="conn.name" aria-label="Nome da conexão para confirmar" autocomplete="off" style="max-width:260px">
+                              <button class="btn danger" :disabled="!dangerReady || deleting" @click="remove()">Excluir conexão</button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </template>
             </div></div>
           </template>
+          <!-- /Configurações · Conexões -->
 
           <template x-if="$store.app.route.name === 'notfound'">
             <div class="page"><div class="doc">

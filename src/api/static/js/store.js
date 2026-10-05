@@ -19,15 +19,22 @@ function readJson(key, fallback) {
   }
 }
 
-/** Tolerante a campos que a API ainda pode não ter (enabled/is_default). */
+/** Tolerante a campos que a API ainda pode não ter. `password_set` é só um booleano. */
 function normalizeConnection(c) {
   return {
     id: c.id,
     name: c.name || c.id,
     db_type: c.db_type || '',
+    path: c.path ?? null,
+    host: c.host ?? null,
+    port: c.port ?? null,
+    database: c.database ?? null,
+    username: c.username ?? null,
     enabled: c.enabled ?? c.is_active ?? true,
     is_default: !!c.is_default,
-    password_set: c.password_set,
+    is_catalog: !!c.is_catalog || c.id === 'default',
+    password_set: !!c.password_set,
+    last_test: c.last_test || null,
   };
 }
 
@@ -126,6 +133,15 @@ export const appStore = {
         this.connections[0];
       go(hrefs.conn(conn.id));
       return;
+    }
+    if (r.name === 'connections' && !this.connId) {
+      // Recarregou direto na tela de conexões: seleciona a conexão de dados (lembrada ou default).
+      const saved = lsGet('kos.conn');
+      const pick =
+        this.connections.find((c) => c.id === saved && c.enabled) ||
+        this.connections.find((c) => c.is_default) ||
+        this.connections[0];
+      if (pick) await this.selectConnection(pick.id);
     }
     const conn = r.params.conn;
     if (conn && conn !== this.connId) await this.selectConnection(conn);

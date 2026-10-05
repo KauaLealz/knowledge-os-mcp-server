@@ -203,3 +203,30 @@ def test_tools_with_connection_id_roteiam_para_a_conexao(two):
     assert "ToolWs" in call("workspace_list", {"connection_id": a.id})
     assert "ToolWs" not in call("workspace_list", {"connection_id": b.id})
     assert "ToolWs" not in call("workspace_list", {})
+
+
+def test_default_do_json_roteia_tools_sem_connection_id(two):
+    a, b = two
+    ConnectionService().set_default(a.id)
+    WorkspaceService().create("InA")  # sem connection_id: vale o default do JSON
+    assert [w.name for w in WorkspaceService(connection_id=a.id).list()] == ["InA"]
+    assert WorkspaceService(connection_id="default").list() == []
+    assert WorkspaceService(connection_id=b.id).list() == []
+    m = FastMCP(name="t")
+    from src.mcp import workspace_tools
+
+    workspace_tools.register(m)
+    blocks = asyncio.run(asyncio.run(m.get_tool("workspace_list")).run({}))
+    assert "InA" in " ".join(x.text for x in blocks)
+    ConnectionService().set_default("default")
+    assert WorkspaceService().list() == []
+
+
+def test_item_service_com_engine_da_conexao_resolve_workspace(two):
+    a, b = two
+    ws = WorkspaceService(connection_id=b.id).create("W")
+    assert ItemService(get_engine(b.id)).resolve_workspace_id("W") == ws.id
+    ConnectionService().set_default(a.id)
+    assert ItemService(get_engine(b.id)).resolve_workspace_id("W") == ws.id
+    with pytest.raises(NotFoundError):
+        ItemService(get_engine()).resolve_workspace_id("W")

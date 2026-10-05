@@ -26,6 +26,7 @@ ASSETS = [
     "js/views/palette.js",
     "js/shortcuts.js",
     "js/views/editor.js",
+    "js/views/connections.js",
 ]
 
 
@@ -66,8 +67,60 @@ def test_sem_tailwind_e_sem_build_step():
     assert not (STATIC / "package.json").exists()
 
 
-def test_html_sem_campo_de_senha():
-    assert 'type="password"' not in (STATIC / "index.html").read_text(encoding="utf-8")
+CONN_OPEN = "<!-- Configurações · Conexões"
+CONN_CLOSE = "<!-- /Configurações · Conexões"
+
+
+def _static_files():
+    return [f for f in STATIC.rglob("*") if f.is_file()]
+
+
+def test_campo_de_senha_so_na_view_de_conexoes():
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert CONN_OPEN in html and CONN_CLOSE in html
+    inside = html[html.index(CONN_OPEN):html.index(CONN_CLOSE)]
+    assert html.count('type="password"') == inside.count('type="password"') == 1
+    assert 'autocomplete="new-password"' in inside
+    for f in _static_files():
+        if f.name != "index.html":
+            text = f.read_text(encoding="utf-8")
+            assert 'type="password"' not in text and "type=password" not in text, f.name
+
+
+def test_senha_so_e_escrita_nunca_lida_de_volta():
+    for f in (STATIC / "js").rglob("*.js"):
+        text = f.read_text(encoding="utf-8")
+        mentions = re.findall(r"(?<![\w])password(?!_set)", text)
+        if f.name != "connections.js":
+            assert not mentions, f.name  # fora da view, só `password_set` aparece
+    conn = _js("views/connections.js")
+    # `.password` só em `this.password` (campo do formulário) e `body.password` (corpo enviado)
+    assert not re.findall(r"(?<!this)(?<!body)\.password(?!_)", conn)
+    assert not re.findall(r"\?\.password", conn)
+    # nunca em storage, console, toast ou URL
+    for banned in ("localStorage", "sessionStorage", "lsSet", "lsGet", "console."):
+        assert banned not in conn, banned
+    for line in conn.splitlines():
+        if "toast(" in line or "query" in line or "href" in line or "location" in line:
+            assert "password" not in line.lower(), line
+    assert not re.search(r"[?&]password=", conn)
+    # enviada só no corpo e só quando preenchida; null quando "remover senha"
+    assert "if (this.password)" in conn and "removePassword" in conn
+    assert "this.password = ''" in conn
+
+
+def test_view_de_conexoes_tem_as_acoes_pedidas():
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    inside = html[html.index(CONN_OPEN):html.index(CONN_CLOSE)]
+    for needle in (
+        "connectionsView", "Testar", "Salvar e testar", "Definir como default",
+        "Sincronizar schema", "Zona de perigo", "Default", "senha definida",
+    ):
+        assert needle in inside, needle
+    conn = _js("views/connections.js")
+    for needle in ("'PATCH'", "'POST'", "'PUT'", "'DELETE'", "schema-sync", "dry_run", "/test"):
+        assert needle in conn, needle
+    assert "confirmName" in conn
 
 
 def test_index_referencia_apenas_arquivos_locais_existentes():
