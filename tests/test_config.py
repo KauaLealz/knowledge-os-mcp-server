@@ -1,23 +1,14 @@
-"""Testes do config de conexões (.knowledge/connections.json)."""
-
-from pathlib import Path
+"""Testes do config de conexões (connections.json no home)."""
 
 import pytest
 
 from src.config import ConfigManager, ConnectionConfig, ConnectionsFile
 
 
-@pytest.fixture
-def workdir(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    return tmp_path
-
-
-def test_connection_config_valid():
-    conn = ConnectionConfig(
-        id="sqlite_local", name="Local", db_type="sqlite", path="./knowledge.db"
-    )
-    assert conn.get_url() == "sqlite:///./knowledge.db"
+def test_connection_config_valid(tmp_path):
+    path = (tmp_path / "knowledge.db").as_posix()
+    conn = ConnectionConfig(id="local", name="Local", db_type="sqlite", path=path)
+    assert conn.get_url() == f"sqlite:///{path}"
 
 
 def test_connection_config_id_invalid():
@@ -35,15 +26,34 @@ def test_connections_file_default_exists():
         ConnectionsFile(version="1.0", default="nonexistent", connections=[])
 
 
-def test_get_url_postgres_with_and_without_password(monkeypatch):
-    conn = ConnectionConfig(
+def _pg(**kw):
+    return ConnectionConfig(
         id="pg", name="PG", db_type="postgresql", host="h", port=5432,
-        database="d", username="u", password_env="KOS_TEST_PW",
+        database="d", username="u", **kw,
     )
-    monkeypatch.delenv("KOS_TEST_PW", raising=False)
-    assert conn.get_url() == "postgresql://u@h:5432/d"
-    monkeypatch.setenv("KOS_TEST_PW", "p@ss")
-    assert conn.get_url() == "postgresql://u:p%40ss@h:5432/d"
+
+
+def test_get_url_postgres_with_and_without_password():
+    assert _pg().get_url() == "postgresql://u@h:5432/d"
+    assert _pg(password="p@ss").get_url() == "postgresql://u:p%40ss@h:5432/d"
+
+
+def test_password_nunca_aparece_em_repr_str_ou_erro():
+    conn = _pg(password="topsecret")
+    cfg = ConnectionsFile(default="default", connections=[conn])
+    for text in (repr(conn), str(conn), repr(cfg), str(cfg)):
+        assert "topsecret" not in text
+    bad = _pg(password="topsecret")
+    bad.port = 1  # inalcançável
+    msg = ConfigManager.validate_connection(bad)["message"]
+    assert "topsecret" not in msg
+
+
+def test_password_vai_para_o_json_e_password_env_saiu():
+    conn = _pg(password="topsecret")
+    assert conn.model_dump(mode="json")["password"] == "topsecret"
+    assert not hasattr(conn, "password_env")
+    assert "password_env" not in conn.model_dump()
 
 
 def test_get_url_mysql():
@@ -55,18 +65,17 @@ def test_get_url_mysql():
 
 def test_create_default_config():
     config = ConfigManager.create_default_config()
-    assert config.default == "sqlite_local"
-    assert len(config.connections) == 1
-    assert config.connections[0].db_type == "sqlite"
+    assert config.default == "default"
+    assert config.connections == []
 
 
-def test_load_or_create_creates_default(workdir):
+def test_load_or_create_creates_default(_isolated_home):
     config = ConfigManager.load_or_create()
-    assert Path(".knowledge/connections.json").exists()
-    assert config.default == "sqlite_local"
+    assert (_isolated_home / "connections.json").exists()
+    assert config.default == "default"
 
 
-def test_load_existing_config(workdir):
+def test_load_existing_config():
     config = ConfigManager.create_default_config()
     ConfigManager.save(config)
     loaded = ConfigManager.load_or_create()
@@ -74,14 +83,140 @@ def test_load_existing_config(workdir):
     assert len(loaded.connections) == len(config.connections)
 
 
-def test_validate_connection_sqlite(workdir):
-    conn = ConfigManager.create_default_config().connections[0]
+def test_validate_connection_sqlite(tmp_path):
+    conn = ConnectionConfig(
+        id="local", name="Local", db_type="sqlite", path=(tmp_path / "v.db").as_posix()
+    )
     assert ConfigManager.validate_connection(conn)["status"] == "ok"
 
 
-def test_validate_connection_error(workdir):
+def test_validate_connection_error():
     conn = ConnectionConfig(
         id="bad", name="Bad", db_type="postgresql", host="127.0.0.1", port=1,
         database="d", username="u",
     )
     assert ConfigManager.validate_connection(conn)["status"] == "error"
+
+
+def _write_json(conns):
+    import json
+
+    ConfigManager.CONNECTIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    ConfigManager.CONNECTIONS_FILE.write_text(
+        json.dumps({"version": "1.0", "default": "default", "connections": conns}),
+        encoding="utf-8",
+    )
+
+
+def test_json_a_mao_sem_port_assume_o_padrao():
+    _write_json([{"id": "pg", "name": "PG", "db_type": "postgresql", "host": "h",
+                  "database": "d", "username": "u"},
+                 {"id": "my", "name": "My", "db_type": "mysql", "host": "h", "database": "d"}])
+    config = ConfigManager.load_or_create()
+    assert config.get_connection("pg").get_url() == "postgresql://u@h:5432/d"
+    assert config.get_connection("my").port == 3306
+
+
+def test_json_com_host_ausente_aponta_conexao_e_campo_sem_vazar_senha():
+    from src.exceptions import ConfigError
+    from src.services.connection_service import ConnectionService
+
+    _write_json([{"id": "pg", "name": "PG", "db_type": "postgresql",
+                  "database": "d", "username": "u", "password": "SEGREDO-123"}])
+    for call in (ConfigManager.load_or_create, ConnectionService().list):
+        with pytest.raises(ConfigError) as err:
+            call()
+        msg = str(err.value)
+        assert "pg" in msg and "host" in msg
+        assert "SEGREDO" not in msg and "123" not in msg
+        assert msg.count("connections.json inválido") == 1
+
+
+@pytest.mark.parametrize("field", ["host", "database", "username"])
+@pytest.mark.parametrize("bad", ["d?host=outro", "a#b", "a/b", "a\\b", "a@b", "a b"])
+def test_campos_rejeitam_caracteres_de_injecao(field, bad):
+    kw = {"host": "h", "database": "d", "username": "u", field: bad}
+    with pytest.raises(ValueError):
+        ConnectionConfig(id="pg", name="PG", db_type="postgresql", **kw)
+
+
+def test_sqlite_exige_path():
+    with pytest.raises(ValueError):
+        ConnectionConfig(id="s", name="S", db_type="sqlite")
+
+
+def test_save_usa_tmp_unico_com_permissao_restrita(monkeypatch):
+    import os
+
+    opened, replaced = [], []
+    real_open, real_replace = os.open, os.replace
+
+    def spy_open(path, flags, mode=0o777, **kw):
+        opened.append((str(path), mode))
+        return real_open(path, flags, mode, **kw)
+
+    def spy_replace(src, dst):
+        replaced.append(str(src))
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(os, "open", spy_open)
+    monkeypatch.setattr(os, "replace", spy_replace)
+    ConfigManager.save(ConfigManager.create_default_config())
+    ConfigManager.save(ConfigManager.create_default_config())
+    assert len(opened) == 2 and all(m == 0o600 for _, m in opened)
+    assert opened[0][0] != opened[1][0]  # tmp único a cada save (nada de nome fixo)
+    assert str(os.getpid()) in opened[0][0]
+    assert not list(ConfigManager.CONNECTIONS_FILE.parent.glob("*.tmp"))
+
+
+def test_save_fallback_quando_replace_falha(monkeypatch):
+    import os
+
+    def boom(src, dst):
+        raise OSError("destino aberto")
+
+    monkeypatch.setattr(os, "replace", boom)
+    ConfigManager.save(ConfigManager.create_default_config())
+    assert ConfigManager.load_or_create().default == "default"
+    assert not list(ConfigManager.CONNECTIONS_FILE.parent.glob("*.tmp"))
+
+
+def test_knowledge_os_home_resolve_til_e_relativo(tmp_path):
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    code = "import src.config as c; print(c.KNOWLEDGE_HOME)"
+
+    def home_for(value):
+        env = {**os.environ, "KNOWLEDGE_OS_HOME": value, "PYTHONPATH": str(root)}
+        env.pop("MCP_DB_PATH", None)
+        out = subprocess.run([sys.executable, "-c", code], cwd=tmp_path, env=env,
+                             capture_output=True, text=True, check=True)
+        return Path(out.stdout.strip())
+
+    assert home_for("rel/../meu-home") == (tmp_path / "meu-home").resolve()
+    assert home_for("~/kos-teste") == (Path.home() / "kos-teste").resolve()
+
+
+def test_sqlite_path_relativo_em_subpasta_cria_o_diretorio_no_home(_isolated_home):
+    from src.services.connection_service import ConnectionService
+
+    row = ConnectionService().create("sub", "sqlite", "sqlite:///./database/x.db", test=True)
+    assert (_isolated_home / "database" / "x.db").is_file()
+    assert row.name == "sub"
+
+
+def test_sqlite_path_com_til_expande_para_o_home_do_usuario(tmp_path, monkeypatch):
+    from src.services.connection_service import ConnectionService
+
+    fake = tmp_path / "usuario"
+    fake.mkdir()
+    monkeypatch.setenv("HOME", str(fake))
+    monkeypatch.setenv("USERPROFILE", str(fake))
+    ConnectionService().add("til", "sqlite", test=True, path="~/dados/x.db")
+    assert (fake / "dados" / "x.db").is_file()
+    conn = ConfigManager.load_or_create().connections[0]
+    assert conn.resolved_path() == (fake / "dados" / "x.db").as_posix()

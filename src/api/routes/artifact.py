@@ -3,12 +3,12 @@
 import shutil
 import tempfile
 from pathlib import Path, PurePosixPath, PureWindowsPath
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Response, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.api.auth import verify_token
 from src.api.deps import get_artifacts_dir, get_session_dep
 from src.api.routes._helpers import get_or_404
 from src.api.schemas.responses import ArtifactResponse
@@ -16,7 +16,7 @@ from src.db.models import Artifact
 from src.exceptions import ValidationError
 from src.services.artifact_service import ArtifactService, resolve_stored_path
 
-router = APIRouter(dependencies=[Depends(verify_token)])
+router = APIRouter()
 
 
 def _safe_filename(raw: str | None) -> str:
@@ -50,7 +50,15 @@ def upload_artifact(
         src = Path(tmp) / filename
         with src.open("wb") as out:
             shutil.copyfileobj(file.file, out)
-        return ArtifactService(session, artifacts_dir).attach(item_id, str(src))
+        return ArtifactService(session, artifacts_dir).attach(item_id, str(src), check_origin=False)
+
+
+def _content_disposition(filename: str) -> str:
+    """attachment com `filename` ASCII de fallback e `filename*` UTF-8 (RFC 6266/5987)."""
+    fallback = "".join(
+        c if c.isascii() and c.isprintable() and c not in '"\\' else "_" for c in filename
+    )
+    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(filename, safe='')}"
 
 
 @router.get("/artifacts/{id}")
@@ -63,7 +71,7 @@ def download_artifact(
     return Response(
         content=content,
         media_type=art.mime_type or "application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{art.filename}"'},
+        headers={"Content-Disposition": _content_disposition(art.filename)},
     )
 
 

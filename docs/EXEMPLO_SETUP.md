@@ -32,7 +32,7 @@ Equivalente: `make bootstrap` e `make check-db`.
 
 ## 3. (Opcional) Criptografia
 
-Por padrão o banco é SQLite sem criptografia em `./database/knowledge.db`.
+Por padrão o banco é SQLite sem criptografia em `~/.knowledge-os/knowledge.db` (ou `<KNOWLEDGE_OS_HOME>/knowledge.db`).
 Para usar SQLCipher (AES-256), defina uma chave de no mínimo 16 caracteres **antes**
 do bootstrap:
 

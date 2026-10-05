@@ -3,7 +3,6 @@
 from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.orm import Session
 
-from src.api.auth import verify_token
 from src.api.deps import get_session_dep
 from src.api.routes._helpers import get_or_404
 from src.api.schemas.requests import ItemTagAdd, TagCreate
@@ -11,7 +10,7 @@ from src.api.schemas.responses import TagResponse
 from src.db.models import Item, Tag
 from src.services.tag_service import TagService
 
-router = APIRouter(dependencies=[Depends(verify_token)])
+router = APIRouter()
 
 
 @router.get("/tags", response_model=list[TagResponse])

@@ -26,7 +26,7 @@ def relation_create(
     **Exemplo:** relation_create(source_id="item_A", target_id="item_B", relation_type="depends_on")
     **Notas:** Tipos: related_to, depends_on, implements, references, supersedes, derived_from. A
         direção importa: source_id é quem depende/implementa/referencia target_id. connection_id:
-        opcional; sem ele usa a connection default (sqlite_local).
+        opcional; sem ele usa a connection default (a do JSON).
     """
     req = RelationCreate(
         source_item_id=source_id, target_item_id=target_id, relation_type=relation_type  # type: ignore[arg-type]
@@ -43,7 +43,7 @@ def relation_list(item_id: str, connection_id: str | None = None) -> list[dict[s
     **Use quando:** Navegar pelo grafo de conhecimento a partir de um item.
     **Retorna:** Lista de relações (id, source_item_id, target_item_id, relation_type).
     **Exemplo:** relation_list(item_id="item_A")
-    **Notas:** connection_id: opcional; sem ele usa a connection default (sqlite_local).
+    **Notas:** connection_id: opcional; sem ele usa a connection default (a do JSON).
     """
     rels = RelationService(connection_id=connection_id).list(item_id)
     return RelationListResponse.model_validate(rels, from_attributes=True).model_dump(mode="json")
@@ -56,7 +56,7 @@ def relation_delete(relation_id: str, connection_id: str | None = None) -> dict[
     **Retorna:** {status: ok, message}.
     **Exemplo:** relation_delete(relation_id="rel_123")
     **Notas:** Use o id obtido em relation_list. Os items não são afetados. connection_id: opcional;
-        sem ele usa a connection default (sqlite_local).
+        sem ele usa a connection default (a do JSON).
     """
     RelationService(connection_id=connection_id).delete(relation_id)
     return {"status": "ok", "message": f"Relação removida: {relation_id}"}

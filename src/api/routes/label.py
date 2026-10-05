@@ -3,7 +3,6 @@
 from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.orm import Session
 
-from src.api.auth import verify_token
 from src.api.deps import get_session_dep
 from src.api.routes._helpers import get_or_404
 from src.api.schemas.requests import ItemLabelAdd, LabelCreate
@@ -11,7 +10,7 @@ from src.api.schemas.responses import LabelResponse
 from src.db.models import Item, Label
 from src.services.label_service import LabelService
 
-router = APIRouter(dependencies=[Depends(verify_token)])
+router = APIRouter()
 
 
 @router.get("/labels", response_model=list[LabelResponse])

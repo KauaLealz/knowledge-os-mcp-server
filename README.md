@@ -55,6 +55,35 @@ python src/main.py --bootstrap
 python src/main.py --check-db
 ```
 
+### Instalar como MCP do Claude Code (stdio)
+
+Os dados vivem num **home único**, `~/.knowledge-os` (ou `KNOWLEDGE_OS_HOME`), e não
+dependem do diretório de onde o servidor é iniciado: `connections.json`, `knowledge.db`
+(o catálogo, conexão `default`), `artifacts/`, `exports/` e `backups/`. Caminhos
+relativos de conexões SQLite resolvem contra o home.
+
+```bash
+# Instala o comando `knowledge-mcp` (editável: mudanças de código valem ao reiniciar a sessão)
+uv tool install --editable <caminho-do-repo>
+
+# Registra no Claude Code, escopo user (valem em qualquer projeto)
+claude mcp add --scope user knowledge-os   -e KNOWLEDGE_OS_HOME=~/.knowledge-os -e LOG_LEVEL=WARNING -- knowledge-mcp
+
+# Confere
+knowledge-mcp --check-db      # database: connected
+claude mcp list               # knowledge-os ... Connected
+```
+
+Remover: `claude mcp remove --scope user knowledge-os` e `uv tool uninstall knowledge-mcp`.
+
+**UI web local:** `knowledge-mcp ui [--port 8765] [--no-browser]` escuta só em
+`127.0.0.1` e imprime `http://127.0.0.1:<porta>/ui/`. Não há login: a proteção é o bind local,
+a checagem de `Host` (contra DNS rebinding) e a recusa de escrita vinda de outra origem.
+
+**Senhas de conexão** ficam em texto no campo `password` do `connections.json` (no home,
+fora do repositório; não o coloque em pasta sincronizada). As tools MCP nunca recebem nem
+devolvem a senha: informe-a pela UI ou editando o JSON.
+
 ## Uso
 
 ### Iniciar Servidor MCP
@@ -200,8 +229,8 @@ Personal
 ### Variáveis de Ambiente
 
 ```bash
-# Obrigatório
-MCP_DB_PATH=./database/knowledge.db
+# Opcional: sobrescreve o caminho do catálogo (padrão: ~/.knowledge-os/knowledge.db)
+MCP_DB_PATH=/caminho/para/knowledge.db
 
 # Opcional: criptografia AES-256
 MCP_DB_KEY=seu_hash_de_32_caracteres_aqui
@@ -209,12 +238,13 @@ MCP_DB_KEY=seu_hash_de_32_caracteres_aqui
 
 ### Sem Chave (SQLite simples)
 ```bash
-# Banco fica em plain-text na pasta database/
+# Banco fica em plain-text em ~/.knowledge-os/knowledge.db
 # Adequado para desenvolvimento local
-MCP_DB_PATH=./database/knowledge.db
+# (KNOWLEDGE_OS_HOME muda a pasta; MCP_DB_PATH muda só o arquivo do catálogo)
 ```
 
 ### Com Chave (SQLCipher)
+Requer o extra opcional `crypto` (`pip install -e ".[crypto]"`; só há wheel para Linux).
 ```bash
 # Criptografia AES-256
 export MCP_DB_KEY=$(openssl rand -base64 32)

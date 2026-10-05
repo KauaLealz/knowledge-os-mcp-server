@@ -12,6 +12,7 @@ from src.db.dialects import (
     SQLiteDialect,
     get_dialect,
     normalize_url,
+    redact,
 )
 from src.db.models import Base
 from src.exceptions import ValidationError
@@ -124,3 +125,10 @@ def test_mysql_search_parts_usa_like_escapado():
     source, where, score, params = MySQLDialect.search_parts("50%_off")
     assert "LIKE" in where and score == "0.0"
     assert params["q"] == "%50\\%\\_off%"
+
+
+def test_redact_mascara_a_senha_e_suas_variantes_codificadas():
+    url = "postgresql://u:p%40ss%20w@h/db"
+    msg = "falha: p@ss w / p%40ss%20w / p%40ss+w"
+    out = redact(msg, url)
+    assert "p@ss w" not in out and "p%40ss%20w" not in out and "p%40ss+w" not in out

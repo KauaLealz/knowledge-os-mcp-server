@@ -1,0 +1,332 @@
+// Store global (Alpine.store('app')): conexão, workspaces, árvore, rota, tema e toasts.
+import { api, setConnection } from './api.js';
+import { parseHash, hrefs, go } from './router.js';
+import { lsGet, lsSet } from './util.js';
+
+const THEMES = ['system', 'light', 'dark'];
+
+export function applyTheme(theme) {
+  const root = document.documentElement;
+  if (theme === 'light' || theme === 'dark') root.setAttribute('data-theme', theme);
+  else root.removeAttribute('data-theme');
+}
+
+function readJson(key, fallback) {
+  try {
+    return JSON.parse(lsGet(key)) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/** Tolerante a campos que a API ainda pode não ter. `password_set` é só um booleano. */
+function normalizeConnection(c) {
+  return {
+    id: c.id,
+    name: c.name || c.id,
+    db_type: c.db_type || '',
+    path: c.path ?? null,
+    host: c.host ?? null,
+    port: c.port ?? null,
+    database: c.database ?? null,
+    username: c.username ?? null,
+    enabled: c.enabled ?? c.is_active ?? true,
+    is_default: !!c.is_default,
+    is_catalog: !!c.is_catalog || c.id === 'default',
+    password_set: !!c.password_set,
+    last_test: c.last_test || null,
+  };
+}
+
+export const appStore = {
+  ready: false,
+  bootError: null,
+  route: { name: 'home', params: {} },
+
+  connections: [],
+  connError: null,
+  connId: null,
+  workspaces: [],
+  wsLoading: false,
+  wsSeq: 0,
+  wsError: null,
+
+  tree: null,
+  treeWs: null,
+  treeLoading: false,
+  treeError: null,
+  itemIndex: {},
+
+  theme: 'system',
+  wide: false,
+  drawer: false,
+  expanded: {},
+  recents: [],
+  toasts: [],
+  helpOpen: false,
+  paletteOpen: false,
+  modal: null,
+  modalGuard: null, // devolve true quando o formulário do modal tem alterações não enviadas
+  dirty: false,
+  saveHook: null,
+  lastHash: '',
+
+  // ---- ciclo de vida ----
+  async init() {
+    this.theme = THEMES.includes(lsGet('kos.theme')) ? lsGet('kos.theme') : 'system';
+    this.wide = lsGet('kos.wide') === '1';
+    this.expanded = readJson('kos.expanded', {});
+    this.recents = readJson('kos.recents', []);
+    applyTheme(this.theme);
+    this.lastHash = location.hash;
+    window.addEventListener('hashchange', () => {
+      // Edição com alterações não salvas: confirma antes de sair da rota.
+      if (this.dirty && location.hash !== this.lastHash && !window.confirm('Há alterações não salvas. Descartar?')) {
+        location.hash = this.lastHash;
+        return;
+      }
+      this.lastHash = location.hash;
+      this.onRoute();
+    });
+    await this.boot();
+  },
+
+  async boot() {
+    this.ready = false;
+    this.bootError = null;
+    try {
+      await this.loadConnections();
+      await this.onRoute();
+    } catch (e) {
+      this.bootError = e.message;
+    }
+    this.ready = true;
+  },
+
+  async loadConnections() {
+    this.connError = null;
+    let list;
+    try {
+      list = (await api('GET', '/connections')).map(normalizeConnection);
+    } catch (e) {
+      // Erro real: mostra (banner) e não fabrica conexão. Mantém o que já havia carregado.
+      this.connError = e.message;
+      return;
+    }
+    if (!list.length) list = [{ id: 'default', name: 'default', enabled: true, is_default: true }];
+    if (!list.some((c) => c.is_default)) {
+      const d = list.find((c) => c.id === 'default') || list[0];
+      d.is_default = true;
+    }
+    this.connections = list;
+  },
+
+  // ---- rota ----
+  async onRoute() {
+    const r = parseHash();
+    this.route = r;
+    this.drawer = false;
+    if (r.name === 'home') {
+      if (!this.connections.length) return; // sem lista de conexões (erro já exibido)
+      const saved = lsGet('kos.conn');
+      const conn =
+        this.connections.find((c) => c.id === saved && c.enabled) ||
+        this.connections.find((c) => c.is_default) ||
+        this.connections[0];
+      go(hrefs.conn(conn.id));
+      return;
+    }
+    if (r.name === 'connections' && !this.connId) {
+      // Recarregou direto na tela de conexões: seleciona a conexão de dados (lembrada ou default).
+      const saved = lsGet('kos.conn');
+      const pick =
+        this.connections.find((c) => c.id === saved && c.enabled) ||
+        this.connections.find((c) => c.is_default) ||
+        this.connections[0];
+      if (pick) await this.selectConnection(pick.id);
+    }
+    const conn = r.params.conn;
+    if (conn && conn !== this.connId) await this.selectConnection(conn);
+    if (r.params.ws && r.params.ws !== this.treeWs && this.workspaces.length) {
+      await this.loadTree(r.params.ws);
+    }
+    this.updateTitle();
+  },
+
+  updateTitle() {
+    const p = this.route.params;
+    let t = 'Knowledge OS';
+    if (this.route.name === 'item' && this.itemIndex[p.item]) t = this.itemIndex[p.item].title + ' · ' + t;
+    else if (this.route.name === 'domain' && this.domain) t = this.domain.name + ' · ' + t;
+    else if (this.route.name === 'workspace' && this.workspace) t = this.workspace.name + ' · ' + t;
+    else if (this.route.name === 'connections') t = 'Conexões · ' + t;
+    document.title = t;
+  },
+
+  async selectConnection(id) {
+    this.connId = id;
+    setConnection(id);
+    lsSet('kos.conn', id);
+    this.tree = null;
+    this.treeWs = null;
+    this.itemIndex = {};
+    await this.loadWorkspaces();
+  },
+
+  async loadWorkspaces() {
+    const seq = ++this.wsSeq; // resposta de chamada antiga (outra conexão) é descartada
+    this.wsLoading = true;
+    this.wsError = null;
+    try {
+      const list = await api('GET', '/workspaces');
+      const stats = await Promise.allSettled(list.map((w) => api('GET', `/workspaces/${w.id}/stats`)));
+      if (seq !== this.wsSeq) return;
+      this.workspaces = list.map((w, i) => ({
+        ...w,
+        stats: stats[i].status === 'fulfilled' ? stats[i].value : null,
+      }));
+    } catch (e) {
+      if (seq !== this.wsSeq) return;
+      this.workspaces = [];
+      this.wsError = e.message;
+    } finally {
+      if (seq === this.wsSeq) this.wsLoading = false;
+    }
+  },
+
+  async loadTree(wsId = this.route.params.ws) {
+    if (!wsId) return;
+    this.treeLoading = true;
+    this.treeError = null;
+    this.treeWs = wsId;
+    try {
+      const data = await api('GET', `/workspaces/${wsId}/tree`);
+      if (this.treeWs !== wsId) return;
+      const index = {};
+      for (const d of data.domains) {
+        for (const it of d.items) {
+          index[it.id] = { ...it, domain_id: d.id, domain_name: d.name, workspace_id: wsId };
+        }
+      }
+      this.tree = data;
+      this.itemIndex = index;
+      const dm = this.route.params.dm;
+      if (dm && this.expanded[dm] === undefined) this.expanded[dm] = true;
+    } catch (e) {
+      if (this.treeWs === wsId) {
+        this.tree = null;
+        this.treeError = e.message;
+      }
+    } finally {
+      if (this.treeWs === wsId) this.treeLoading = false;
+    }
+  },
+
+  async refresh() {
+    await this.loadWorkspaces();
+    if (this.treeWs) await this.loadTree(this.treeWs);
+    this.updateTitle();
+  },
+
+  // ---- derivados ----
+  get workspace() {
+    return this.workspaces.find((w) => w.id === this.route.params.ws) || null;
+  },
+  get domain() {
+    return this.tree?.domains.find((d) => d.id === this.route.params.dm) || null;
+  },
+  get connName() {
+    return this.connections.find((c) => c.id === this.connId)?.name || this.connId || '—';
+  },
+  get currentItem() {
+    return this.itemIndex[this.route.params.item] || null;
+  },
+
+  // ---- hrefs (usam a conexão e o workspace atuais) ----
+  hConn() {
+    return hrefs.conn(this.connId);
+  },
+  hWs(wsId) {
+    return hrefs.ws(this.connId, wsId ?? this.route.params.ws);
+  },
+  hDomain(dmId) {
+    return hrefs.domain(this.connId, this.route.params.ws, dmId);
+  },
+  hItem(dmId, itemId) {
+    return hrefs.item(this.connId, this.route.params.ws, dmId, itemId);
+  },
+  hItemById(itemId) {
+    const it = this.itemIndex[itemId];
+    return it ? hrefs.item(this.connId, this.route.params.ws, it.domain_id, itemId) : null;
+  },
+  hConnections: (sub) => hrefs.connections(sub),
+
+  // ---- árvore ----
+  isOpen(dmId) {
+    return this.expanded[dmId] ?? this.route.params.dm === dmId;
+  },
+  toggleDomain(dmId) {
+    this.expanded[dmId] = !this.isOpen(dmId);
+    lsSet('kos.expanded', JSON.stringify(this.expanded));
+  },
+
+  // ---- navegação ----
+  pickConnection(id) {
+    go(hrefs.conn(id));
+  },
+  pickWorkspace(id) {
+    go(hrefs.ws(this.connId, id));
+  },
+
+  /** Lembra os últimos itens abertos (usados pela paleta). */
+  pushRecent(item) {
+    const entry = {
+      id: item.id,
+      title: item.title,
+      type: item.type,
+      conn: this.connId,
+      ws: item.workspace_id,
+      dm: item.domain_id,
+    };
+    this.recents = [entry, ...this.recents.filter((r) => !(r.id === entry.id && r.conn === entry.conn))].slice(0, 8);
+    lsSet('kos.recents', JSON.stringify(this.recents));
+  },
+
+  // ---- edição e modais ----
+  toggleEdit() {
+    const p = this.route.params;
+    if (this.route.name !== 'item') return;
+    go(p.edit ? hrefs.item(p.conn, p.ws, p.dm, p.item) : hrefs.edit(p.conn, p.ws, p.dm, p.item));
+  },
+  /** Fecha o modal; se o formulário está sujo, confirma antes de descartar. */
+  closeModal() {
+    if (this.modalGuard?.() && !window.confirm('Descartar o que foi digitado?')) return;
+    this.modalGuard = null;
+    this.modal = null;
+  },
+  openModal(kind) {
+    this.paletteOpen = false;
+    this.modal = kind;
+  },
+
+  // ---- UI ----
+  setTheme(theme) {
+    this.theme = theme;
+    lsSet('kos.theme', theme);
+    applyTheme(theme);
+  },
+  cycleTheme() {
+    this.setTheme(THEMES[(THEMES.indexOf(this.theme) + 1) % THEMES.length]);
+  },
+  toggleWide() {
+    this.wide = !this.wide;
+    lsSet('kos.wide', this.wide ? '1' : '0');
+  },
+  toast(message, kind = 'info') {
+    const id = Date.now() + Math.random();
+    this.toasts.push({ id, message, kind });
+    setTimeout(() => {
+      this.toasts = this.toasts.filter((t) => t.id !== id);
+    }, 3800);
+  },
+};

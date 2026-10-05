@@ -1,247 +1,916 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="pt-BR">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Knowledge OS</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Knowledge OS</title>
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%234f46e5'/%3E%3Cpath d='M9 22V10l7 8 7-8v12' fill='none' stroke='white' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <script>
+    // Aplica o tema antes do primeiro paint (sem flash). Funciona sem storage.
+    (function () {
+      try {
+        var t = localStorage.getItem('kos.theme');
+        if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+      } catch (e) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/app.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "alpinejs": "https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/+esm",
+      "marked": "https://cdn.jsdelivr.net/npm/marked@15.0.12/+esm",
+      "dompurify": "https://cdn.jsdelivr.net/npm/dompurify@3.2.6/+esm",
+      "highlight.js": "https://cdn.jsdelivr.net/npm/highlight.js@11.11.1/lib/common/+esm"
+    }
+  }
+  </script>
+  <script type="module" src="js/main.js"></script>
 </head>
-<body class="bg-slate-50">
-    <div x-data="app()" class="min-h-screen flex flex-col">
-        <header class="bg-white border-b border-slate-200">
-            <div class="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
-                <h1 class="text-2xl font-bold text-blue-600">📚 Knowledge OS</h1>
-                <nav class="flex gap-4">
-                    <button @click="tab='workspaces'" :class="tab==='workspaces'?'font-bold':''" class="text-slate-600 hover:text-blue-600">Workspaces</button>
-                    <button @click="tab='search'" :class="tab==='search'?'font-bold':''" class="text-slate-600 hover:text-blue-600">Search</button>
-                </nav>
-            </div>
-        </header>
+<body>
+<noscript><div class="fullscreen"><div class="box"><h3>Knowledge OS</h3><p>Este painel precisa de JavaScript.</p></div></div></noscript>
 
-        <main class="flex-1 max-w-7xl mx-auto w-full px-4 py-8">
-            <p x-show="error" x-text="error" class="mb-4 p-3 rounded-lg bg-red-100 text-red-700 text-sm"></p>
+<!-- Sprite de ícones (traço, 24x24) -->
+<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-context" viewBox="0 0 24 24"><path d="M12 3 3 8l9 5 9-5-9-5z"/><path d="m3 13 9 5 9-5"/></symbol>
+  <symbol id="i-rule" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6l8-3z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-pattern" viewBox="0 0 24 24"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></symbol>
+  <symbol id="i-procedure" viewBox="0 0 24 24"><path d="M10 6h10M10 12h10M10 18h10"/><path d="M4 7l1.5-1.5V10M4 14h2.5L4 17h2.5"/></symbol>
+  <symbol id="i-knowledge" viewBox="0 0 24 24"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2V5z"/><path d="M4 19a2 2 0 0 1 2-2h13"/></symbol>
+  <symbol id="i-insight" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.5 1 2.5h6c0-1 .3-1.8 1-2.5A6 6 0 0 0 12 3z"/></symbol>
+  <symbol id="i-artifact" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z"/><path d="M14 3v5h5"/></symbol>
+  <symbol id="i-task" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="m8 12 3 3 5-6"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6z"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="i-chevrons" viewBox="0 0 24 24"><path d="m8 9 4-4 4 4M8 15l4 4 4-4"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.5-4.5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><path d="M16 4v4M10 10v4M18 16v4"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></symbol>
+  <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M8 20h8M12 16v4"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4V4h11v1"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="m13 7 4 4"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3 2 21h20L12 3z"/><path d="M12 10v5M12 18h0"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></symbol>
+  <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></symbol>
+  <symbol id="i-expand" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></symbol>
+  <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6"/></symbol>
+  <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8M5 10v10h14V10"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="m12 3 9 5v8l-9 5-9-5V8l9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></symbol>
+  <symbol id="i-command" viewBox="0 0 24 24"><path d="M9 6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6z"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 6.3"/><path d="M20 4v7h-7"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+</svg>
 
-            <!-- Workspaces -->
-            <div x-show="tab==='workspaces'">
-                <div class="flex justify-between items-center mb-6">
-                    <h2 class="text-3xl font-bold">Workspaces</h2>
-                    <button @click="createWorkspace()" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">+ New</button>
-                </div>
+<div x-data x-cloak>
 
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <template x-for="ws in workspaces" :key="ws.id">
-                        <div @click="selectWorkspace(ws)" :class="selectedWorkspace?.id===ws.id?'border-blue-500':'border-slate-200'" class="bg-white p-4 rounded-lg border cursor-pointer hover:border-blue-400 hover:shadow-md transition">
-                            <h3 class="font-bold text-lg" x-text="ws.name"></h3>
-                            <p class="text-sm text-slate-600" x-text="ws.description"></p>
-                            <div class="mt-2 text-xs text-slate-500">
-                                <span x-text="`${ws.stats?.domains ?? 0} domains · ${ws.stats?.items ?? 0} items`"></span>
-                            </div>
-                        </div>
-                    </template>
-                </div>
-                <p x-show="!workspaces.length" class="text-slate-500">Nenhum workspace ainda.</p>
-
-                <div x-show="selectedWorkspace" class="mt-8">
-                    <h3 class="text-2xl font-bold mb-4" x-text="`${selectedWorkspace?.name} › Domains`"></h3>
-                    <button @click="createDomain()" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 mb-4">+ Domain</button>
-                    <div class="space-y-2">
-                        <template x-for="dom in domains" :key="dom.id">
-                            <div @click="selectDomain(dom)" :class="selectedDomain?.id===dom.id?'border-green-500':'border-slate-200'" class="bg-white p-3 rounded-lg border cursor-pointer hover:bg-slate-50">
-                                <div class="flex justify-between items-center">
-                                    <h4 class="font-semibold" x-text="dom.name"></h4>
-                                    <span class="text-xs bg-slate-200 px-2 py-1 rounded" x-text="`${dom.stats?.items ?? 0} items`"></span>
-                                </div>
-                            </div>
-                        </template>
-                    </div>
-                </div>
-
-                <div x-show="selectedDomain" class="mt-8">
-                    <h3 class="text-2xl font-bold mb-4" x-text="`${selectedDomain?.name} › Items`"></h3>
-                    <button @click="createItem()" class="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 mb-4">+ Item</button>
-                    <div class="space-y-2">
-                        <template x-for="item in items" :key="item.id">
-                            <div class="bg-white p-4 rounded-lg border border-slate-200 hover:shadow-md transition">
-                                <h4 class="font-semibold" x-text="item.title"></h4>
-                                <p class="text-sm text-slate-600" x-text="item.summary"></p>
-                                <div class="mt-2 flex gap-2 text-xs">
-                                    <span class="bg-blue-100 text-blue-700 px-2 py-1 rounded" x-text="item.type"></span>
-                                    <span class="bg-green-100 text-green-700 px-2 py-1 rounded" x-text="item.memory_class"></span>
-                                </div>
-                            </div>
-                        </template>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Search -->
-            <div x-show="tab==='search'">
-                <h2 class="text-3xl font-bold mb-6">Search</h2>
-                <p class="text-sm text-slate-500 mb-3" x-text="selectedWorkspace ? `Em: ${selectedWorkspace.name}` : 'Selecione um workspace na aba Workspaces.'"></p>
-                <div class="flex gap-2 mb-6">
-                    <input x-model="searchQuery" @keyup.enter="search()" placeholder="Search items..." class="flex-1 px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-600">
-                    <button @click="search()" class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700">Search</button>
-                </div>
-                <p x-show="searched && !searchResults.length" class="text-slate-500">Sem resultados.</p>
-                <div class="space-y-3">
-                    <template x-for="result in searchResults" :key="result.id">
-                        <div class="bg-white p-4 rounded-lg border border-slate-200">
-                            <h4 class="font-semibold" x-text="result.title"></h4>
-                            <p class="text-sm text-slate-600" x-text="result.summary"></p>
-                            <div class="mt-2 text-xs text-slate-500">
-                                Score: <span x-text="result.score?.toFixed(2)"></span>
-                            </div>
-                        </div>
-                    </template>
-                </div>
-            </div>
-        </main>
+  <!-- Falha ao iniciar -->
+  <div class="fullscreen" x-show="$store.app.bootError" role="alert">
+    <div class="box">
+      <svg class="ic" style="width:32px;height:32px;color:var(--danger)"><use href="#i-alert"/></svg>
+      <h2>Não foi possível carregar</h2>
+      <p class="muted" x-text="$store.app.bootError"></p>
+      <button class="btn" @click="$store.app.boot()">Tentar de novo</button>
     </div>
+  </div>
 
-    <script>
-        // v0.1: a API só exige um Bearer não vazio. Troque via localStorage.kos_token.
-        function token() {
-            try { return localStorage.getItem('kos_token') || 'dev'; } catch (e) { return 'dev'; }
-        }
+  <div class="app" x-show="!$store.app.bootError"
+       :class="{ wide: $store.app.wide, 'drawer-open': $store.app.drawer }">
 
-        async function api(path, opts = {}) {
-            const res = await fetch('/api' + path, {
-                ...opts,
-                headers: {
-                    'Authorization': 'Bearer ' + token(),
-                    'Content-Type': 'application/json',
-                    ...(opts.headers || {})
-                }
-            });
-            if (!res.ok) {
-                let detail = res.statusText;
-                try { detail = JSON.stringify((await res.json()).detail); } catch (e) {}
-                throw new Error(`${res.status}: ${detail}`);
-            }
-            return res.json();
-        }
+    <!-- ===== Sidebar ===== -->
+    <aside class="sidebar" aria-label="Navegação">
+      <a class="brand" :href="$store.app.connId ? $store.app.hConn() : '#/'">
+        <span class="brand-mark"><svg class="ic"><use href="#i-knowledge"/></svg></span>
+        Knowledge OS
+      </a>
 
-        function app() {
-            return {
-                tab: 'workspaces',
-                workspaces: [],
-                domains: [],
-                items: [],
-                searchResults: [],
-                searchQuery: '',
-                searched: false,
-                selectedWorkspace: null,
-                selectedDomain: null,
-                error: '',
+      <div class="tree-empty" x-show="$store.app.connError" role="alert">
+        <span x-text="'Conexões indisponíveis: ' + $store.app.connError"></span>
+        <button class="btn" @click="$store.app.boot()">Tentar de novo</button>
+      </div>
 
-                async run(fn) {
-                    this.error = '';
-                    try { await fn(); } catch (e) { this.error = e.message; console.error(e); }
-                },
+      <div class="switcher">
+        <!-- Connection -->
+        <div class="dd" x-data="dropdown" @click.outside="close()" @keydown.escape.window="close()">
+          <button class="dd-btn" @click="toggle()" :aria-expanded="open" aria-haspopup="listbox">
+            <svg class="ic"><use href="#i-db"/></svg>
+            <span class="dd-text">
+              <span class="dd-label">Connection</span>
+              <span class="dd-value" x-text="$store.app.connName"></span>
+            </span>
+            <svg class="ic" style="color:var(--text-3)"><use href="#i-chevrons"/></svg>
+          </button>
+          <div class="dd-menu" x-show="open" x-cloak role="listbox">
+            <template x-for="c in $store.app.connections" :key="c.id">
+              <button class="dd-item" role="option" :class="{ active: c.id === $store.app.connId }"
+                      :disabled="!c.enabled" @click="close(); $store.app.pickConnection(c.id)">
+                <span class="dot" :class="{ off: !c.enabled }"></span>
+                <span class="grow" x-text="c.name"></span>
+                <span class="chip accent" x-show="c.is_default">Default</span>
+              </button>
+            </template>
+          </div>
+        </div>
 
-                async init() {
-                    await this.loadWorkspaces();
-                },
+        <!-- Workspace -->
+        <div class="dd" x-data="dropdown" @click.outside="close()" @keydown.escape.window="close()">
+          <button class="dd-btn" @click="toggle()" :aria-expanded="open" aria-haspopup="listbox">
+            <svg class="ic"><use href="#i-box"/></svg>
+            <span class="dd-text">
+              <span class="dd-label">Workspace</span>
+              <span class="dd-value" x-text="$store.app.workspace ? $store.app.workspace.name : 'Selecionar…'"></span>
+            </span>
+            <svg class="ic" style="color:var(--text-3)"><use href="#i-chevrons"/></svg>
+          </button>
+          <div class="dd-menu" x-show="open" x-cloak role="listbox">
+            <template x-for="w in $store.app.workspaces" :key="w.id">
+              <button class="dd-item" role="option" :class="{ active: w.id === $store.app.route.params.ws }"
+                      @click="close(); $store.app.pickWorkspace(w.id)">
+                <span class="grow" x-text="w.name"></span>
+              </button>
+            </template>
+            <div class="dd-empty" x-show="!$store.app.workspaces.length">Nenhum workspace nesta conexão.</div>
+          </div>
+        </div>
+      </div>
 
-                loadWorkspaces() {
-                    return this.run(async () => {
-                        const list = await api('/workspaces');
-                        await Promise.all(list.map(async ws => {
-                            ws.stats = await api(`/workspaces/${ws.id}/stats`).catch(() => null);
-                        }));
-                        this.workspaces = list;
-                    });
-                },
+      <!-- Árvore Workspace → Domain → Item -->
+      <nav class="tree" aria-label="Árvore do workspace">
+        <template x-if="$store.app.route.params.ws && $store.app.treeLoading && !$store.app.tree">
+          <div><div class="skeleton"></div><div class="skeleton" style="width:70%"></div><div class="skeleton" style="width:85%"></div></div>
+        </template>
+        <template x-if="$store.app.route.params.ws && $store.app.tree">
+          <div>
+            <div class="tree-head">
+              <span x-text="$store.app.workspace ? $store.app.workspace.name : 'Workspace'"></span>
+            </div>
+            <template x-for="d in $store.app.tree.domains" :key="d.id">
+              <div>
+                <div class="tree-row" :class="{ active: $store.app.route.name === 'domain' && $store.app.route.params.dm === d.id }">
+                  <button class="tw" @click="$store.app.toggleDomain(d.id)"
+                          :aria-label="($store.app.isOpen(d.id) ? 'Recolher ' : 'Expandir ') + d.name"
+                          :aria-expanded="$store.app.isOpen(d.id)">
+                    <svg class="ic" :class="{ open: $store.app.isOpen(d.id) }"><use href="#i-chevron"/></svg>
+                  </button>
+                  <a class="tree-link" :href="$store.app.hDomain(d.id)">
+                    <svg class="ic"><use href="#i-folder"/></svg>
+                    <span class="tl-text" x-text="d.name"></span>
+                    <span class="count" x-text="d.item_count"></span>
+                  </a>
+                </div>
+                <div class="tree-items" x-show="$store.app.isOpen(d.id)">
+                  <template x-for="it in d.items" :key="it.id">
+                    <a class="tree-item" :class="{ active: $store.app.route.params.item === it.id }"
+                       :href="$store.app.hItem(d.id, it.id)" :title="it.title">
+                      <svg class="ic"><use :href="'#i-' + $icon(it.type)"/></svg>
+                      <span x-text="it.title"></span>
+                    </a>
+                  </template>
+                  <div class="tree-empty" x-show="!d.items.length">Sem itens</div>
+                </div>
+              </div>
+            </template>
+            <div class="tree-empty" x-show="!$store.app.tree.domains.length">Este workspace ainda não tem domains.</div>
+          </div>
+        </template>
+        <div class="tree-empty" x-show="$store.app.route.params.ws && $store.app.treeError" x-text="$store.app.treeError"></div>
+        <div class="tree-empty" x-show="!$store.app.route.params.ws">Escolha um workspace para ver a árvore.</div>
+      </nav>
 
-                selectWorkspace(ws) {
-                    this.selectedWorkspace = ws;
-                    this.selectedDomain = null;
-                    this.items = [];
-                    return this.loadDomains();
-                },
+      <div class="side-foot">
+        <a class="side-link" :class="{ active: $store.app.route.name === 'connections' }" :href="$store.app.hConnections()">
+          <svg class="ic"><use href="#i-settings"/></svg> Configurações · Conexões
+        </a>
+      </div>
+    </aside>
+    <div class="scrim" @click="$store.app.drawer = false"></div>
 
-                loadDomains() {
-                    return this.run(async () => {
-                        const list = await api(`/domains?workspace_id=${encodeURIComponent(this.selectedWorkspace.id)}`);
-                        await Promise.all(list.map(async d => {
-                            d.stats = await api(`/domains/${d.id}/stats`).catch(() => null);
-                        }));
-                        this.domains = list;
-                    });
-                },
+    <!-- ===== Conteúdo ===== -->
+    <div class="main">
+      <header class="topbar">
+        <button class="btn icon ghost menu-btn" @click="$store.app.drawer = true" aria-label="Abrir menu">
+          <svg class="ic"><use href="#i-menu"/></svg>
+        </button>
+        <button class="search-btn" @click="$store.app.paletteOpen = true" aria-label="Buscar e comandos">
+          <svg class="ic"><use href="#i-search"/></svg>
+          <span class="search-txt">Buscar…</span>
+          <kbd x-text="$store.app.isMac ? '⌘K' : 'Ctrl K'"></kbd>
+        </button>
+        <div class="spacer"></div>
+        <div class="dd" x-data="dropdown" @click.outside="close()" @keydown.escape.window="close()">
+          <button class="btn" @click="toggle()" :aria-expanded="open" aria-haspopup="menu">
+            <svg class="ic"><use href="#i-plus"/></svg> Novo
+          </button>
+          <div class="dd-menu right" x-show="open" x-cloak role="menu">
+            <button class="dd-item" role="menuitem" :disabled="!$store.app.route.params.ws" @click="close(); $store.app.openModal('item')">
+              <svg class="ic"><use href="#i-knowledge"/></svg><span class="grow">Novo item</span></button>
+            <button class="dd-item" role="menuitem" :disabled="!$store.app.workspaces.length" @click="close(); $store.app.openModal('domain')">
+              <svg class="ic"><use href="#i-folder"/></svg><span class="grow">Novo domain</span></button>
+            <button class="dd-item" role="menuitem" @click="close(); $store.app.openModal('workspace')">
+              <svg class="ic"><use href="#i-box"/></svg><span class="grow">Novo workspace</span></button>
+          </div>
+        </div>
+        <button class="btn icon ghost" @click="$store.app.toggleWide()" :aria-pressed="$store.app.wide"
+                title="Largura do conteúdo" aria-label="Alternar largura do conteúdo">
+          <svg class="ic"><use href="#i-expand"/></svg>
+        </button>
+        <button class="btn icon ghost" @click="$store.app.cycleTheme()"
+                :title="'Tema: ' + $store.app.theme" :aria-label="'Tema: ' + $store.app.theme">
+          <svg class="ic"><use :href="'#i-' + ($store.app.theme === 'dark' ? 'moon' : $store.app.theme === 'light' ? 'sun' : 'monitor')"/></svg>
+        </button>
+      </header>
 
-                selectDomain(dom) {
-                    this.selectedDomain = dom;
-                    return this.loadItems();
-                },
+      <!-- Carregando -->
+      <div class="page" x-show="!$store.app.ready">
+        <div class="doc"><div class="skeleton" style="height:30px;width:40%;margin:0 0 16px"></div><div class="skeleton" style="margin:0 0 10px"></div><div class="skeleton" style="width:80%;margin:0"></div></div>
+      </div>
 
-                loadItems() {
-                    return this.run(async () => {
-                        this.items = await api(`/items?domain_id=${encodeURIComponent(this.selectedDomain.id)}`);
-                    });
-                },
+      <template x-if="$store.app.ready">
+        <div>
 
-                search() {
-                    if (!this.searchQuery) return;
-                    return this.run(async () => {
-                        if (!this.selectedWorkspace) throw new Error('Selecione um workspace antes de buscar.');
-                        const q = new URLSearchParams({ query: this.searchQuery, workspace_id: this.selectedWorkspace.id });
-                        if (this.selectedDomain) q.set('domain_id', this.selectedDomain.id);
-                        const data = await api(`/items/search?${q}`);
-                        this.searchResults = data.results || [];
-                        this.searched = true;
-                    });
-                },
+          <!-- Conexão: lista de workspaces -->
+          <template x-if="$store.app.route.name === 'connection'">
+            <div class="page"><div class="doc">
+              <nav class="crumbs"><span x-text="$store.app.connName"></span></nav>
+              <h1 class="page-title">Workspaces</h1>
+              <p class="page-lead">Escolha um workspace para navegar pelo conhecimento.</p>
+              <div class="toolbar"><button class="btn primary" @click="$store.app.openModal('workspace')"><svg class="ic"><use href="#i-plus"/></svg> Novo workspace</button></div>
+              <div class="state error" x-show="$store.app.wsError" role="alert">
+                <svg class="ic"><use href="#i-alert"/></svg>
+                <h3>Não foi possível listar os workspaces</h3>
+                <p x-text="$store.app.wsError"></p>
+                <button class="btn" @click="$store.app.loadWorkspaces()">Tentar de novo</button>
+              </div>
+              <div class="card-grid" x-show="!$store.app.wsError">
+                <template x-for="w in $store.app.workspaces" :key="w.id">
+                  <a class="card" :href="$store.app.hWs(w.id)">
+                    <span class="card-title"><svg class="ic"><use href="#i-box"/></svg><span class="tl-text" x-text="w.name"></span></span>
+                    <span class="card-desc" x-text="w.description || 'Sem descrição'"></span>
+                    <span class="card-foot" x-show="w.stats">
+                      <span><b x-text="w.stats?.domains"></b> domains</span>
+                      <span><b x-text="w.stats?.items"></b> itens</span>
+                    </span>
+                  </a>
+                </template>
+              </div>
+              <div class="state" x-show="!$store.app.wsError && !$store.app.workspaces.length && !$store.app.wsLoading">
+                <svg class="ic"><use href="#i-box"/></svg>
+                <h3>Nenhum workspace ainda</h3>
+                <p>Esta conexão está vazia. Crie um workspace para começar.</p>
+              </div>
+            </div></div>
+          </template>
 
-                createWorkspace() {
-                    const name = prompt('Workspace name:');
-                    if (!name) return;
-                    return this.run(async () => {
-                        await api('/workspaces', { method: 'POST', body: JSON.stringify({ name, description: '' }) });
-                        await this.loadWorkspaces();
-                    });
-                },
+          <!-- Workspace -->
+          <template x-if="$store.app.route.name === 'workspace'">
+            <div class="page" x-data="workspaceView"><div class="doc">
+              <template x-if="$store.app.workspace">
+                <div>
+                  <nav class="crumbs">
+                    <a :href="$store.app.hConn()" x-text="$store.app.connName"></a><span class="sep">/</span>
+                    <span x-text="$store.app.workspace.name"></span>
+                  </nav>
+                  <h1 class="page-title" x-text="$store.app.workspace.name"></h1>
+                  <p class="page-lead" x-show="$store.app.workspace.description" x-text="$store.app.workspace.description"></p>
+                  <div class="page-meta" x-show="$store.app.tree">
+                    <span><b x-text="$store.app.tree?.domains.length"></b> domains</span>
+                    <span><b x-text="totalItems"></b> itens</span>
+                    <span>criado <b x-text="$ago($store.app.workspace.created_at)"></b></span>
+                  </div>
 
-                createDomain() {
-                    if (!this.selectedWorkspace) return;
-                    const name = prompt('Domain name:');
-                    if (!name) return;
-                    return this.run(async () => {
-                        await api('/domains', {
-                            method: 'POST',
-                            body: JSON.stringify({ workspace_id: this.selectedWorkspace.id, name, description: '' })
-                        });
-                        await this.loadDomains();
-                    });
-                },
+                  <div class="section-title"><span>Domains</span>
+                    <button class="btn" @click="$store.app.openModal('domain')"><svg class="ic"><use href="#i-plus"/></svg> Novo domain</button></div>
+                  <div class="card-grid">
+                    <template x-for="d in $store.app.tree?.domains || []" :key="d.id">
+                      <a class="card" :href="$store.app.hDomain(d.id)">
+                        <span class="card-title"><svg class="ic"><use href="#i-folder"/></svg><span class="tl-text" x-text="d.name"></span><span class="count" x-text="d.item_count"></span></span>
+                        <span class="card-desc" x-show="d.description" x-text="d.description"></span>
+                        <ul class="mini-list">
+                          <template x-for="it in previewItems(d)" :key="it.id"><li x-text="'· ' + it.title"></li></template>
+                        </ul>
+                      </a>
+                    </template>
+                  </div>
+                  <div class="state" x-show="$store.app.tree && !$store.app.tree.domains.length">
+                    <svg class="ic"><use href="#i-folder"/></svg>
+                    <h3>Sem domains</h3>
+                    <p>Este workspace ainda não tem domains.</p>
+                  </div>
 
-                createItem() {
-                    if (!this.selectedDomain) return;
-                    const title = prompt('Item title:');
-                    if (!title) return;
-                    const summary = prompt('Summary:', title);
-                    if (!summary) return;
-                    return this.run(async () => {
-                        await api('/items', {
-                            method: 'POST',
-                            body: JSON.stringify({
-                                workspace_id: this.selectedWorkspace.id,
-                                domain_id: this.selectedDomain.id,
-                                type: 'knowledge',
-                                memory_class: 'working',
-                                title,
-                                summary,
-                                content: summary,
-                                confidence: 50,
-                                importance: 5
-                            })
-                        });
-                        await this.loadItems();
-                    });
-                }
-            };
-        }
-    </script>
+                  <template x-if="recent.length">
+                    <div>
+                      <div class="section-title">Atualizados recentemente</div>
+                      <div class="item-list">
+                        <template x-for="it in recent" :key="it.id">
+                          <a class="item-row" :href="$store.app.hItem(it.domain_id, it.id)">
+                            <svg class="ic"><use :href="'#i-' + $icon(it.type)"/></svg>
+                            <div>
+                              <div class="ir-title" x-text="it.title"></div>
+                              <div class="ir-meta">
+                                <span class="chip outline" x-text="it.domain_name"></span>
+                                <span class="chip" :class="'mc-' + it.memory_class" x-text="it.memory_class"></span>
+                                <span class="muted" style="font-size:12.5px" x-text="$ago(it.updated_at)"></span>
+                              </div>
+                            </div>
+                          </a>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </template>
+              <div class="state error" x-show="$store.app.wsError" role="alert">
+                <svg class="ic"><use href="#i-alert"/></svg>
+                <h3>Não foi possível carregar o workspace</h3>
+                <p x-text="$store.app.wsError"></p>
+                <button class="btn" @click="$store.app.refresh()">Tentar de novo</button>
+              </div>
+              <div class="state error" x-show="!$store.app.workspace && !$store.app.wsLoading && !$store.app.wsError" role="alert">
+                <svg class="ic"><use href="#i-alert"/></svg>
+                <h3>Workspace não encontrado</h3>
+                <p>Ele pode ter sido removido ou pertencer a outra conexão.</p>
+                <a class="btn" :href="$store.app.hConn()">Ver workspaces</a>
+              </div>
+            </div></div>
+          </template>
+
+          <!-- Domain -->
+          <template x-if="$store.app.route.name === 'domain'">
+            <div class="page" x-data="domainView"><div class="doc">
+              <template x-if="$store.app.domain">
+                <div>
+                  <nav class="crumbs">
+                    <a :href="$store.app.hConn()" x-text="$store.app.connName"></a><span class="sep">/</span>
+                    <a :href="$store.app.hWs()" x-text="$store.app.workspace?.name"></a><span class="sep">/</span>
+                    <span x-text="$store.app.domain.name"></span>
+                  </nav>
+                  <h1 class="page-title" x-text="$store.app.domain.name"></h1>
+                  <p class="page-lead" x-show="$store.app.domain.description" x-text="$store.app.domain.description"></p>
+                  <div class="page-meta"><span><b x-text="$store.app.domain.item_count"></b> itens</span></div>
+                  <div class="toolbar"><button class="btn primary" @click="$store.app.openModal('item')"><svg class="ic"><use href="#i-plus"/></svg> Novo item</button></div>
+
+                  <div class="banner" role="status" x-show="truncated">
+                    <svg class="ic"><use href="#i-alert"/></svg><span x-text="'Mostrando ' + items.length + ' de ' + totalItems + ' itens'"></span>
+                  </div>
+
+                  <div class="toolbar" x-show="items.length">
+                    <select class="select sm" x-model="typeFilter" aria-label="Filtrar por type">
+                      <option value="">Todos os types</option>
+                      <template x-for="t in types" :key="t"><option :value="t" x-text="t"></option></template>
+                    </select>
+                    <select class="select sm" x-model="sort" aria-label="Ordenar">
+                      <option value="title">Ordem alfabética</option>
+                      <option value="recent">Mais recentes</option>
+                    </select>
+                    <span class="grow"></span>
+                    <span class="muted" style="font-size:13px" x-text="filtered.length + ' de ' + items.length"></span>
+                  </div>
+
+                  <div class="item-list" x-show="filtered.length">
+                    <template x-for="it in filtered" :key="it.id">
+                      <a class="item-row" :href="$store.app.hItem($store.app.domain.id, it.id)">
+                        <svg class="ic"><use :href="'#i-' + $icon(it.type)"/></svg>
+                        <div>
+                          <div class="ir-title" x-text="it.title"></div>
+                          <div class="ir-sum" x-text="it.summary"></div>
+                          <div class="ir-meta">
+                            <span class="chip accent" x-text="it.type"></span>
+                            <span class="chip" :class="'mc-' + it.memory_class" x-text="it.memory_class"></span>
+                            <span class="conf" :class="$conf(it.confidence)" x-show="it.confidence != null">
+                              <span class="conf-bar"><i :style="'width:' + it.confidence + '%'"></i></span><span x-text="it.confidence + '%'"></span>
+                            </span>
+                            <span class="muted" style="font-size:12.5px" x-text="$ago(it.updated_at)"></span>
+                          </div>
+                        </div>
+                      </a>
+                    </template>
+                  </div>
+                  <div class="state" x-show="!loading && !error && !items.length">
+                    <svg class="ic"><use href="#i-folder"/></svg>
+                    <h3>Domain vazio</h3>
+                    <p>Ainda não há itens neste domain.</p>
+                  </div>
+                  <div class="state error" x-show="error" role="alert">
+                    <svg class="ic"><use href="#i-alert"/></svg>
+                    <h3>Não foi possível carregar os itens</h3>
+                    <p x-text="error"></p>
+                    <button class="btn" @click="load()">Tentar de novo</button>
+                  </div>
+                </div>
+              </template>
+              <div class="state error" x-show="!$store.app.domain && !$store.app.treeLoading" role="alert">
+                <svg class="ic"><use href="#i-alert"/></svg>
+                <h3>Domain não encontrado</h3>
+                <p>Ele pode ter sido removido.</p>
+                <a class="btn" :href="$store.app.hWs()">Voltar ao workspace</a>
+              </div>
+            </div></div>
+          </template>
+
+          <!-- Item -->
+          <template x-if="$store.app.route.name === 'item'">
+            <div class="page" :class="{ 'has-toc': item && headings.length && !$store.app.route.params.edit, editing: $store.app.route.params.edit }" x-data="itemView">
+              <div class="doc">
+                <div class="skeleton" x-show="loading && !item" style="height:30px;width:50%;margin:0 0 16px"></div>
+
+                <template x-if="item">
+                  <article>
+                    <nav class="crumbs">
+                      <a :href="$store.app.hConn()" x-text="$store.app.connName"></a><span class="sep">/</span>
+                      <a :href="$store.app.hWs()" x-text="$store.app.workspace?.name"></a><span class="sep">/</span>
+                      <a :href="$store.app.hDomain(item.domain_id)" x-text="domainName"></a><span class="sep">/</span>
+                      <span x-text="item.title"></span>
+                    </nav>
+
+                    <div class="item-head">
+                      <h1 class="page-title" x-text="item.title"></h1>
+                      <div class="item-actions">
+                        <button class="btn" @click="$store.app.toggleEdit()" title="Atalho: e">
+                          <svg class="ic"><use :href="'#i-' + ($store.app.route.params.edit ? 'eye' : 'edit')"/></svg>
+                          <span x-text="$store.app.route.params.edit ? 'Ler' : 'Editar'"></span> <kbd>e</kbd>
+                        </button>
+                        <button class="btn" x-show="!$store.app.route.params.edit" @click="copyMarkdown()"><svg class="ic"><use href="#i-copy"/></svg> Copiar como Markdown</button>
+                        <button class="btn" x-show="!$store.app.route.params.edit" :aria-pressed="showRaw" @click="showRaw = !showRaw">
+                          <svg class="ic"><use href="#i-eye"/></svg> <span x-text="showRaw ? 'Ver renderizado' : 'Ver Markdown'"></span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <p class="page-lead" x-text="item.summary"></p>
+
+                    <div class="chips">
+                      <span class="chip accent"><svg class="ic"><use :href="'#i-' + $icon(item.type)"/></svg><span x-text="item.type"></span></span>
+                      <span class="chip" :class="'mc-' + item.memory_class" x-text="item.memory_class"></span>
+                      <span class="conf" :class="$conf(item.confidence)" x-show="item.confidence != null" title="Confiança">
+                        <span class="conf-bar"><i :style="'width:' + item.confidence + '%'"></i></span>
+                        <span>Confiança <b x-text="item.confidence + '%'"></b></span>
+                      </span>
+                      <span class="chip outline" x-show="item.importance != null" x-text="'Importância ' + item.importance + '/10'"></span>
+                      <span class="chip outline" x-show="ttlDaysLeft != null" x-text="'TTL ' + item.ttl_days + ' d'"></span>
+                      <template x-for="t in item.tags" :key="'t' + t"><span class="chip outline" x-text="'#' + t"></span></template>
+                      <template x-for="l in item.labels" :key="'l' + l"><span class="chip accent" x-text="l"></span></template>
+                      <span class="muted" style="font-size:12.5px" :title="fullDate(item.updated_at)" x-text="'atualizado ' + $ago(item.updated_at)"></span>
+                    </div>
+
+                    <template x-for="b in banners" :key="b.key">
+                      <div class="banner" role="status">
+                        <svg class="ic"><use href="#i-alert"/></svg><span x-text="b.text"></span>
+                      </div>
+                    </template>
+
+                    <template x-if="!$store.app.route.params.edit">
+                      <div>
+                        <div class="prose" x-show="!showRaw" @click="onProseClick($event)"
+                             x-effect="renderInto($el, item.content)"></div>
+                        <pre class="raw" x-show="showRaw" x-text="item.content"></pre>
+                      </div>
+                    </template>
+
+                    <template x-if="$store.app.route.params.edit && item && item.id === $store.app.route.params.item">
+                      <div class="editor" x-data="itemEditor(item, (u) => applyUpdate(u))">
+                        <div class="editor-meta">
+                          <div class="field grow"><label for="ed-summary">Summary</label>
+                            <input id="ed-summary" class="input" type="text" x-model="draft.summary"></div>
+                          <div class="field"><label for="ed-conf">Confiança (0–100)</label>
+                            <input id="ed-conf" class="input num" type="number" min="0" max="100" x-model.number="draft.confidence"></div>
+                          <div class="field"><label for="ed-imp">Importância (0–10)</label>
+                            <input id="ed-imp" class="input num" type="number" min="0" max="10" x-model.number="draft.importance"></div>
+                          <div class="field" x-show="item.memory_class === 'ephemeral'"><label for="ed-ttl">TTL (dias)</label>
+                            <input id="ed-ttl" class="input num" type="number" min="1" x-model.number="draft.ttl_days"></div>
+                        </div>
+                        <div class="editor-grid">
+                          <div class="editor-col">
+                            <label class="editor-label" for="ed-content">Markdown</label>
+                            <textarea id="ed-content" x-ref="content" class="textarea editor-ta" x-model="draft.content" spellcheck="false"></textarea>
+                          </div>
+                          <div class="editor-col">
+                            <div class="editor-label">Preview</div>
+                            <div class="prose editor-prev" x-effect="preview($el)"></div>
+                          </div>
+                        </div>
+                        <div class="editor-bar">
+                          <span class="muted" x-show="dirty">Alterações não salvas</span>
+                          <span class="form-error" x-show="error" x-text="error" role="alert"></span>
+                          <span class="grow"></span>
+                          <button class="btn" @click="$store.app.toggleEdit()">Fechar edição</button>
+                          <button class="btn primary" :disabled="!dirty || saving" @click="save()">
+                            <span x-text="saving ? 'Salvando…' : 'Salvar'"></span> <kbd x-text="$store.app.isMac ? '⌘ S' : 'Ctrl S'"></kbd>
+                          </button>
+                        </div>
+                      </div>
+                    </template>
+
+                    <template x-if="out.length || inc.length">
+                      <section class="rels">
+                        <h2 class="section-title">Relações</h2>
+                        <div class="rel-cols">
+                          <div x-show="out.length">
+                            <h3 class="rel-h">Referencia</h3>
+                            <template x-for="r in out" :key="r.id">
+                              <a class="rel" :href="relHref(r.other)">
+                                <span class="chip" x-text="r.type"></span>
+                                <svg class="ic"><use href="#i-arrow-right"/></svg>
+                                <span class="rel-t" x-text="relTitle(r.other)"></span>
+                              </a>
+                            </template>
+                          </div>
+                          <div x-show="inc.length">
+                            <h3 class="rel-h">Referenciado por</h3>
+                            <template x-for="r in inc" :key="r.id">
+                              <a class="rel" :href="relHref(r.other)">
+                                <span class="chip" x-text="r.type"></span>
+                                <svg class="ic"><use href="#i-arrow-left"/></svg>
+                                <span class="rel-t" x-text="relTitle(r.other)"></span>
+                              </a>
+                            </template>
+                          </div>
+                        </div>
+                      </section>
+                    </template>
+
+                    <template x-if="artifacts.length">
+                      <section>
+                        <h2 class="section-title">Artifacts</h2>
+                        <template x-for="a in artifacts" :key="a.id">
+                          <div class="rel">
+                            <svg class="ic"><use href="#i-artifact"/></svg>
+                            <span class="rel-t" x-text="a.filename"></span>
+                            <span class="muted" style="font-size:12.5px" x-text="humanSize(a.file_size)"></span>
+                            <button class="btn ghost icon" @click="downloadArtifact(a)" :aria-label="'Baixar ' + a.filename"><svg class="ic"><use href="#i-download"/></svg></button>
+                          </div>
+                        </template>
+                      </section>
+                    </template>
+
+                    <nav class="pager" aria-label="Itens vizinhos">
+                      <template x-if="prev">
+                        <a class="pager-a" :href="$store.app.hItem(item.domain_id, prev.id)">
+                          <span class="muted">Anterior</span><b x-text="prev.title"></b>
+                        </a>
+                      </template>
+                      <template x-if="next">
+                        <a class="pager-a next" :href="$store.app.hItem(item.domain_id, next.id)">
+                          <span class="muted">Próximo</span><b x-text="next.title"></b>
+                        </a>
+                      </template>
+                    </nav>
+                  </article>
+                </template>
+
+                <div class="state error" x-show="notFound" role="alert">
+                  <svg class="ic"><use href="#i-alert"/></svg>
+                  <h3>Item não encontrado</h3>
+                  <p>Ele pode ter sido removido ou pertencer a outra conexão.</p>
+                  <a class="btn" :href="$store.app.hWs()">Voltar ao workspace</a>
+                </div>
+                <div class="state error" x-show="error" role="alert">
+                  <svg class="ic"><use href="#i-alert"/></svg>
+                  <h3>Não foi possível carregar o item</h3>
+                  <p x-text="error"></p>
+                  <button class="btn" @click="load()">Tentar de novo</button>
+                </div>
+              </div>
+
+              <aside class="toc" x-show="item && headings.length" aria-label="Nesta página">
+                <div class="toc-title">Nesta página</div>
+                <template x-for="h in headings" :key="h.id">
+                  <a class="toc-link" :class="{ active: active === h.id, sub: h.level === 3 }"
+                     :href="'#' + h.id" @click.prevent="goTo(h.id)" x-text="h.text"></a>
+                </template>
+              </aside>
+            </div>
+          </template>
+
+          <!-- Configurações · Conexões (T8) -->
+          <template x-if="$store.app.route.name === 'connections'">
+            <div class="page"><div class="doc" x-data="connectionsView">
+              <nav class="crumbs">
+                <a href="#/settings/connections" x-show="sub">Conexões</a><span class="sep" x-show="sub">/</span>
+                <span x-show="!sub">Configurações</span>
+                <span x-show="isNew">Nova conexão</span>
+                <span x-show="conn" x-text="conn?.name"></span>
+              </nav>
+
+              <!-- Lista -->
+              <template x-if="!sub">
+                <div>
+                  <h1 class="page-title">Conexões</h1>
+                  <p class="page-lead">Bancos usados pela API e pelas tools MCP. O cadastro vive no <code>connections.json</code> do home.</p>
+                  <div class="toolbar"><a class="btn primary" href="#/settings/connections/new"><svg class="ic"><use href="#i-plus"/></svg> Nova conexão</a></div>
+                  <div class="state error" x-show="error || $store.app.connError" role="alert">
+                    <svg class="ic"><use href="#i-alert"/></svg>
+                    <h3>Não foi possível listar as conexões</h3>
+                    <p x-text="error || $store.app.connError"></p>
+                    <button class="btn" @click="load()">Tentar de novo</button>
+                  </div>
+                  <div class="conn-list" x-show="!error && !$store.app.connError">
+                    <template x-for="c in $store.app.connections" :key="c.id">
+                      <a class="conn-row" :href="'#/settings/connections/' + encodeURIComponent(c.id)">
+                        <span class="dot" :class="dotClass(c)" :title="lastTest(c)"></span>
+                        <span class="conn-main">
+                          <span class="conn-name"><b x-text="c.name"></b>
+                            <span class="chip outline" x-text="c.db_type"></span>
+                            <span class="chip accent" x-show="c.is_default">Default</span>
+                            <span class="chip outline" x-show="c.is_catalog">Catálogo</span>
+                            <span class="chip outline" x-show="!c.enabled">Desabilitada</span>
+                          </span>
+                          <span class="conn-sub" x-text="target(c)"></span>
+                        </span>
+                        <span class="conn-test muted">
+                          <span x-text="lastTest(c)"></span>
+                          <span x-show="c.last_test" x-text="' · ' + $ago(c.last_test?.tested_at)"></span>
+                        </span>
+                      </a>
+                    </template>
+                  </div>
+                </div>
+              </template>
+
+              <!-- Detalhe / nova -->
+              <template x-if="sub">
+                <div>
+                  <h1 class="page-title" x-text="isNew ? 'Nova conexão' : (conn ? conn.name : 'Conexão')"></h1>
+                  <p class="page-meta" x-show="conn">
+                    <span class="chip outline" x-text="conn?.db_type"></span>
+                    <span class="chip accent" x-show="conn?.is_default">Default</span>
+                    <span class="chip outline" x-show="conn?.is_catalog">Catálogo (somente leitura)</span>
+                  </p>
+
+                  <div class="state error" x-show="notFound" role="alert">
+                    <svg class="ic"><use href="#i-alert"/></svg>
+                    <h3>Conexão não encontrada</h3>
+                    <a class="btn" href="#/settings/connections">Voltar às conexões</a>
+                  </div>
+
+                  <div x-show="!notFound">
+                    <p class="form-error" x-show="error" x-text="error" role="alert"></p>
+
+                    <!-- Formulário (não existe para o catálogo) -->
+                    <form x-show="isNew || editable" @submit.prevent="save()" autocomplete="off">
+                      <div class="form-row">
+                        <div class="field grow"><label for="c-name">Nome</label>
+                          <input id="c-name" class="input" type="text" x-model="form.name" maxlength="255" required></div>
+                        <div class="field"><label for="c-type">Tipo</label>
+                          <select id="c-type" class="select" x-model="form.db_type" :disabled="!isNew">
+                            <option value="sqlite">SQLite</option>
+                            <option value="postgresql">PostgreSQL</option>
+                            <option value="mysql">MySQL</option>
+                          </select></div>
+                      </div>
+
+                      <div class="field" x-show="form.db_type === 'sqlite'"><label for="c-path">Arquivo</label>
+                        <input id="c-path" class="input mono" type="text" x-model="form.path" placeholder="extra.db" :required="form.db_type === 'sqlite'">
+                        <span class="form-hint-text">Caminho relativo vale a partir do home de dados; também aceita caminho absoluto.</span></div>
+
+                      <template x-if="form.db_type !== 'sqlite'">
+                        <div>
+                          <div class="form-row">
+                            <div class="field grow"><label for="c-host">Host</label>
+                              <input id="c-host" class="input" type="text" x-model="form.host" required></div>
+                            <div class="field"><label for="c-port">Porta</label>
+                              <input id="c-port" class="input num" type="number" min="1" max="65535" x-model="form.port"
+                                     :placeholder="form.db_type === 'mysql' ? '3306' : '5432'"></div>
+                          </div>
+                          <div class="form-row">
+                            <div class="field"><label for="c-db">Banco</label>
+                              <input id="c-db" class="input" type="text" x-model="form.database" required></div>
+                            <div class="field"><label for="c-user">Usuário</label>
+                              <input id="c-user" class="input" type="text" x-model="form.username" autocomplete="off"></div>
+                          </div>
+                          <div class="field"><label for="c-pass">Senha</label>
+                            <input id="c-pass" class="input" type="password" autocomplete="new-password" x-model="password"
+                                   :placeholder="passwordSet ? 'senha definida · deixe em branco para manter' : 'sem senha'"
+                                   :disabled="removePassword">
+                            <span class="chip accent" x-show="passwordSet && !password && !removePassword" style="justify-self:start">senha definida</span>
+                            <label class="check" x-show="passwordSet"><input type="checkbox" x-model="removePassword"> Remover senha</label>
+                            <span class="form-hint-text">A senha é só de escrita: fica no <code>connections.json</code> e nunca volta para esta tela.</span></div>
+                        </div>
+                      </template>
+
+                      <label class="check"><input type="checkbox" x-model="form.enabled"> Habilitada</label>
+
+                      <div class="toolbar" style="margin-top:14px">
+                        <button type="submit" class="btn primary" :disabled="saving" x-text="saving ? 'Salvando…' : (isNew ? 'Criar' : 'Salvar')"></button>
+                        <button type="button" class="btn" :disabled="saving || testing" @click="saveAndTest()">Salvar e testar</button>
+                        <a class="btn ghost" href="#/settings/connections">Cancelar</a>
+                      </div>
+                    </form>
+
+                    <!-- Resultado do teste: mensagem + latência (a mensagem vem sem a senha) -->
+                    <div class="alert-inline" :class="alert?.kind" x-show="alert" role="status">
+                      <svg class="ic"><use :href="alert?.kind === 'ok' ? '#i-check' : '#i-alert'"/></svg>
+                      <span x-text="alert?.message"></span>
+                      <b x-show="alert && alert.latency !== null" x-text="alert?.latency + ' ms'"></b>
+                    </div>
+
+                    <template x-if="conn">
+                      <div>
+                        <h2 class="section-title">Ações</h2>
+                        <div class="toolbar">
+                          <button class="btn" :disabled="testing" @click="test()"><svg class="ic"><use href="#i-refresh"/></svg> <span x-text="testing ? 'Testando…' : 'Testar'"></span></button>
+                          <button class="btn" :disabled="conn.is_default || !conn.enabled" @click="makeDefault()">Definir como default</button>
+                        </div>
+                        <p class="form-hint-text">“Testar” usa a configuração salva. “Definir como default” também muda a conexão usada pelas tools MCP quando elas são chamadas sem <code>connection_id</code>.</p>
+
+                        <h2 class="section-title">Schema</h2>
+                        <div class="toolbar">
+                          <button class="btn" :disabled="syncing" @click="syncSchema(true)">Sincronizar schema (dry-run)</button>
+                          <button class="btn primary" x-show="plan" :disabled="syncing || !canApply" @click="syncSchema(false)">Aplicar</button>
+                        </div>
+                        <div class="plan" x-show="plan">
+                          <p class="plan-title">Plano (nada foi gravado): <b x-text="plan?.status"></b></p>
+                          <p class="muted" x-show="planEmpty && !plan?.pending_manual.length">O schema já está em dia.</p>
+                          <template x-for="g in [['Tabelas a criar', plan?.tables_created], ['Colunas a adicionar', plan?.columns_added], ['Índices a criar', plan?.indexes_created], ['Diferenças manuais (não aplicadas)', plan?.pending_manual]]" :key="g[0]">
+                            <div x-show="g[1] && g[1].length"><div class="rel-h" x-text="g[0]"></div>
+                              <ul class="mini-list"><template x-for="x in g[1]" :key="x"><li x-text="x"></li></template></ul></div>
+                          </template>
+                          <p x-show="plan?.fts_created">Busca textual (FTS) a criar.</p>
+                        </div>
+                        <p class="form-hint-text" x-show="syncMessage" x-text="syncMessage"></p>
+
+                        <div class="danger-zone" x-show="editable">
+                          <h2 class="section-title">Zona de perigo</h2>
+                          <p x-show="!canDelete">Esta é a conexão default: defina outra como default antes de excluí-la.</p>
+                          <div x-show="canDelete">
+                            <p>Exclui o cadastro da conexão (os dados do banco não são tocados). Digite <b x-text="conn.name"></b> para confirmar.</p>
+                            <div class="toolbar">
+                              <input class="input" type="text" x-model="confirmName" :placeholder="conn.name" aria-label="Nome da conexão para confirmar" autocomplete="off" style="max-width:260px">
+                              <button class="btn danger" :disabled="!dangerReady || deleting" @click="remove()">Excluir conexão</button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </template>
+            </div></div>
+          </template>
+          <!-- /Configurações · Conexões -->
+
+          <template x-if="$store.app.route.name === 'notfound'">
+            <div class="page"><div class="doc">
+              <div class="state">
+                <svg class="ic"><use href="#i-search"/></svg>
+                <h3>Página não encontrada</h3>
+                <p>O endereço não corresponde a nenhuma tela.</p>
+                <a class="btn" href="#/">Ir para o início</a>
+              </div>
+            </div></div>
+          </template>
+
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- Paleta Ctrl/Cmd+K -->
+  <template x-if="$store.app.paletteOpen">
+  <div class="overlay" x-data="palette" @click.self="$store.app.paletteOpen = false">
+    <div class="palette" role="dialog" aria-modal="true" aria-label="Buscar e comandos">
+      <div class="pal-input">
+        <svg class="ic"><use href="#i-search"/></svg>
+        <input x-ref="input" x-model="q" type="text" placeholder="Buscar itens, domains, ações…" autocomplete="off" spellcheck="false"
+               role="combobox" aria-expanded="true" aria-controls="pal-list"
+               :aria-activedescendant="'pal-' + sel"
+               @keydown.arrow-down.prevent="move(1)" @keydown.arrow-up.prevent="move(-1)"
+               @keydown.enter.prevent="chooseSelected()">
+        <kbd>Esc</kbd>
+      </div>
+      <div class="pal-list" id="pal-list" role="listbox">
+        <template x-for="g in groups" :key="g.label">
+          <div class="pal-group">
+            <div class="pal-label" x-text="g.label"></div>
+            <template x-for="e in g.entries" :key="e.key">
+              <button class="pal-item" role="option" :id="'pal-' + e.idx" :class="{ active: e.idx === sel }"
+                      :aria-selected="e.idx === sel" @click="choose(e)" @mousemove="sel = e.idx">
+                <svg class="ic"><use :href="'#i-' + e.icon"/></svg>
+                <span class="pal-body">
+                  <span class="pal-title" x-text="e.title"></span>
+                  <span class="pal-sub" x-show="e.sub" x-text="e.sub"></span>
+                </span>
+              </button>
+            </template>
+          </div>
+        </template>
+        <div class="pal-empty" x-show="!flat.length && !searching">Nada encontrado para “<span x-text="q"></span>”.</div>
+      </div>
+    </div>
+  </div>
+  </template>
+
+  <!-- Novo item / domain / workspace -->
+  <template x-if="$store.app.modal">
+  <div class="overlay" x-data="newModal" @click.self="close()">
+    <form class="dialog wide" role="dialog" aria-modal="true" :aria-label="title" @submit.prevent="submit()">
+      <div class="dialog-head"><h2 x-text="title"></h2>
+        <button type="button" class="btn icon ghost" @click="close()" aria-label="Fechar"><svg class="ic"><use href="#i-x"/></svg></button>
+      </div>
+      <div class="dialog-body">
+        <template x-if="kind === 'workspace'">
+          <div>
+            <div class="field"><label for="m-name">Nome</label>
+              <input id="m-name" x-ref="first" class="input" type="text" x-model="form.name" maxlength="255" required></div>
+            <div class="field"><label for="m-desc">Descrição</label>
+              <textarea id="m-desc" class="textarea" rows="3" x-model="form.description"></textarea></div>
+            <p class="muted" style="font-size:13px;margin:0">Será criado na conexão <b x-text="$store.app.connName"></b>.</p>
+          </div>
+        </template>
+
+        <template x-if="kind === 'domain'">
+          <div>
+            <div class="field"><label for="m-ws">Workspace</label>
+              <select id="m-ws" class="select" x-model="form.workspace_id">
+                <template x-for="w in $store.app.workspaces" :key="w.id"><option :value="w.id" x-text="w.name"></option></template>
+              </select></div>
+            <div class="field"><label for="m-dname">Nome</label>
+              <input id="m-dname" x-ref="first" class="input" type="text" x-model="form.name" maxlength="255" required></div>
+            <div class="field"><label for="m-ddesc">Descrição</label>
+              <textarea id="m-ddesc" class="textarea" rows="3" x-model="form.description"></textarea></div>
+          </div>
+        </template>
+
+        <template x-if="kind === 'item'">
+          <div>
+            <p class="muted" style="font-size:13px;margin:0 0 12px">Workspace: <b x-text="$store.app.workspace?.name"></b></p>
+            <div class="field"><label for="m-title">Título</label>
+              <input id="m-title" x-ref="first" class="input" type="text" x-model="form.title" maxlength="255" required></div>
+            <div class="form-row">
+              <div class="field"><label for="m-domain">Domain</label>
+                <select id="m-domain" class="select" x-model="form.domain_id">
+                  <template x-for="d in domains" :key="d.id"><option :value="d.id" x-text="d.name"></option></template>
+                </select></div>
+              <div class="field"><label for="m-type">Type</label>
+                <select id="m-type" class="select" x-model="form.type">
+                  <template x-for="t in types" :key="t"><option :value="t" x-text="t"></option></template>
+                </select></div>
+              <div class="field"><label for="m-class">Memory class</label>
+                <select id="m-class" class="select" x-model="form.memory_class">
+                  <template x-for="c in classes" :key="c"><option :value="c" x-text="c"></option></template>
+                </select></div>
+            </div>
+            <p class="form-hint" x-show="!domains.length">Este workspace ainda não tem domains: crie um antes do item.</p>
+            <div class="field"><label for="m-sum">Summary</label>
+              <input id="m-sum" class="input" type="text" x-model="form.summary" required></div>
+            <div class="field"><label for="m-content">Conteúdo (Markdown)</label>
+              <textarea id="m-content" class="textarea mono" rows="8" x-model="form.content" spellcheck="false" required></textarea></div>
+            <div class="form-row">
+              <div class="field"><label for="m-tags">Tags (separadas por vírgula)</label>
+                <input id="m-tags" class="input" type="text" x-model="form.tags"></div>
+              <div class="field"><label for="m-conf">Confiança</label>
+                <input id="m-conf" class="input num" type="number" min="0" max="100" x-model.number="form.confidence"></div>
+              <div class="field"><label for="m-imp">Importância</label>
+                <input id="m-imp" class="input num" type="number" min="0" max="10" x-model.number="form.importance"></div>
+              <div class="field" x-show="form.memory_class === 'ephemeral'"><label for="m-ttl">TTL (dias)</label>
+                <input id="m-ttl" class="input num" type="number" min="1" x-model.number="form.ttl_days"></div>
+            </div>
+          </div>
+        </template>
+
+        <p class="form-error" x-show="error" x-text="error" role="alert"></p>
+      </div>
+      <div class="dialog-foot">
+        <button type="button" class="btn" @click="close()">Cancelar</button>
+        <button type="submit" class="btn primary" :disabled="saving" x-text="saving ? 'Criando…' : 'Criar'"></button>
+      </div>
+    </form>
+  </div>
+  </template>
+
+  <!-- Atalhos -->
+  <template x-if="$store.app.helpOpen">
+  <div class="overlay" @click.self="$store.app.helpOpen = false">
+    <div class="dialog" role="dialog" aria-modal="true" aria-label="Atalhos de teclado">
+      <div class="dialog-head"><h2>Atalhos de teclado</h2>
+        <button class="btn icon ghost" @click="$store.app.helpOpen = false" aria-label="Fechar"><svg class="ic"><use href="#i-x"/></svg></button>
+      </div>
+      <div class="dialog-body">
+        <template x-for="s in $store.app.shortcuts" :key="s.label">
+          <div class="kbd-row">
+            <span x-text="s.label"></span>
+            <span class="kbd-keys"><template x-for="k in s.keys" :key="k"><kbd x-text="k"></kbd></template></span>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+  </template>
+
+  <!-- Toasts -->
+  <div class="toasts" aria-live="polite">
+    <template x-for="t in $store.app.toasts" :key="t.id">
+      <div class="toast" :class="t.kind" x-text="t.message"></div>
+    </template>
+  </div>
+</div>
 </body>
 </html>

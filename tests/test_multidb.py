@@ -155,32 +155,8 @@ def test_conexao_desabilitada_ou_removida_do_json_e_recusada(catalog, tmp_path):
         get_engine("c")
 
 
-def test_startup_importa_conexoes_legadas_do_catalogo_uma_vez(catalog, tmp_path):  # noqa: F811
-    from src.main import import_legacy_connections
-
-    with session_scope(None) as s:
-        s.add_all([
-            Connection(id="velha", name="Velha", db_type="sqlite",
-                       db_url=f"sqlite:///{(tmp_path / 'velha.db').as_posix()}"),
-            Connection(id="off", name="Off", db_type="sqlite", is_active=False,
-                       db_url=f"sqlite:///{(tmp_path / 'off.db').as_posix()}"),
-            Connection(id="pg", name="Pg", db_type="postgresql", host="h", port=5433,
-                       database="d", username="u",
-                       db_url="postgresql+psycopg://u:***@h:5433/d"),
-        ])
-        s.commit()
-    assert import_legacy_connections() == 3
-    config = ConfigManager.load_or_create()
-    assert config.get_connection("velha").path == (tmp_path / "velha.db").as_posix()
-    assert config.get_connection("off").enabled is False
-    pg = config.get_connection("pg")
-    assert (pg.host, pg.port, pg.database, pg.username) == ("h", 5433, "d", "u")
-    assert import_legacy_connections() == 0
-    assert len(ConfigManager.load_or_create().connections) == 4  # sqlite_local + 3
-    assert WorkspaceService(connection_id="velha").create("W").connection_id == "velha"
-
-
 CONNECTION_FREE = {"health_check"}
+CONNECTION_REQUIRED = {"schema_sync"}  # alvo explícito: connection_id é obrigatório
 
 
 def _all_tools():
@@ -195,7 +171,7 @@ def test_server_expoe_40_tools():
     assert len(tools) == 40
     assert {n for n in tools if n.startswith("connection_")} == {
         f"connection_{a}"
-        for a in ("create", "list", "get", "delete", "test", "update", "init_db")}
+        for a in ("create", "list", "get", "delete", "test", "update")}
     assert "migrate_workspaces" in tools
 
 
@@ -203,6 +179,9 @@ def test_tools_receive_connection_id():
     tools = _all_tools()
     for name, tool in tools.items():
         if name.startswith("connection_") or name in CONNECTION_FREE | {"migrate_workspaces"}:
+            continue
+        if name in CONNECTION_REQUIRED:
+            assert "connection_id" in tool.parameters["required"], name
             continue
         props = tool.parameters["properties"]
         assert "connection_id" in props, name
@@ -224,3 +203,30 @@ def test_tools_with_connection_id_roteiam_para_a_conexao(two):
     assert "ToolWs" in call("workspace_list", {"connection_id": a.id})
     assert "ToolWs" not in call("workspace_list", {"connection_id": b.id})
     assert "ToolWs" not in call("workspace_list", {})
+
+
+def test_default_do_json_roteia_tools_sem_connection_id(two):
+    a, b = two
+    ConnectionService().set_default(a.id)
+    WorkspaceService().create("InA")  # sem connection_id: vale o default do JSON
+    assert [w.name for w in WorkspaceService(connection_id=a.id).list()] == ["InA"]
+    assert WorkspaceService(connection_id="default").list() == []
+    assert WorkspaceService(connection_id=b.id).list() == []
+    m = FastMCP(name="t")
+    from src.mcp import workspace_tools
+
+    workspace_tools.register(m)
+    blocks = asyncio.run(asyncio.run(m.get_tool("workspace_list")).run({}))
+    assert "InA" in " ".join(x.text for x in blocks)
+    ConnectionService().set_default("default")
+    assert WorkspaceService().list() == []
+
+
+def test_item_service_com_engine_da_conexao_resolve_workspace(two):
+    a, b = two
+    ws = WorkspaceService(connection_id=b.id).create("W")
+    assert ItemService(get_engine(b.id)).resolve_workspace_id("W") == ws.id
+    ConnectionService().set_default(a.id)
+    assert ItemService(get_engine(b.id)).resolve_workspace_id("W") == ws.id
+    with pytest.raises(NotFoundError):
+        ItemService(get_engine()).resolve_workspace_id("W")

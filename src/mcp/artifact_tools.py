@@ -25,7 +25,7 @@ def register(mcp: FastMCP) -> None:
         **Retorna:** {id, item_id, filename, file_size, mime_type, created_at} do artifact.
         **Exemplo:** artifact_attach(item_id="item_def456", file_path="C:/docs/diagrama.png")
         **Notas:** Máximo de 100MB por arquivo; o caminho deve ser um arquivo regular existente.
-            connection_id: opcional; sem ele usa a connection default (sqlite_local).
+            connection_id: opcional; sem ele usa a connection default (a do JSON).
         """
         data = ArtifactCreate(item_id=item_id, file_path=file_path)
         art = ArtifactService(connection_id=connection_id).attach(data.item_id, data.file_path)
@@ -38,7 +38,7 @@ def register(mcp: FastMCP) -> None:
         **Use quando:** Ver os anexos de um item antes de baixar algum.
         **Retorna:** Lista de artifacts (id, filename, file_size, ...), sem o conteúdo.
         **Exemplo:** artifact_list(item_id="item_def456")
-        **Notas:** connection_id: opcional; sem ele usa a connection default (sqlite_local).
+        **Notas:** connection_id: opcional; sem ele usa a connection default (a do JSON).
         """
         rows = ArtifactService(connection_id=connection_id).list(item_id)
         return ArtifactListResponse.model_validate(rows).model_dump(mode="json")
@@ -51,7 +51,7 @@ def register(mcp: FastMCP) -> None:
         **Retorna:** {artifact: metadados, content_base64: conteúdo em base64}.
         **Exemplo:** artifact_get(artifact_id="art_123")
         **Notas:** Arquivos grandes geram resposta grande: confira file_size com artifact_list
-            antes. connection_id: opcional; sem ele usa a connection default (sqlite_local).
+            antes. connection_id: opcional; sem ele usa a connection default (a do JSON).
         """
         art, content = ArtifactService(connection_id=connection_id).get(artifact_id)
         return {

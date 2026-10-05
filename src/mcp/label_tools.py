@@ -19,7 +19,7 @@ def label_create(name: str, connection_id: str | None = None) -> dict[str, Any]:
     **Exemplo:** label_create(name="needs-review")
     **Notas:** Padrão do sistema: official, critical, experimental, deprecated, reference. Labels
         são uma lista controlada: crie com parcimônia. connection_id: opcional; sem ele usa a
-        connection default (sqlite_local).
+        connection default (a do JSON).
     """
     req = LabelCreate(name=name)
     label = LabelService(connection_id=connection_id).create(req.name)
@@ -32,7 +32,7 @@ def label_list(connection_id: str | None = None) -> list[dict[str, Any]]:
     **Use quando:** Ver quais labels existem antes de usá-las em item_create.
     **Retorna:** Lista de {id, name}.
     **Exemplo:** label_list()
-    **Notas:** connection_id: opcional; sem ele usa a connection default (sqlite_local).
+    **Notas:** connection_id: opcional; sem ele usa a connection default (a do JSON).
     """
     labels = LabelService(connection_id=connection_id).list()
     return LabelListResponse.model_validate(labels, from_attributes=True).model_dump(mode="json")
@@ -45,7 +45,7 @@ def label_delete(label_id: str, connection_id: str | None = None) -> dict[str, s
     **Retorna:** {status: ok, message}.
     **Exemplo:** label_delete(label_id="label_123")
     **Notas:** Os items permanecem. connection_id: opcional; sem ele usa a connection default
-        (sqlite_local).
+        (a do JSON).
     """
     LabelService(connection_id=connection_id).delete(label_id)
     return {"status": "ok", "message": f"Label removida: {label_id}"}

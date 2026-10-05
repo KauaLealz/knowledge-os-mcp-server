@@ -5,12 +5,14 @@ import logging
 import os
 import re
 import sys
-from datetime import datetime, timezone
+import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 from urllib.parse import quote
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import ValidationError as PydanticValidationError
 
 if __name__ == "__main__":
     # `python src/config.py` põe src/ em sys.path[0]; troca pela raiz do projeto.
@@ -22,16 +24,26 @@ logger = logging.getLogger(__name__)
 
 MIN_DB_KEY_LENGTH = 16
 
-# Diretórios
-PROJECT_ROOT: Path = Path(__file__).parent.parent
-DATABASE_DIR: Path = PROJECT_ROOT / "database"
-ARTIFACTS_DIR: Path = PROJECT_ROOT / "artifacts"
-EXPORTS_DIR: Path = PROJECT_ROOT / "exports"
-BACKUPS_DIR: Path = PROJECT_ROOT / "backups"
+# Home de dados: connections.json, banco catálogo, artifacts, exports e backups.
+# As constantes são lidas no import; o diretório só é criado em ensure_home().
+KNOWLEDGE_HOME: Path = (
+    Path(os.getenv("KNOWLEDGE_OS_HOME") or Path.home() / ".knowledge-os").expanduser().resolve()
+)
+ARTIFACTS_DIR: Path = KNOWLEDGE_HOME / "artifacts"
+EXPORTS_DIR: Path = KNOWLEDGE_HOME / "exports"
+BACKUPS_DIR: Path = KNOWLEDGE_HOME / "backups"
 
-# Criar diretórios se não existirem
-for _d in (DATABASE_DIR, ARTIFACTS_DIR, EXPORTS_DIR, BACKUPS_DIR):
-    _d.mkdir(parents=True, exist_ok=True)
+_DEFAULT_PORTS = {"postgresql": 5432, "mysql": 3306}
+_FORBIDDEN_CHARS = set("?#/\\@")
+
+# Id reservado do catálogo (banco padrão, virtual: não consta da lista de conexões).
+CATALOG_ID = "default"
+
+
+def ensure_home() -> None:
+    """Cria o home de dados e seus subdiretórios (chamado pelos pontos de entrada)."""
+    for d in (KNOWLEDGE_HOME, ARTIFACTS_DIR, EXPORTS_DIR, BACKUPS_DIR):
+        d.mkdir(parents=True, exist_ok=True)
 
 
 def _env_flag(name: str) -> bool:
@@ -39,7 +51,7 @@ def _env_flag(name: str) -> bool:
 
 
 # Database
-DB_PATH: str = os.getenv("MCP_DB_PATH", str(DATABASE_DIR / "knowledge.db"))
+DB_PATH: str = os.getenv("MCP_DB_PATH", str(KNOWLEDGE_HOME / "knowledge.db"))
 DB_KEY: str | None = os.getenv("MCP_DB_KEY") or None
 # SQLCipher é usado quando há chave, ou quando solicitado via MCP_USE_SQLCIPHER.
 SQLCIPHER_REQUESTED: bool = _env_flag("MCP_USE_SQLCIPHER")
@@ -73,8 +85,8 @@ def validate_config() -> None:
     if USE_SQLCIPHER and DB_KEY is not None and len(DB_KEY) < MIN_DB_KEY_LENGTH:
         raise ConfigError(f"MCP_DB_KEY deve ter no mínimo {MIN_DB_KEY_LENGTH} caracteres")
 
-    if not DATABASE_DIR.exists():
-        raise ConfigError(f"DATABASE_DIR não existe: {DATABASE_DIR}")
+    if not KNOWLEDGE_HOME.exists():
+        raise ConfigError(f"Home de dados não existe: {KNOWLEDGE_HOME}")
 
     if not Path(DB_PATH).parent.exists():
         raise ConfigError(f"Diretório do banco não existe: {Path(DB_PATH).parent}")
@@ -89,8 +101,13 @@ def validate_and_init_config() -> None:
     bootstrap()
 
 
+def config_error(exc: Exception) -> ConfigError:
+    """ConfigError seguro para propagar: o texto de `exc` só passa se já for de ConfigError."""
+    return exc if isinstance(exc, ConfigError) else ConfigError("connections.json inválido")
+
+
 class ConnectionConfig(BaseModel):
-    """Uma conexão do arquivo .knowledge/connections.json (SQLite, PostgreSQL ou MySQL)."""
+    """Uma conexão do connections.json do home (SQLite, PostgreSQL ou MySQL)."""
 
     id: str
     name: str
@@ -100,7 +117,8 @@ class ConnectionConfig(BaseModel):
     port: int | None = None
     database: str | None = None
     username: str | None = None
-    password_env: str | None = None  # nome da variável de ambiente com a senha
+    # Texto no connections.json (que vive no home, fora do repo). Nunca em repr/log/erro.
+    password: str | None = Field(default=None, repr=False)
     enabled: bool = True
     created_at: datetime | None = None
 
@@ -111,6 +129,13 @@ class ConnectionConfig(BaseModel):
             raise ValueError("ID must be lowercase alphanumeric with hyphens/underscores")
         return v
 
+    @field_validator("id")
+    @classmethod
+    def id_not_reserved(cls, v: str) -> str:
+        if v == CATALOG_ID:
+            raise ValueError(f"ID '{CATALOG_ID}' is reserved")
+        return v
+
     @field_validator("port")
     @classmethod
     def port_valid(cls, v: int | None) -> int | None:
@@ -118,12 +143,34 @@ class ConnectionConfig(BaseModel):
             raise ValueError("Port must be 1-65535")
         return v
 
-    def get_url(self) -> str:
-        """URL SQLAlchemy da conexão (senha lida da variável `password_env`)."""
+    @model_validator(mode="after")
+    def shape_valid(self) -> "ConnectionConfig":
         if self.db_type == "sqlite":
-            return f"sqlite:///{self.path}"
+            if not self.path:
+                raise ValueError("path é obrigatório para SQLite")
+            return self
+        if self.port is None:
+            self.port = _DEFAULT_PORTS[self.db_type]
+        for field in ("host", "database"):
+            if not getattr(self, field):
+                raise ValueError(f"{field} é obrigatório")
+        for field in ("host", "database", "username"):
+            value = getattr(self, field)
+            if value and any(ch in _FORBIDDEN_CHARS or ch.isspace() for ch in value):
+                raise ValueError(f"{field} contém caracteres inválidos (? # / \\ @ ou espaço)")
+        return self
+
+    def resolved_path(self) -> str:
+        """Path do SQLite; o relativo resolve contra o home no momento da chamada."""
+        path = Path(self.path or "").expanduser()
+        return (path if path.is_absolute() else KNOWLEDGE_HOME / path).as_posix()
+
+    def get_url(self) -> str:
+        """URL SQLAlchemy da conexão (com a senha do campo `password`)."""
+        if self.db_type == "sqlite":
+            return f"sqlite:///{self.resolved_path()}"
         user = quote(self.username or "", safe="")
-        password = os.getenv(self.password_env, "") if self.password_env else ""
+        password = self.password or ""
         if password:
             userinfo = f"{user}:{quote(password, safe='')}@"
         else:
@@ -133,7 +180,7 @@ class ConnectionConfig(BaseModel):
 
 
 class ConnectionsFile(BaseModel):
-    """Conteúdo de .knowledge/connections.json."""
+    """Conteúdo do connections.json do home."""
 
     version: str = "1.0"
     default: str
@@ -141,7 +188,7 @@ class ConnectionsFile(BaseModel):
 
     @model_validator(mode="after")
     def default_exists(self) -> "ConnectionsFile":
-        if self.default not in [c.id for c in self.connections]:
+        if self.default != CATALOG_ID and self.default not in [c.id for c in self.connections]:
             raise ValueError(f"Default connection '{self.default}' not found")
         return self
 
@@ -158,30 +205,41 @@ class ConnectionsFile(BaseModel):
 class ConfigManager:
     """Carrega, cria, salva e valida as conexões do arquivo de configuração."""
 
-    CONNECTIONS_FILE = Path(".knowledge/connections.json")
+    CONNECTIONS_FILE = KNOWLEDGE_HOME / "connections.json"
 
     @staticmethod
     def create_default_config() -> ConnectionsFile:
-        """Modo simples: uma conexão SQLite local."""
-        return ConnectionsFile(
-            default="sqlite_local",
-            connections=[
-                ConnectionConfig(
-                    id="sqlite_local",
-                    name="Local SQLite",
-                    db_type="sqlite",
-                    path="./knowledge.db",
-                    created_at=datetime.now(timezone.utc),
-                )
-            ],
-        )
+        """Config inicial: só o catálogo (`default`, <home>/knowledge.db), sem conexões extras."""
+        return ConnectionsFile(default=CATALOG_ID, connections=[])
+
+    @staticmethod
+    def _parse(path: Path) -> ConnectionsFile:
+        """Lê o JSON; o erro diz onde (conexão e campo) sem ecoar valores (há senhas)."""
+        try:
+            return ConnectionsFile(**json.loads(path.read_text(encoding="utf-8")))
+        except PydanticValidationError as exc:
+            details = []
+            for e in exc.errors(include_input=False):
+                loc = list(e["loc"])
+                where = ".".join(str(p) for p in loc)
+                if loc[:1] == ["connections"] and len(loc) > 1 and isinstance(loc[1], int):
+                    try:
+                        raw = json.loads(path.read_text(encoding="utf-8"))
+                        cid = raw["connections"][loc[1]].get("id")
+                        where = f"conexão {cid!r}: " + ".".join(str(p) for p in loc[2:])
+                    except Exception:
+                        pass
+                details.append(f"{where}: {e['msg']}")
+            raise ConfigError(f"connections.json inválido: {'; '.join(details)}") from None
+        except (ValueError, OSError, TypeError, AttributeError):
+            raise ConfigError("connections.json inválido: JSON malformado ou ilegível") from None
 
     @staticmethod
     def load_or_create() -> ConnectionsFile:
         """Carrega o arquivo, ou grava e devolve o default se ele não existe."""
         path = ConfigManager.CONNECTIONS_FILE
         if path.exists():
-            return ConnectionsFile(**json.loads(path.read_text(encoding="utf-8")))
+            return ConfigManager._parse(path)
         config = ConfigManager.create_default_config()
         ConfigManager.save(config)
         return config
@@ -190,7 +248,20 @@ class ConfigManager:
     def save(config: ConnectionsFile) -> None:
         path = ConfigManager.CONNECTIONS_FILE
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(config.model_dump(mode="json"), indent=2), encoding="utf-8")
+        payload = json.dumps(config.model_dump(mode="json"), indent=2)
+        # tmp único por processo/chamada (MCP + UI podem salvar ao mesmo tempo), só do dono.
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0)
+        fd = os.open(tmp, flags, 0o600)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(payload)
+            try:
+                os.replace(tmp, path)
+            except OSError:  # Windows: destino aberto por outro processo (ex.: MCP + UI)
+                path.write_text(payload, encoding="utf-8")
+        finally:
+            tmp.unlink(missing_ok=True)
 
     @staticmethod
     def validate_connection(conn: ConnectionConfig) -> dict[str, str]:

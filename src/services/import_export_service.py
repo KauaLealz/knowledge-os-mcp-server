@@ -20,9 +20,9 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from src import config
 from src.config import ARTIFACTS_DIR
 from src.db.models import (
-    DEFAULT_CONNECTION_ID,
     Artifact,
     Domain,
     Item,
@@ -31,12 +31,14 @@ from src.db.models import (
     Tag,
     Workspace,
 )
+from src.db.session import default_connection_id
 from src.exceptions import NotFoundError, ValidationError
 from src.schemas.item_schemas import ItemCreate
 from src.services._common import (
     EXPORT_VERSION,
     domain_to_dict,
     item_to_dict,
+    refuse_home_source,
     session_scope,
     utc_now_iso,
     workspace_to_dict,
@@ -202,7 +204,7 @@ class ImportExportService:
                 try:
                     wd = payload["workspace"]
                     name = wd["name"]
-                    cid = self._connection_id or DEFAULT_CONNECTION_ID
+                    cid = self._connection_id or default_connection_id()
                     if s.scalar(
                         select(Workspace.id).where(
                             Workspace.name == name, Workspace.connection_id == cid
@@ -402,6 +404,7 @@ class ImportExportService:
     def _open(zip_path: str, expected_type: str) -> zipfile.ZipFile:
         """Abre o ZIP e valida o manifest (tipo e versão)."""
         path = Path(zip_path)
+        refuse_home_source(path, allow_under=config.EXPORTS_DIR)
         if not path.is_file():
             raise NotFoundError(f"Arquivo ZIP não encontrado: {zip_path}")
         try:

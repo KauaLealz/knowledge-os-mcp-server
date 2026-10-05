@@ -15,6 +15,16 @@ logger = logging.getLogger(__name__)
 MIGRATION_MODES = ("replace", "merge")
 
 
+def _safe(exc: Exception, *conns: ConnectionConfig) -> str:
+    """Mensagem do erro sem a senha de nenhuma das conexões (pode vir em URLs do driver)."""
+    from src.db.dialects import redact
+
+    message = str(exc)
+    for conn in conns:
+        message = redact(message, conn.get_url())
+    return message
+
+
 def _open_engine(conn: ConnectionConfig) -> Engine:
     from src.db.session import create_db_engine
 
@@ -53,12 +63,14 @@ def schema_sync(connection_id: str, dry_run: bool = False) -> dict[str, Any]:
     **Notas:** Idempotente. dry_run=True simula sem gravar. Em status=drift, pending_manual lista
         o que exige ajuste manual. A connection precisa estar no .knowledge/connections.json.
     """
+    conn: ConnectionConfig | None = None
     try:
         conn = ConfigManager.load_or_create().get_connection(connection_id)
         result = _sync_connection(conn, dry_run)
         return {"connection_id": connection_id, **result}
     except Exception as exc:
-        return {"connection_id": connection_id, "status": "error", "message": str(exc)}
+        message = _safe(exc, *([conn] if conn else []))
+        return {"connection_id": connection_id, "status": "error", "message": message}
 
 
 def _clear_target(conn: ConnectionConfig) -> None:
@@ -82,12 +94,14 @@ def migrate_workspaces(
     **Use quando:** Mover o conhecimento de SQLite para PostgreSQL/MySQL, ou consolidar duas bases.
     **Retorna:** {status: success|error, workspaces_migrated, items_migrated, artifacts_migrated,
         duration_seconds, message}.
-    **Exemplo:** migrate_workspaces(from_connection_id="sqlite_local",
+    **Exemplo:** migrate_workspaces(from_connection_id="sqlite_backup",
         to_connection_id="postgres_prod", mode="replace")
     **Notas:** mode=replace apaga os dados do destino antes de copiar; mode=merge une tags/labels
         por nome e aborta se algum id já existir. Origem e destino devem ser diferentes, habilitados
         e o schema do destino é sincronizado antes da cópia (schema_sync).
     """
+    src: ConnectionConfig | None = None
+    dst: ConnectionConfig | None = None
     try:
         if mode not in MIGRATION_MODES:
             return {"status": "error", "message": "mode must be 'replace' or 'merge'"}
@@ -137,7 +151,7 @@ def migrate_workspaces(
             "message": "Migration completed successfully",
         }
     except Exception as exc:
-        return {"status": "error", "message": str(exc)}
+        return {"status": "error", "message": _safe(exc, *[c for c in (src, dst) if c])}
 
 
 def register(mcp: FastMCP) -> None:
@@ -156,13 +170,15 @@ def register(mcp: FastMCP) -> None:
 
         **Use quando:** Conectar um banco novo ou remoto antes de usá-lo via connection_id nos
             outros tools.
-        **Retorna:** Dados da connection (id, name, db_type, url sem senha, is_active). A senha
-            nunca é devolvida.
+        **Retorna:** Dados da connection (id, name, db_type, url sem senha, password_set,
+            is_active). A senha nunca é devolvida.
         **Exemplo:** connection_create(name="postgres_prod", db_type="postgresql",
-            url="postgresql://user:pass@host:5432/knowledge")
-        **Notas:** Exemplos de url: sqlite:///./database/x.db, mysql://user:pass@host/db. Com
+            url="postgresql://user@host:5432/knowledge")
+        **Notas:** Exemplos de url: sqlite:///./database/x.db (caminho relativo resolve contra o
+            home de dados e a pasta é criada), sqlite:///~/x.db, mysql://user@host/db. Com
             test=True (padrão) a conexão é testada antes de ser gravada. Depois rode
-            schema_sync.
+            schema_sync. A url não leva senha e esta tool não recebe senha: peça ao usuário
+            para informá-la na UI ou no campo password do connections.json.
         """
         conn = ConnectionService().create(name, db_type, url, test=test)
         return connection_to_dict(conn)
@@ -172,9 +188,10 @@ def register(mcp: FastMCP) -> None:
         """Lista as connections cadastradas.
 
         **Use quando:** Primeiro passo de qualquer sessão: descobrir os connection_id disponíveis.
-        **Retorna:** Lista de connections (id, name, db_type, url sem senha, is_active).
+        **Retorna:** Lista de connections (id, name, db_type, url sem senha, password_set,
+            is_active).
         **Exemplo:** connection_list()
-        **Notas:** A connection default sqlite_local existe desde o início. Sem parâmetros.
+        **Notas:** O catálogo `default` existe desde o início. Sem parâmetros.
         """
         return [connection_to_dict(c) for c in ConnectionService().list()]
 
@@ -183,7 +200,7 @@ def register(mcp: FastMCP) -> None:
         """Obtém uma connection pelo id ou nome.
 
         **Use quando:** Conferir configuração/estado de uma connection específica.
-        **Retorna:** Dados da connection (sem senha).
+        **Retorna:** Dados da connection (sem senha; password_set diz se há senha).
         **Exemplo:** connection_get(connection_id="postgres_prod")
         **Notas:** Erro de not found se não existir; use connection_list para ver os ids.
         """

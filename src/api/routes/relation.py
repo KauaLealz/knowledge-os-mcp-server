@@ -6,7 +6,6 @@ from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from src.api.auth import verify_token
 from src.api.deps import get_session_dep
 from src.api.routes._helpers import get_or_404
 from src.api.schemas.requests import RelationCreate
@@ -14,7 +13,7 @@ from src.api.schemas.responses import RelationResponse
 from src.db.models import Item, Relation
 from src.services.relation_service import RelationService
 
-router = APIRouter(dependencies=[Depends(verify_token)])
+router = APIRouter()
 
 
 @router.get("/relations", response_model=list[RelationResponse])

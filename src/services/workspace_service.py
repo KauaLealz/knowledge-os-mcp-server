@@ -7,7 +7,8 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.db.models import DEFAULT_CONNECTION_ID, Workspace
+from src.db.models import Workspace
+from src.db.session import default_connection_id
 from src.exceptions import NotFoundError, ValidationError
 from src.services._common import (
     EXPORT_VERSION,
@@ -27,7 +28,7 @@ class WorkspaceService:
 
     Se `session` não for informada, cada operação abre uma sessão própria no banco da
     connection (get_engine(connection_id)). Todas as operações ficam restritas à
-    connection; sem connection_id vale a connection "default" (comportamento T1-T5).
+    connection; sem connection_id vale a default do connections.json.
     """
 
     def __init__(
@@ -38,7 +39,7 @@ class WorkspaceService:
 
     @property
     def _cid(self) -> str:
-        return self._connection_id or DEFAULT_CONNECTION_ID
+        return self._connection_id or default_connection_id()
 
     def _find(self, s: Session, name: str) -> Workspace | None:
         return s.scalar(
