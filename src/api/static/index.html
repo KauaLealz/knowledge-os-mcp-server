@@ -358,6 +358,10 @@
                   <div class="page-meta"><span><b x-text="$store.app.domain.item_count"></b> itens</span></div>
                   <div class="toolbar"><button class="btn primary" @click="$store.app.openModal('item')"><svg class="ic"><use href="#i-plus"/></svg> Novo item</button></div>
 
+                  <div class="banner" role="status" x-show="truncated">
+                    <svg class="ic"><use href="#i-alert"/></svg><span x-text="'Mostrando ' + items.length + ' de ' + totalItems + ' itens'"></span>
+                  </div>
+
                   <div class="toolbar" x-show="items.length">
                     <select class="select sm" x-model="typeFilter" aria-label="Filtrar por type">
                       <option value="">Todos os types</option>

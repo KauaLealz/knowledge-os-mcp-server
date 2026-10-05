@@ -2,6 +2,8 @@
 import { api } from '../api.js';
 import { parseDate } from '../util.js';
 
+const LIMIT = 500; // máximo aceito pela API
+
 export function register(Alpine) {
   Alpine.data('domainView', () => ({
     items: [],
@@ -28,13 +30,21 @@ export function register(Alpine) {
       this.loading = true;
       this.error = null;
       try {
-        const items = await api('GET', '/items', { query: { domain_id: dm, limit: 200 } });
+        const items = await api('GET', '/items', { query: { domain_id: dm, limit: LIMIT } });
         if (seq === this.seq) this.items = items;
       } catch (e) {
         if (seq === this.seq && e.status !== 401) this.error = e.message;
       } finally {
         if (seq === this.seq) this.loading = false;
       }
+    },
+    /** Lista cheia (== limite) ou menor que o item_count da árvore: avisa que há mais itens. */
+    get truncated() {
+      const total = this.app.domain?.item_count ?? 0;
+      return !this.loading && this.items.length > 0 && (this.items.length >= LIMIT || this.items.length < total);
+    },
+    get totalItems() {
+      return Math.max(this.app.domain?.item_count ?? 0, this.items.length);
     },
     get types() {
       return [...new Set(this.items.map((i) => i.type))].sort();

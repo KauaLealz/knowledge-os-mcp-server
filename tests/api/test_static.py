@@ -223,3 +223,10 @@ def test_erro_de_conexoes_nao_fabrica_default():
 def test_load_workspaces_descarta_resposta_antiga():
     st = _js("store.js")
     assert "++this.wsSeq" in st and st.count("seq !== this.wsSeq") >= 2
+
+
+def test_pagina_de_domain_usa_limite_maximo_e_avisa():
+    dm = _js("views/domain.js")
+    assert "LIMIT = 500" in dm and "limit: LIMIT" in dm
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert "Mostrando " in html and "truncated" in html
