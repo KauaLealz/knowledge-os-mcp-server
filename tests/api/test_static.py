@@ -202,3 +202,9 @@ def test_responsivo_e_estados():
     # a falha de listagem aparece também na página de Workspace, não só na lista da conexão
     assert html.count("$store.app.wsError") >= 3
     assert "Tentar de novo" in html and 'role="alert"' in html
+
+
+def test_editor_so_renderiza_com_o_item_da_rota():
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert "route.params.edit && item && item.id === $store.app.route.params.item" in html
+    assert "this.item.id !== id) this.item = null" in _js("views/item.js")

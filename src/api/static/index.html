@@ -466,7 +466,7 @@
                       </div>
                     </template>
 
-                    <template x-if="$store.app.route.params.edit">
+                    <template x-if="$store.app.route.params.edit && item && item.id === $store.app.route.params.item">
                       <div class="editor" x-data="itemEditor(item, (u) => applyUpdate(u))">
                         <div class="editor-meta">
                           <div class="field grow"><label for="ed-summary">Summary</label>

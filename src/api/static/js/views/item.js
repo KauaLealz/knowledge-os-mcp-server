@@ -64,6 +64,7 @@ export function register(Alpine) {
       const id = this.app.route.params.item;
       if (!id) return;
       const seq = ++this.seq;
+      if (this.item && this.item.id !== id) this.item = null;
       this.loading = true;
       this.error = null;
       this.notFound = false;
