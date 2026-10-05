@@ -4,7 +4,6 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from src.api import auth as auth_mod
 from src.api.deps import get_artifacts_dir, get_catalog_engine_dep, get_engine_dep
 from src.api.main import app
 from src.db.migrations import bootstrap_labels
@@ -21,42 +20,30 @@ def engine(tmp_path):
 
 
 @pytest.fixture
-def token():
-    return "test-token"
-
-
-@pytest.fixture
-def client(engine, tmp_path, token):
+def client(engine, tmp_path):
     art_dir = tmp_path / "artifacts"
     app.dependency_overrides[get_engine_dep] = lambda: engine
     app.dependency_overrides[get_catalog_engine_dep] = lambda: engine
     app.dependency_overrides[get_artifacts_dir] = lambda: art_dir
-    auth_mod.set_token(token)
     yield TestClient(app)
-    auth_mod.set_token(None)
     app.dependency_overrides.clear()
 
 
 @pytest.fixture
-def auth(token):
-    return {"Authorization": f"Bearer {token}"}
-
-
-@pytest.fixture
-def mk(client, auth):
+def mk(client):
     """Fábricas de recursos via API."""
 
     class Maker:
         def ws(self, name="WS", description=None):
             r = client.post(
-                "/api/workspaces", json={"name": name, "description": description}, headers=auth
+                "/api/workspaces", json={"name": name, "description": description}
             )
             assert r.status_code == 201, r.text
             return r.json()
 
         def domain(self, ws_id, name="Dom"):
             r = client.post(
-                "/api/domains", json={"workspace_id": ws_id, "name": name}, headers=auth
+                "/api/domains", json={"workspace_id": ws_id, "name": name}
             )
             assert r.status_code == 201, r.text
             return r.json()
@@ -68,7 +55,7 @@ def mk(client, auth):
                 "summary": f"Resumo {title} conditional", "content": f"Conteudo {title}",
             }
             body.update(extra)
-            r = client.post("/api/items", json=body, headers=auth)
+            r = client.post("/api/items", json=body)
             assert r.status_code == 201, r.text
             return r.json()
 

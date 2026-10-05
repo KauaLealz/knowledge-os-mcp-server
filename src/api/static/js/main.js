@@ -1,6 +1,5 @@
 // Ponto de entrada: Alpine + store + views. Sem build step (ES modules + import map).
 import Alpine from 'alpinejs';
-import { captureTokenFromUrl } from './api.js';
 import { appStore } from './store.js';
 import { typeIcon, timeAgo, confidenceLevel } from './util.js';
 import { register as registerSidebar } from './views/sidebar.js';
@@ -11,9 +10,6 @@ import { register as registerPalette } from './views/palette.js';
 import { register as registerEditor } from './views/editor.js';
 import { register as registerConnections } from './views/connections.js';
 import { registerShortcuts, SHORTCUTS, isMac } from './shortcuts.js';
-
-// O token chega em #token=...: guarda e tira da barra de endereço antes de tudo.
-captureTokenFromUrl();
 
 window.Alpine = Alpine;
 Alpine.magic('icon', () => typeIcon);

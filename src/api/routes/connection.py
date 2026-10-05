@@ -9,7 +9,6 @@ from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from sqlalchemy.orm import Session
 
-from src.api.auth import verify_token
 from src.api.deps import get_catalog_session_dep
 from src.api.schemas.requests import ConnectionCreate, ConnectionUpdate
 from src.api.schemas.responses import (
@@ -41,7 +40,7 @@ class _SafeRoute(APIRoute):
         return handler
 
 
-router = APIRouter(dependencies=[Depends(verify_token)], route_class=_SafeRoute)
+router = APIRouter(route_class=_SafeRoute)
 
 
 def _view(conn: Connection) -> dict[str, Any]:

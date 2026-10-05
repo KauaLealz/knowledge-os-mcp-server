@@ -1,52 +1,9 @@
-// Cliente HTTP: único ponto que conhece token, X-Connection-Id e tratamento de 401.
+// Cliente HTTP: único ponto que conhece o X-Connection-Id e o formato de erro da API.
 
-const TOKEN_KEY = 'kos.token';
-let memToken = null; // fallback quando sessionStorage não existe
 let connectionId = null;
-let onExpired = () => {};
-
-function session() {
-  try {
-    return window.sessionStorage;
-  } catch {
-    return null;
-  }
-}
-
-export function getToken() {
-  const s = session();
-  try {
-    return (s && s.getItem(TOKEN_KEY)) || memToken;
-  } catch {
-    return memToken;
-  }
-}
-
-function setToken(token) {
-  memToken = token;
-  try {
-    const s = session();
-    if (s) s.setItem(TOKEN_KEY, token);
-  } catch {
-    /* sem storage */
-  }
-}
-
-/** Lê `#token=...`, guarda em sessionStorage e tira o fragmento da barra de endereço. */
-export function captureTokenFromUrl() {
-  const m = /[#&]token=([^&]*)/.exec(location.hash);
-  if (!m) return;
-  if (m[1]) setToken(decodeURIComponent(m[1]));
-  const rest = location.hash.replace(/[#&]token=[^&]*/, '').replace(/^#&?/, '');
-  history.replaceState(null, '', location.pathname + location.search + (rest ? '#' + rest : ''));
-}
 
 export function setConnection(id) {
   connectionId = id || null;
-}
-
-export function setOnExpired(fn) {
-  onExpired = fn;
 }
 
 export class ApiError extends Error {
@@ -78,8 +35,6 @@ function buildUrl(path, query) {
 
 function headers(extra) {
   const h = { ...extra };
-  const token = getToken();
-  if (token) h.Authorization = `Bearer ${token}`;
   if (connectionId) h['X-Connection-Id'] = connectionId;
   return h;
 }
@@ -92,10 +47,6 @@ async function request(method, path, { body, query } = {}) {
     res = await fetch(buildUrl(path, query), init);
   } catch {
     throw new ApiError(0, 'Sem conexão com o servidor.');
-  }
-  if (res.status === 401) {
-    onExpired();
-    throw new ApiError(401, 'Sessão expirada');
   }
   return res;
 }
@@ -113,7 +64,7 @@ export async function api(method, path, opts) {
   return data;
 }
 
-/** Baixa um recurso binário (artifact) com o header de autenticação e dispara o download. */
+/** Baixa um recurso binário (artifact) e dispara o download. */
 export async function download(path, filename) {
   const res = await request('GET', path);
   if (!res.ok) throw new ApiError(res.status, 'Falha ao baixar o arquivo');

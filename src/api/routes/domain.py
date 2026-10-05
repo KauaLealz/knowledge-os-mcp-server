@@ -6,7 +6,6 @@ from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from src.api.auth import verify_token
 from src.api.deps import get_artifacts_dir, get_session_dep
 from src.api.routes._helpers import get_or_404
 from src.api.schemas.requests import DomainCreate, DomainUpdate
@@ -16,7 +15,7 @@ from src.exceptions import ValidationError
 from src.services.domain_service import DomainService
 from src.services.import_export_service import ImportExportService
 
-router = APIRouter(dependencies=[Depends(verify_token)])
+router = APIRouter()
 
 
 @router.get("/domains", response_model=list[DomainResponse])

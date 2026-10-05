@@ -1,6 +1,7 @@
 """App FastAPI do Knowledge OS: camada HTTP sobre os services."""
 
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -30,11 +31,26 @@ app = FastAPI(
     openapi_url="/api/openapi.json",
 )
 
-# Sem CORS: a UI é servida pela mesma origem. TrustedHost barra DNS rebinding (Host forjado);
-# "testserver" é o host do TestClient.
+# Sem login: o servidor é local (127.0.0.1). Sem CORS: a UI é servida pela mesma origem.
+# TrustedHost barra DNS rebinding (Host forjado); "testserver" é o host do TestClient.
 app.add_middleware(
     TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"]
 )
+
+_WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+@app.middleware("http")
+async def _same_origin_writes(request: Request, call_next):
+    """Recusa escrita vinda de outra página: o navegador manda `Origin` e ele deve ser o do Host.
+
+    Sem `Origin` (curl, scripts, TestClient) a requisição passa: só o navegador é o vetor.
+    """
+    origin = request.headers.get("origin")
+    if request.method in _WRITE_METHODS and origin is not None:
+        if origin == "null" or urlsplit(origin).netloc != request.headers.get("host", ""):
+            return JSONResponse(status_code=403, content={"detail": "Origin não permitida"})
+    return await call_next(request)
 
 
 @app.exception_handler(NotFoundError)
@@ -69,7 +85,7 @@ for _module, _tag in (
 ):
     app.include_router(_module.router, prefix="/api", tags=[_tag])
 
-# UI estática (Alpine + Tailwind via CDN). Em /ui porque "/" já é o health check.
+# UI estática (Alpine + ES modules, libs via CDN, sem build). Em /ui porque "/" já é o health check.
 _STATIC_DIR = Path(__file__).parent / "static"
 if _STATIC_DIR.is_dir():
     app.mount("/ui", StaticFiles(directory=_STATIC_DIR, html=True), name="ui")

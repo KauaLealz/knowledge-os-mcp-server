@@ -8,7 +8,6 @@ from fastapi import APIRouter, Depends, Response, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.api.auth import verify_token
 from src.api.deps import get_artifacts_dir, get_session_dep
 from src.api.routes._helpers import get_or_404
 from src.api.schemas.responses import ArtifactResponse
@@ -16,7 +15,7 @@ from src.db.models import Artifact
 from src.exceptions import ValidationError
 from src.services.artifact_service import ArtifactService, resolve_stored_path
 
-router = APIRouter(dependencies=[Depends(verify_token)])
+router = APIRouter()
 
 
 def _safe_filename(raw: str | None) -> str:

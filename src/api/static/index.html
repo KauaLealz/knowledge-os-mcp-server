@@ -73,17 +73,8 @@
 
 <div x-data x-cloak>
 
-  <!-- Sessão expirada -->
-  <div class="fullscreen" x-show="$store.app.expired" role="alert">
-    <div class="box">
-      <svg class="ic" style="width:32px;height:32px;color:var(--text-3)"><use href="#i-alert"/></svg>
-      <h2>Sessão expirada</h2>
-      <p class="muted">Abra a URL impressa por <code>knowledge-mcp ui</code> para entrar de novo.</p>
-    </div>
-  </div>
-
   <!-- Falha ao iniciar -->
-  <div class="fullscreen" x-show="!$store.app.expired && $store.app.bootError" role="alert">
+  <div class="fullscreen" x-show="$store.app.bootError" role="alert">
     <div class="box">
       <svg class="ic" style="width:32px;height:32px;color:var(--danger)"><use href="#i-alert"/></svg>
       <h2>Não foi possível carregar</h2>
@@ -92,7 +83,7 @@
     </div>
   </div>
 
-  <div class="app" x-show="!$store.app.expired && !$store.app.bootError"
+  <div class="app" x-show="!$store.app.bootError"
        :class="{ wide: $store.app.wide, 'drawer-open': $store.app.drawer }">
 
     <!-- ===== Sidebar ===== -->

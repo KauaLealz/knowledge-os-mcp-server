@@ -3,7 +3,6 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from src.api import auth as auth_mod
 from src.api.deps import get_artifacts_dir
 from src.api.main import app
 from src.config import ConfigManager
@@ -14,24 +13,19 @@ from tests.helpers_multidb import catalog  # noqa: F401
 def api(catalog, tmp_path):  # noqa: F811
     """Cliente sem override de engine: o roteamento real, sobre um catálogo temporário."""
     app.dependency_overrides[get_artifacts_dir] = lambda: tmp_path / "artifacts"
-    auth_mod.set_token("t")
     yield TestClient(app)
-    auth_mod.set_token(None)
     app.dependency_overrides.clear()
 
 
-H = {"Authorization": "Bearer t"}
-
-
 def _conn(api, name):
-    r = api.post("/api/connections", headers=H, json={
+    r = api.post("/api/connections", json={
         "name": name, "db_type": "sqlite", "path": f"{name}.db"})
     assert r.status_code == 201, r.text
     return r.json()["id"]
 
 
 def _hdr(cid):
-    return {**H, "X-Connection-Id": cid}
+    return {"X-Connection-Id": cid}
 
 
 def _names(api, headers):
@@ -46,7 +40,7 @@ def test_header_isolates_connections(api):
     assert r.status_code == 201
     assert _names(api, _hdr(a)) == ["OnlyA"]
     assert _names(api, _hdr(b)) == []
-    assert _names(api, H) == []  # sem header: catálogo (default do JSON)
+    assert _names(api, {}) == []  # sem header: catálogo (default do JSON)
     # o mesmo nome em outra conexão é permitido
     assert api.post("/api/workspaces", headers=_hdr(b), json={"name": "OnlyA"}).status_code == 201
 
@@ -70,18 +64,18 @@ def test_data_routes_follow_header(api):
 
 def test_without_header_uses_json_default(api):
     a = _conn(api, "A")
-    assert api.put(f"/api/connections/{a}/default", headers=H).status_code == 200
-    assert api.post("/api/workspaces", headers=H, json={"name": "InA"}).status_code == 201
+    assert api.put(f"/api/connections/{a}/default").status_code == 200
+    assert api.post("/api/workspaces", json={"name": "InA"}).status_code == 201
     assert _names(api, _hdr(a)) == ["InA"]
     assert _names(api, _hdr("default")) == []
-    assert _names(api, H) == ["InA"]
+    assert _names(api, {}) == ["InA"]
     # a lista de conexões continua acessível e a conexão de dados não a afeta
-    assert api.get("/api/connections", headers=H).status_code == 200
+    assert api.get("/api/connections").status_code == 200
     assert ConfigManager.load_or_create().default == a
 
 
 def test_unknown_is_404_and_disabled_is_422(api):
     assert api.get("/api/workspaces", headers=_hdr("nope")).status_code == 404
     a = _conn(api, "A")
-    assert api.patch(f"/api/connections/{a}", headers=H, json={"enabled": False}).status_code == 200
+    assert api.patch(f"/api/connections/{a}", json={"enabled": False}).status_code == 200
     assert api.get("/api/workspaces", headers=_hdr(a)).status_code == 422

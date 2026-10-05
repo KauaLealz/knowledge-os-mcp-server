@@ -48,8 +48,8 @@ def test_health_continua_em_raiz(ui):
 
 
 def test_api_nao_e_engolida_pelo_mount(ui):
-    # Sem token: a rota existe e responde 401 (não 404 do mount estático).
-    assert ui.get("/api/workspaces").status_code == 401
+    # A rota da API existe (não é engolida pelo mount estático): nunca 404.
+    assert ui.get("/api/workspaces").status_code != 404
 
 
 @pytest.mark.parametrize("path", ASSETS)
@@ -137,10 +137,11 @@ def test_imports_relativos_dos_modulos_existem():
             assert (f.parent / rel).resolve().is_file(), f"{f.name} -> {rel}"
 
 
-def test_token_e_lido_do_fragmento_e_nao_do_storage_persistente():
-    api_js = (STATIC / "js" / "api.js").read_text(encoding="utf-8")
-    assert "sessionStorage" in api_js and "replaceState" in api_js
-    assert "localStorage" not in api_js
+def test_front_nao_tem_token_nem_login():
+    for f in STATIC.rglob("*.js"):
+        txt = f.read_text(encoding="utf-8")
+        assert "Authorization" not in txt and "sessionStorage" not in txt, f.name
+        assert "#token" not in txt and "captureToken" not in txt, f.name
 
 
 def _js(name: str) -> str:
@@ -197,11 +198,7 @@ def test_responsivo_e_estados():
     assert "drawer-open" in css and "prefers-reduced-motion" in css
     assert "overflow-x: hidden" in css or "overflow-x: clip" in css
     html = (STATIC / "index.html").read_text(encoding="utf-8")
-    assert "Sessão expirada" in html and "knowledge-mcp ui" in html
+    assert "Sessão expirada" not in html
     # a falha de listagem aparece também na página de Workspace, não só na lista da conexão
     assert html.count("$store.app.wsError") >= 3
     assert "Tentar de novo" in html and 'role="alert"' in html
-
-
-def test_sessao_expirada_sem_token_responde_401(ui):
-    assert ui.get("/api/workspaces/x/tree").status_code == 401

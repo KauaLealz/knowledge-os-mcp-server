@@ -8,7 +8,6 @@ from fastapi import APIRouter, Depends, Response, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from src.api.auth import verify_token
 from src.api.deps import get_artifacts_dir, get_connection_id, get_session_dep
 from src.api.routes._helpers import get_or_404
 from src.api.schemas.requests import WorkspaceCreate, WorkspaceUpdate
@@ -24,7 +23,7 @@ from src.exceptions import ValidationError
 from src.services.import_export_service import ImportExportService
 from src.services.workspace_service import WorkspaceService
 
-router = APIRouter(dependencies=[Depends(verify_token)])
+router = APIRouter()
 
 
 @router.get("/workspaces", response_model=list[WorkspaceResponse])

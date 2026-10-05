@@ -1,5 +1,5 @@
 // Store global (Alpine.store('app')): conexão, workspaces, árvore, rota, tema e toasts.
-import { api, setConnection, setOnExpired } from './api.js';
+import { api, setConnection } from './api.js';
 import { parseHash, hrefs, go } from './router.js';
 import { lsGet, lsSet } from './util.js';
 
@@ -40,7 +40,6 @@ function normalizeConnection(c) {
 
 export const appStore = {
   ready: false,
-  expired: false,
   bootError: null,
   route: { name: 'home', params: {} },
 
@@ -76,9 +75,6 @@ export const appStore = {
     this.expanded = readJson('kos.expanded', {});
     this.recents = readJson('kos.recents', []);
     applyTheme(this.theme);
-    setOnExpired(() => {
-      this.expired = true;
-    });
     this.lastHash = location.hash;
     window.addEventListener('hashchange', () => {
       // Edição com alterações não salvas: confirma antes de sair da rota.
@@ -99,7 +95,7 @@ export const appStore = {
       await this.loadConnections();
       await this.onRoute();
     } catch (e) {
-      if (!this.expired) this.bootError = e.message;
+      this.bootError = e.message;
     }
     this.ready = true;
   },

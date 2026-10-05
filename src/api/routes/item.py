@@ -4,7 +4,6 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
-from src.api.auth import verify_token
 from src.api.deps import get_engine_dep, get_session_dep
 from src.api.schemas.requests import (
     ConfidenceUpdate,
@@ -19,7 +18,7 @@ from src.services._common import tiebreak
 from src.services.item_service import ItemService
 from src.services.memory_service import MemoryService
 
-router = APIRouter(dependencies=[Depends(verify_token)])
+router = APIRouter()
 
 
 @router.get("/items", response_model=list[ItemResponse])

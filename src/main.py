@@ -2,7 +2,6 @@
 
 import argparse
 import logging
-import secrets
 import sys
 from pathlib import Path
 
@@ -115,22 +114,19 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "--bootstrap", action="store_true", help="cria schema e labels padrão e sai"
     )
     sub = parser.add_subparsers(dest="command")
-    ui = sub.add_parser("ui", help="sobe a UI web local (somente 127.0.0.1) com token por start")
+    ui = sub.add_parser("ui", help="sobe a UI web local (somente 127.0.0.1)")
     ui.add_argument("--port", type=int, default=UI_DEFAULT_PORT, help="porta (padrão: 8765)")
     ui.add_argument("--no-browser", action="store_true", help="não abre o navegador")
     return parser.parse_args(argv)
 
 
 def run_ui(port: int, open_browser: bool) -> None:
-    """Sobe a UI/API em 127.0.0.1 com um token novo. A URL vai ao stdout (não é modo MCP)."""
+    """Sobe a UI/API em 127.0.0.1, sem login. A URL vai ao stdout (não é modo MCP)."""
     import uvicorn
 
-    from src.api import auth
     from src.api.main import app
 
-    token = secrets.token_urlsafe(32)
-    auth.set_token(token)
-    url = f"http://127.0.0.1:{port}/ui/#token={token}"
+    url = f"http://127.0.0.1:{port}/ui/"
     print(url, flush=True)
     if open_browser:
         import webbrowser

@@ -77,8 +77,8 @@ claude mcp list               # knowledge-os ... Connected
 Remover: `claude mcp remove --scope user knowledge-os` e `uv tool uninstall knowledge-mcp`.
 
 **UI web local:** `knowledge-mcp ui [--port 8765] [--no-browser]` escuta só em
-`127.0.0.1` e imprime `http://127.0.0.1:<porta>/ui/#token=<token>`. O token é novo a cada
-start e a API (`/api/*`) responde 401 sem ele.
+`127.0.0.1` e imprime `http://127.0.0.1:<porta>/ui/`. Não há login: a proteção é o bind local,
+a checagem de `Host` (contra DNS rebinding) e a recusa de escrita vinda de outra origem.
 
 **Senhas de conexão** ficam em texto no campo `password` do `connections.json` (no home,
 fora do repositório; não o coloque em pasta sincronizada). As tools MCP nunca recebem nem
