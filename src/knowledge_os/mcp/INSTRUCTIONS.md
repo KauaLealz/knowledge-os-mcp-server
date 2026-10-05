@@ -22,6 +22,10 @@ contexto e aprendizados. Busque antes de supor; grave o que vale para depois.
 - Regra de parte do código: `scope_paths` (globs). Origem em `source` (mudança, commit).
   Sinônimos em `keywords` (a palavra `sensivel` marca área de risco). Substituiu algo: `relations: [{type: "supersedes", target: key}]`.
 - Nunca grave segredos (são recusados) nem dados pessoais.
+- Não é item: bug ou dívida (é trabalho), andamento ("ainda falta…"), medição datada, número de
+  linha (use classe ou símbolo), id de tarefa. Ambiente da máquina e regra geral de ferramenta vão
+  para `Global`. `scope_paths` o mais estreito possível; `sensivel` só em auth, pagamento, dados
+  pessoais, tenant e segredos.
 
 **Projeto sem ligação:** sugira ao usuário rodar `/plumb-setup` (ou `project_link(project=".")`, sem
 workspace: cada projeto tem o seu, com o nome do repositório; `Global` é só para o que vale em todos).
