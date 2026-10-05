@@ -244,6 +244,7 @@ MCP_DB_KEY=seu_hash_de_32_caracteres_aqui
 ```
 
 ### Com Chave (SQLCipher)
+Requer o extra opcional `crypto` (`pip install -e ".[crypto]"`; só há wheel para Linux).
 ```bash
 # Criptografia AES-256
 export MCP_DB_KEY=$(openssl rand -base64 32)
