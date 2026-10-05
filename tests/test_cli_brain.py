@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -149,3 +150,54 @@ def test_recent_json(env, project):
     data = json.loads(cli(env, "recent", "--json").stdout)
     assert [(d["title"], d["action"], d["source"], d["status"]) for d in data] == [
         ("Decisão Y", "created", "PAY-1", "active")]
+
+
+def test_dois_processos_esvaziando_a_mesma_fila_gravam_cada_key_uma_vez(env, project):
+    cli(env, "link", "--project", str(project), "--workspace", "W", "--domain", "D")
+    queue = Path(env["KNOWLEDGE_OS_HOME"]) / "pending.jsonl"
+    queue.write_text("".join(_entry(f"gotcha/k{i}", f"Item {i}") + "\n" for i in range(50)),
+                     encoding="utf-8")
+    procs = [subprocess.Popen(
+        [sys.executable, "-m", "src.cli", "context", "--project", str(project)], env=env,
+        cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8")
+        for _ in range(2)]
+    outs = [p.communicate(timeout=120) for p in procs]
+    assert all(p.returncode == 0 for p in procs)
+    total = sum(int(m.group(1)) for out, _ in outs
+                if (m := re.search(r"(\d+) item\(ns\) da fila", out)))
+    assert total == 50
+    code = (
+        "from src.config import ensure_home, validate_and_init_config\n"
+        "ensure_home(); validate_and_init_config()\n"
+        "from sqlalchemy import select, func\n"
+        "from src.db.models import Item\n"
+        "from src.db.session import get_engine, get_session\n"
+        "s = get_session(get_engine())\n"
+        "print(s.execute(select(func.count(), func.count(func.distinct(Item.key))).where("
+        "Item.key.like('gotcha/k%'))).one())\n"
+    )
+    out = subprocess.run([sys.executable, "-c", code], env=env, cwd=ROOT, capture_output=True,
+                         text=True, timeout=120, check=True).stdout
+    assert out.strip() == "(50, 50)"
+    assert not queue.exists() and not list(queue.parent.glob("pending*.claimed"))
+
+
+def test_linha_acrescentada_durante_a_gravacao_nao_se_perde(env, project, monkeypatch):
+    from src import cli
+    from src.services.item_service import ItemService
+
+    cli_env_home = Path(env["KNOWLEDGE_OS_HOME"])
+    cli.main(["link", "--project", str(project), "--workspace", "W", "--domain", "D"])
+    queue = cli._pending_file()
+    queue.write_text(_entry("gotcha/a", "A") + "\n", encoding="utf-8")
+    real_save = ItemService.save
+
+    def save_and_append(self, entries, **kw):
+        with queue.open("a", encoding="utf-8") as f:  # o agente escreve após a posse
+            f.write(_entry("gotcha/nova", "Nova") + "\n")
+        return real_save(self, entries, **kw)
+
+    monkeypatch.setattr(ItemService, "save", save_and_append)
+    assert cli._flush_file(queue, project)[0] == 1
+    assert "gotcha/nova" in queue.read_text(encoding="utf-8")
+    assert cli_env_home is not None

@@ -23,7 +23,7 @@ from sqlalchemy import (
     select,
     text,
 )
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.schema import CreateIndex
 
 from src.db.dialects import get_dialect
@@ -88,8 +88,26 @@ def _add_column(engine: Engine, table: Table, column: Column) -> None:
         if not column.nullable:
             sql += " NOT NULL"
     # Sem default, NOT NULL falharia em tabela com linhas: a coluna entra nullable.
-    with engine.begin() as conn:
-        conn.execute(text(sql))
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(sql))
+    except OperationalError as exc:
+        # Outro processo subindo junto adicionou a coluna primeiro: é o resultado desejado.
+        if "duplicate column" not in str(exc).lower():
+            raise
+        if column.name not in {c["name"] for c in inspect(engine).get_columns(table.name)}:
+            raise
+
+
+def _create_index(engine: Engine, index: Index) -> None:
+    try:
+        with engine.begin() as conn:
+            conn.execute(CreateIndex(index))
+    except OperationalError as exc:
+        # Outro processo subindo junto criou o índice primeiro: é o resultado desejado.
+        msg = str(exc).lower()
+        if "already exists" not in msg and "duplicate key name" not in msg:  # SQLite/PG · MySQL
+            raise
 
 
 def _read_version(engine: Engine) -> str | None:
@@ -128,6 +146,16 @@ def _backfill_expires_at(engine: Engine) -> None:
             conn.execute(
                 text("UPDATE items SET expires_at = :e WHERE id = :i"), {"e": expires, "i": item_id}
             )
+
+
+def _backup_before_changes(engine: Engine) -> None:
+    """Cópia de segurança antes de alterar um banco que já tinha tabelas (SQLite em arquivo)."""
+    from src.services.maintenance import backup
+
+    try:
+        backup("pre-schema", engine)
+    except Exception:  # noqa: BLE001 - sem backup não deve impedir a atualização
+        logger.warning("Backup pre-schema falhou; seguindo com a atualização", exc_info=True)
 
 
 def schema_sync(engine: Engine, dry_run: bool = False) -> dict[str, Any]:
@@ -181,15 +209,17 @@ def _sync(engine: Engine, dry_run: bool) -> dict[str, Any]:
     fts_missing = fts_missing and dialect.supports_fts()
     version = model_version()
 
+    has_changes = bool(tables_created or columns_to_add or indexes_to_create)
     if not dry_run:
+        if has_changes and existing:
+            _backup_before_changes(engine)
         if tables_created:
             Base.metadata.create_all(bind=engine, tables=[model_tables[t] for t in tables_created])
         for table, column in columns_to_add:
             _add_column(engine, table, column)
         if indexes_to_create:
-            with engine.begin() as conn:
-                for index in indexes_to_create:
-                    conn.execute(CreateIndex(index))
+            for index in indexes_to_create:
+                _create_index(engine, index)
         if items_present and dialect.supports_fts():
             dialect.create_fts_table(engine)
         if "items.expires_at" in {f"{t.name}.{c.name}" for t, c in columns_to_add}:

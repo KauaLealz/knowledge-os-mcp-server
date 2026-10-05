@@ -7,14 +7,16 @@ O resto (servidor MCP via stdio, `ui`, `--check-db`, `--bootstrap`) delega ao `s
 
 import argparse
 import json
+import os
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from src import __version__
 
-BRAIN_COMMANDS = ("context", "recent", "pending", "link")
+BRAIN_COMMANDS = ("context", "recent", "pending", "link", "backup")
 PENDING_NAME = "pending.jsonl"  # no home do cérebro, fora de qualquer repositório
 LEGACY_PENDING = Path(".plumb") / "pending-brain.jsonl"  # versões antigas do Plumb
 HOOK_BUDGET = 1200
@@ -40,6 +42,8 @@ def _parser() -> argparse.ArgumentParser:
     pen = sub.add_parser("pending", help="grava a fila offline (<home>/pending.jsonl)")
     pen.add_argument("--project", default=".", help="pasta do projeto (padrão: atual)")
 
+    sub.add_parser("backup", help="copia consistente do banco SQLite em <home>/backups")
+
     lnk = sub.add_parser("link", help="liga o projeto a um workspace/domain")
     lnk.add_argument("--project", default=".")
     lnk.add_argument("--workspace", help="padrão: o nome do repositório")
@@ -60,20 +64,67 @@ def _pending_file() -> Path:
     return KNOWLEDGE_HOME / PENDING_NAME
 
 
+ORPHAN_AFTER_S = 600  # `.claimed` abandonado (processo morreu no meio) é reprocessado depois disso
+
+
+def _claim(src: Path, base: Path) -> Path | None:
+    """Toma posse de `src` renomeando-o (atômico): só um processo vence. None se perdeu."""
+    claimed = base.with_name(f"{base.stem}.{os.getpid()}-{time.time_ns()}.claimed")
+    try:
+        src.rename(claimed)
+        os.utime(claimed)  # a idade de um `.claimed` conta a partir da posse, não da última linha
+    except OSError:  # sumiu (outro processo tomou) ou está aberta por um escritor (Windows)
+        return None
+    return claimed
+
+
+def _claimed_files(path: Path) -> list[Path]:
+    """Fila do arquivo mais `.claimed` órfãos, já tomados por este processo."""
+    found: list[Path] = []
+    if path.exists() and (mine := _claim(path, path)):
+        found.append(mine)
+    now = time.time()
+    for orphan in path.parent.glob(f"{path.stem}.*.claimed"):
+        try:
+            old = now - orphan.stat().st_mtime > ORPHAN_AFTER_S
+        except OSError:
+            continue
+        if old and (mine := _claim(orphan, path)):
+            found.append(mine)
+    return found
+
+
 def _flush_file(path: Path, project: Path) -> tuple[int, str | None]:
     """Grava uma fila (uma entrada de item_save por linha, com `project` opcional).
 
-    Entradas sem `project` vão para o projeto da sessão. O que falhar continua no arquivo.
+    A fila é tomada por rename antes de ler: duas sessões abrindo juntas não processam as
+    mesmas linhas, e o que o agente acrescentar depois cai num arquivo novo. Entradas sem
+    `project` vão para o projeto da sessão. O que falhar volta para a fila.
     """
+    saved, errors = 0, []
+    for claimed in _claimed_files(path):
+        n, err = _flush_claimed(claimed, path, project)
+        saved += n
+        if err:
+            errors.append(err)
+    return saved, "; ".join(errors) or None
+
+
+def _flush_claimed(claimed: Path, queue: Path, project: Path) -> tuple[int, str | None]:
     from src.services.item_service import ItemService
     from src.services.project_service import ProjectService
 
-    lines = [ln for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    lines = [ln for ln in claimed.read_text(encoding="utf-8").splitlines() if ln.strip()]
     groups: dict[str, list[dict[str, Any]]] = {}
-    for ln in lines:
-        entry = json.loads(ln)
-        groups.setdefault(entry.pop("project", None) or str(project), []).append(entry)
     saved, errors, left = 0, [], []
+    for ln in lines:
+        try:
+            entry = json.loads(ln)
+        except ValueError:
+            errors.append("linha inválida na fila")
+            left.append(ln)
+            continue
+        groups.setdefault(entry.pop("project", None) or str(project), []).append(entry)
     for proj, entries in groups.items():
         try:
             link = ProjectService().resolve(proj)
@@ -84,9 +135,9 @@ def _flush_file(path: Path, project: Path) -> tuple[int, str | None]:
             errors.append(f"{type(exc).__name__}: {exc}")
             left += [json.dumps({**e, "project": proj}, ensure_ascii=False) for e in entries]
     if left:
-        path.write_text("\n".join(left) + "\n", encoding="utf-8")
-    else:
-        path.unlink(missing_ok=True)
+        with queue.open("a", encoding="utf-8") as f:
+            f.write("\n".join(left) + "\n")
+    claimed.unlink(missing_ok=True)
     return saved, "; ".join(errors) or None
 
 
@@ -94,9 +145,8 @@ def _flush_pending(project: Path) -> tuple[int, str | None]:
     """Grava a fila offline do cérebro (no home) e a fila antiga do projeto, se existir."""
     total, error = 0, None
     for path in (_pending_file(), project / LEGACY_PENDING):
-        if path.exists():
-            n, err = _flush_file(path, project)
-            total, error = total + n, error or err
+        n, err = _flush_file(path, project)
+        total, error = total + n, error or err
     return total, error
 
 
@@ -219,6 +269,15 @@ def _link(args: argparse.Namespace) -> int:
     return 0
 
 
+def _backup(args: argparse.Namespace) -> int:
+    _init()
+    from src.services.maintenance import backup
+
+    path = backup("manual")
+    print(path if path else "Backup automático só para SQLite; este banco não é suportado.")
+    return 0 if path else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["--version"]:
@@ -233,7 +292,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         return {"context": _context, "recent": _recent, "pending": _pending,
-                "link": _link}[args.command](args)
+                "link": _link, "backup": _backup}[args.command](args)
     except Exception as exc:  # noqa: BLE001
         print(f"Erro: {exc}", file=sys.stderr)
         return 1
