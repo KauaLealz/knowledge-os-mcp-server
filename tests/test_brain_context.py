@@ -133,3 +133,15 @@ def test_itens_em_foco_contam_uso_mas_o_pacote_basico_nao(test_engine, linked, i
     _ctx(test_engine, paths=["src/payments/a.js"])
     uses = {r["key"]: r["uses"] for r in items.search(None, None, "", limit=10, track=False)}
     assert uses == {"pay": 1, "g": 0}
+
+
+def test_sugere_retro_depois_de_5_mudancas_concluidas(test_engine, linked):
+    for i in range(4):
+        linked(key=f"mudanca/m{i}", type="task", title=f"Mudança {i}", status="done")
+    assert "plumb-retro" not in _ctx(test_engine)["markdown"]
+    linked(key="mudanca/m4", type="task", title="Mudança 4", status="done")
+    out = _ctx(test_engine)
+    assert out["retro_due"] == 5 and "/plumb-retro" in out["markdown"]
+    assert "Mudança 4" not in out["markdown"]  # concluída sai do pacote
+    linked(key="retro/ultima", type="task", title="Retro", status="done")
+    assert _ctx(test_engine)["retro_due"] == 0

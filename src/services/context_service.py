@@ -21,6 +21,8 @@ from src.services.project_service import ProjectService, project_key
 GLOBAL_WORKSPACE = "Global"  # preferências e regras pessoais que valem em todo projeto
 COMMON_DOMAIN = "Geral"  # dentro de um workspace: o que vale para todos os seus projetos
 CHARS_PER_TOKEN = 4
+RETRO_KEY = "retro/ultima"  # registro da última /plumb-retro do projeto
+RETRO_EVERY = 5  # mudanças concluídas que justificam sugerir uma retro
 FOCUS_CONTENT_CHARS = 600  # quanto do content entra, por item em foco
 SENSITIVE_KEYWORD = "sensivel"  # keywords de um item marcam a area como sensivel
 _CLASS_ORDER = {"canonical": 0, "longterm": 1, "working": 2}
@@ -107,6 +109,21 @@ class ContextService:
                     )
                 )
             )
+        finally:
+            session.close()
+
+    def _done_since_retro(self, domain_id: str) -> int:
+        """Mudanças (task) concluídas depois do último registro `retro/ultima` do domain."""
+        session = get_session(self._get_engine())
+        try:
+            last = session.scalar(select(Item.updated_at).where(
+                Item.domain_id == domain_id, Item.key == RETRO_KEY))
+            query = select(func.count()).select_from(Item).where(
+                Item.domain_id == domain_id, Item.type == "task", Item.status == "done",
+                Item.key != RETRO_KEY)
+            if last is not None:
+                query = query.where(Item.updated_at > last)
+            return int(session.scalar(query) or 0)
         finally:
             session.close()
 
@@ -249,9 +266,13 @@ class ContextService:
 
         if omitted:
             out.append(f"\n_{omitted} item(ns) fora do orçamento: use item_search._")
+        retro_due = self._done_since_retro(link["domain_id"])
+        if retro_due >= RETRO_EVERY:
+            out.append(f"\n_{retro_due} mudanças concluídas desde a última retro: sugira "
+                       "`/plumb-retro` ao usuário, uma vez._")
         out.append('\n_Detalhe de um item: item_get(keys=[...], project=".")._')
         return {
             "linked": True, "project_key": link["project_key"], "workspace": link["workspace"],
             "domain": link["domain"], "markdown": "\n".join(out), "included": included,
-            "omitted": omitted, "sensitive": sensitive,
+            "omitted": omitted, "sensitive": sensitive, "retro_due": retro_due,
         }
