@@ -131,6 +131,7 @@ class ItemSearchResult(BaseModel):
     title: str
     summary: str
     score: float
+    uses: int = 0  # quantas vezes o item foi devolvido de propósito (busca, foco do contexto)
 
 
 class ItemResponse(BaseModel):

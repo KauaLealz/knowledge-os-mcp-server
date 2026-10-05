@@ -9,9 +9,10 @@ import fnmatch
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Engine, or_, select
+from sqlalchemy import Engine, func, or_, select, update
 
 from src.db.models import Domain, Item, Workspace
+from src.db.search_query import strip_accents
 from src.db.session import get_engine, get_session
 from src.schemas.item_schemas import decode_paths
 from src.services.item_service import ItemService
@@ -20,6 +21,8 @@ from src.services.project_service import ProjectService, project_key
 GLOBAL_WORKSPACE = "Global"  # preferências e regras pessoais que valem em todo projeto
 COMMON_DOMAIN = "Geral"  # dentro de um workspace: o que vale para todos os seus projetos
 CHARS_PER_TOKEN = 4
+FOCUS_CONTENT_CHARS = 600  # quanto do content entra, por item em foco
+SENSITIVE_KEYWORD = "sensivel"  # keywords de um item marcam a area como sensivel
 _CLASS_ORDER = {"canonical": 0, "longterm": 1, "working": 2}
 
 # (título, tipos, limite, ordenação) — em ordem de prioridade dentro do orçamento.
@@ -37,6 +40,21 @@ def _matches(globs: list[str], paths: list[str]) -> bool:
     norm = [p.replace("\\", "/").lstrip("./") for p in paths]
     return any(fnmatch.fnmatch(p, g) or fnmatch.fnmatch(p, g.rstrip("*").rstrip("/") + "/*")
                for g in globs for p in norm)
+
+
+def _focus_line(item: Item, scope: list[str]) -> str:
+    """Item em foco: resumo e o comeco do content, para dispensar um item_get depois."""
+    line = _line(item, scope)
+    body = " ".join((item.content or "").split())
+    if body and body != item.summary.strip():
+        cut = body[:FOCUS_CONTENT_CHARS] + ("…" if len(body) > FOCUS_CONTENT_CHARS else "")
+        line += "\n  > " + cut
+    return line
+
+
+def _is_sensitive(item: Item) -> bool:
+    words = strip_accents((item.keywords or "").lower()).replace(",", " ").split()
+    return SENSITIVE_KEYWORD in words
 
 
 def _line(item: Item, scope: list[str] | None = None) -> str:
@@ -91,6 +109,33 @@ class ContextService:
         finally:
             session.close()
 
+    def _by_ids(self, ids: list[str]) -> list[Item]:
+        session = get_session(self._get_engine())
+        try:
+            return list(session.scalars(select(Item).where(Item.id.in_(ids))))
+        finally:
+            session.close()
+
+    def _track(self, ids: set[str]) -> None:
+        """Conta o uso dos itens trazidos em foco (alimenta a limpeza da /plumb-retro)."""
+        if not ids:
+            return
+        session = get_session(self._get_engine())
+        try:
+            session.execute(
+                update(Item)
+                .where(Item.id.in_(ids))
+                .values(
+                    access_count=func.coalesce(Item.access_count, 0) + 1,
+                    last_accessed=datetime.utcnow(),
+                    updated_at=Item.updated_at,
+                )
+                .execution_options(synchronize_session=False)
+            )
+            session.commit()
+        finally:
+            session.close()
+
     def build(
         self,
         project: str,
@@ -100,7 +145,7 @@ class ContextService:
     ) -> dict[str, Any]:
         """Markdown do contexto do projeto dentro do orçamento + metadados.
 
-        Retorna {linked, project_key, workspace, domain, markdown, included, omitted}.
+        Retorna {linked, project_key, workspace, domain, markdown, included, omitted, sensitive}.
         Projeto não ligado → linked=False e um markdown curto dizendo como ligar.
         """
         link = ProjectService(self._engine, self._connection_id).resolve(project)
@@ -108,7 +153,7 @@ class ContextService:
             key = project_key(project)
             return {
                 "linked": False, "project_key": key, "workspace": None, "domain": None,
-                "included": 0, "omitted": 0,
+                "included": 0, "omitted": 0, "sensitive": False,
                 "markdown": (
                     f"# Segundo cérebro\nProjeto `{key}` ainda não está ligado. "
                     "Sugira ao usuário rodar /plumb-setup (ou ligue com project_link)."
@@ -132,10 +177,42 @@ class ContextService:
             included += 1
             return True
 
+        # Em foco: o que casa com os arquivos tocados ou com a consulta entra com o comeco do
+        # content, para o agente nao precisar de um item_get depois.
+        focus: list[tuple[Item, list[str]]] = []
+        sensitive = False
+        for item in items:
+            scope = decode_paths(item.scope_paths)
+            if scope and paths and _matches(scope, paths):
+                focus.append((item, scope))
+                sensitive = sensitive or _is_sensitive(item)
+        if query:
+            found = ItemService(self._engine, self._connection_id).search(
+                link["workspace_id"], None, query, limit=5, track=False
+            )
+            known = {i.id for i, _ in focus}
+            wanted = [r["id"] for r in found if r["id"] not in known]
+            if wanted:
+                by_id = {i.id: i for i in self._by_ids(wanted)}
+                focus += [(by_id[i], decode_paths(by_id[i].scope_paths)) for i in wanted
+                          if i in by_id]
+        focus_ids = {i.id for i, _ in focus}
+        if focus:
+            header = "\n## Em foco (casa com os arquivos ou com a consulta)"
+            if used + len(header) <= budget:
+                out.append(header)
+                used += len(header)
+                if sensitive:
+                    add("- ⚠ **Área sensível** — revisão de segurança na entrega.")
+                for item, scope in focus[:12]:
+                    add(_focus_line(item, scope))
+                omitted += max(0, len(focus) - 12)
+            self._track(focus_ids)
+
         for title, types, limit in _SECTIONS:
             chosen = []
             for item in items:
-                if item.type not in types:
+                if item.type not in types or item.id in focus_ids:
                     continue
                 scope = decode_paths(item.scope_paths)
                 if scope and not _matches(scope, paths):
@@ -169,24 +246,11 @@ class ContextService:
                 for item in scoped_hidden[:15]:
                     add(f"- {item.title} — {', '.join(decode_paths(item.scope_paths))}")
 
-        if query:
-            found = ItemService(self._engine, self._connection_id).search(
-                link["workspace_id"], None, query, limit=5, track=False
-            )
-            if found:
-                header = f"\n## Relacionados a “{query}”"
-                if used + len(header) <= budget:
-                    out.append(header)
-                    used += len(header)
-                    for r in found:
-                        key = f" `{r['key']}`" if r["key"] else ""
-                        add(f"- **{r['title']}** — {r['summary']}{key}")
-
         if omitted:
             out.append(f"\n_{omitted} item(ns) fora do orçamento: use item_search._")
         out.append('\n_Detalhe de um item: item_get(keys=[...], project=".")._')
         return {
             "linked": True, "project_key": link["project_key"], "workspace": link["workspace"],
             "domain": link["domain"], "markdown": "\n".join(out), "included": included,
-            "omitted": omitted,
+            "omitted": omitted, "sensitive": sensitive,
         }

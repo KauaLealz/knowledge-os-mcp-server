@@ -32,9 +32,11 @@ def context_get(
 
     **Use quando:** Começar num projeto (se o hook não injetou) ou ao passar a mexer em outra
         área: `paths` traz as regras com escopo daqueles arquivos; `query`, itens relacionados.
-    **Retorna:** {linked, project_key, workspace, domain, markdown, included, omitted}.
+    **Retorna:** {linked, project_key, workspace, domain, markdown, included, omitted, sensitive}.
     **Exemplo:** context_get(project=".", paths=["src/payments/Charge.java"], query="estorno")
-    **Notas:** Só títulos, resumos e keys, dentro de `budget_tokens`. Inclui o domain do projeto,
+    **Notas:** Dentro de `budget_tokens`. Itens que casam com `paths` ou `query` vêm em foco, com o
+        começo do content (dispensa item_get); o resto, só título, resumo e key. `sensitive` é true
+        se `paths` toca uma área marcada com a keyword "sensivel". Inclui o domain do projeto,
         `Geral` do workspace e `Global/Geral`. Sem substituídos, obsoletos nem ephemeral.
     """
     return ContextService(connection_id=connection_id).build(project, paths, query, budget_tokens)
@@ -49,18 +51,22 @@ def item_search(
     memory_classes: list[str] | None = None,
     limit: int = 10,
     include_inactive: bool = False,
+    everywhere: bool = False,
     connection_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Busca por texto. Devolve resumos, nunca o conteúdo completo.
 
     **Use quando:** Procurar algo que pode já estar guardado (decisão, gotcha, procedimento).
-    **Retorna:** [{id, key, type, memory_class, domain, title, summary, score}].
-    **Exemplo:** item_search(query="migração flyway", project=".", limit=5)
-    **Notas:** Sem project nem workspace busca em todos. Relevância primeiro; acentos e plurais
+    **Retorna:** [{id, key, type, memory_class, domain, title, summary, score, uses}].
+    **Exemplo:** item_search(query="migração flyway", limit=5)
+    **Notas:** Sem project/workspace, busca no projeto da pasta atual (se ligado) — não vaza para
+        outros projetos; `everywhere=True` busca em todos. Relevância primeiro; acentos e plurais
         não atrapalham. include_inactive traz substituídos, obsoletos e ephemeral vencidos.
     """
     svc = ItemService(connection_id=connection_id)
     workspace_id = domain_id = None
+    if not project and not workspace and not everywhere:
+        project = "." if ProjectService(connection_id=connection_id).resolve(".") else None
     if project:
         workspace_id = ProjectService(connection_id=connection_id).require(project)["workspace_id"]
     elif workspace:

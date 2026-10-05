@@ -564,7 +564,8 @@ class ItemService:
         )
         columns = (
             "i.id AS id, i.item_key AS item_key, i.type AS type, i.memory_class AS memory_class, "
-            "d.name AS domain, i.title AS title, i.summary AS summary"
+            "d.name AS domain, i.title AS title, i.summary AS summary, "
+            "COALESCE(i.access_count, 0) AS uses"
         )
         if not query:
             attempts = [("items i JOIN domains d ON d.id = i.domain_id", None, "0.0", {})]
@@ -600,6 +601,7 @@ class ItemService:
                     "id": r["id"], "key": r["item_key"], "type": r["type"],
                     "memory_class": r["memory_class"], "domain": r["domain"],
                     "title": r["title"], "summary": r["summary"], "score": float(r["score"]),
+                    "uses": int(r["uses"] or 0),
                 }
                 for r in rows
             ]

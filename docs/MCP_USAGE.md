@@ -19,6 +19,10 @@ Projeto não ligado: `context_get` diz como ligar. Ligue uma vez:
 project_link(project=".", workspace="Polara", domain="projpro")
 ```
 
+Com `paths` ou `query`, o que casa vem **em foco**, com o começo do `content` (sem `item_get`
+depois), e o retorno traz `sensitive: true` se os arquivos tocam uma área marcada com a keyword
+`sensivel` — o Plumb usa isso para pedir revisão de segurança. Os itens em foco contam como uso.
+
 O pacote junta o domain do projeto, o domain `Geral` do mesmo workspace (convenções do
 cliente) e `Global/Geral` (suas preferências em qualquer projeto).
 
@@ -30,7 +34,7 @@ item_get(keys=["proc/migration", "regra/money"], project=".")   # completos
 item_get(ids=["9b2c..."])
 ```
 
-- Sem `project` nem `workspace`, busca em toda a base.
+- Sem `project` nem `workspace`, busca no projeto da pasta atual (se ligado); `everywhere=True` busca em toda a base. Cada resultado traz `uses` (vezes que o item foi devolvido de propósito).
 - A busca ignora acento e plural e começa pela relevância. Busca vazia não prova ausência:
   tente um sinônimo (e grave o sinônimo em `keywords` quando achar).
 

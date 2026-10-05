@@ -170,3 +170,23 @@ def test_administracao(server, tmp_path):
 
     victim = call(server, "item_search", query="A", workspace="W")[0]["id"]
     assert call(server, "item_delete", item_id=victim)["status"] == "deleted"
+
+
+def test_busca_sem_projeto_usa_o_da_pasta_e_nao_vaza(server, monkeypatch):
+    call(server, "project_link", project=PROJECT, workspace="Polara", domain="app")
+    call(server, "item_save", project=PROJECT, items=[
+        {"key": "a", **RULE, "title": "Segredo de cobrança do app"}])
+    call(server, "project_link", project="github.com/org/outro", workspace="Outra", domain="o")
+    call(server, "item_save", project="github.com/org/outro", items=[
+        {"key": "b", **RULE, "title": "Segredo de cobrança do outro"}])
+
+    def titles(**kw: Any) -> set[str]:
+        return {r["title"] for r in call(server, "item_search", query="cobrança", **kw)}
+
+    assert len(titles()) == 2  # pasta não ligada: busca em todos (comportamento anterior)
+    from src.services.project_service import ProjectService
+    real = ProjectService.resolve
+    monkeypatch.setattr(ProjectService, "resolve", lambda self, p: real(
+        self, PROJECT if p == "." else p))
+    assert titles() == {"Segredo de cobrança do app"}  # pasta ligada: só o projeto
+    assert len(titles(everywhere=True)) == 2

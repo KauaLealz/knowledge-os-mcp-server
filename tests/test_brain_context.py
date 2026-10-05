@@ -101,7 +101,35 @@ def test_orcamento_corta_e_avisa(test_engine, linked):
     assert out["omitted"] > 0 and "fora do orçamento" in out["markdown"]
 
 
-def test_query_traz_relacionados(test_engine, linked):
-    linked(key="f", type="procedure", title="Migrações com Flyway")
+def test_query_traz_o_item_em_foco_com_content_e_sem_repetir(test_engine, linked):
+    linked(key="f", type="procedure", title="Migrações com Flyway", content="Rodar migrate antes")
     md = _ctx(test_engine, query="migração")["markdown"]
-    assert "Relacionados a" in md and md.count("Migrações com Flyway") == 2
+    assert "## Em foco" in md and md.count("Migrações com Flyway") == 1
+    assert "> Rodar migrate antes" in md
+
+
+def test_foco_por_caminho_traz_content_e_fora_do_foco_nao(test_engine, linked):
+    linked(key="pay", type="rule", title="Money em pagamentos", summary="Sempre em centavos",
+           content="Exemplo: 1990 = R$ 19,90", scope_paths=["src/payments/**"])
+    linked(key="g", type="rule", title="Geral", content="detalhe longo")
+    md = _ctx(test_engine, paths=["src/payments/Charge.java"])["markdown"]
+    assert "## Em foco" in md and "> Exemplo: 1990" in md
+    assert "detalhe longo" not in md  # fora do foco: só título e resumo
+
+
+def test_area_sensivel_pela_keyword_e_pelo_caminho(test_engine, linked):
+    linked(key="pay", type="rule", title="Pagamentos", keywords="dinheiro sensível",
+           scope_paths=["src/payments/**"])
+    assert _ctx(test_engine, paths=["src/payments/a.js"])["sensitive"] is True
+    assert "Área sensível" in _ctx(test_engine, paths=["src/payments/a.js"])["markdown"]
+    assert _ctx(test_engine, paths=["src/users/a.js"])["sensitive"] is False
+    assert _ctx(test_engine)["sensitive"] is False
+
+
+def test_itens_em_foco_contam_uso_mas_o_pacote_basico_nao(test_engine, linked, items):
+    linked(key="pay", type="rule", title="Money", scope_paths=["src/payments/**"])
+    linked(key="g", type="rule", title="Geral")
+    _ctx(test_engine)
+    _ctx(test_engine, paths=["src/payments/a.js"])
+    uses = {r["key"]: r["uses"] for r in items.search(None, None, "", limit=10, track=False)}
+    assert uses == {"pay": 1, "g": 0}
