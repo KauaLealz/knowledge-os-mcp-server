@@ -16,7 +16,13 @@ a:hover { text-decoration: underline; }
 button { font: inherit; color: inherit; cursor: pointer; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius); }
 ::selection { background: var(--accent-soft); }
-.ic { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.ic { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+.sprite { position: absolute; }
+.logo { width: 24px; height: 24px; flex: none; }
+.logo.lg { width: 40px; height: 40px; display: block; margin: 0 0 16px; }
+.state .logo, .fullscreen .logo { width: 32px; height: 32px; }
+.btn.icon .ic { width: 18px; height: 18px; }
+.dd-chev { color: var(--text-3); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* ===== Layout ===== */
@@ -51,8 +57,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
 }
 .brand { display: flex; align-items: center; gap: 10px; padding: 14px 16px 8px; font-weight: 650; letter-spacing: -0.01em; color: var(--text); }
 .brand:hover { text-decoration: none; }
-.brand-mark { width: 24px; height: 24px; border-radius: var(--radius); background: var(--accent); color: var(--on-accent); display: grid; place-items: center; }
-.brand-mark .ic { width: 14px; height: 14px; }
 .switcher { padding: 4px 10px 10px; display: grid; gap: 6px; border-bottom: 1px solid var(--border); }
 .dd { position: relative; }
 .dd-btn {
@@ -161,10 +165,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .mini-list li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .item-list { display: grid; gap: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-.item-row { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 4px 12px; padding: 12px 16px; color: var(--text); border-bottom: 1px solid var(--border); }
+.item-row { display: block; padding: 12px 16px; color: var(--text); border-bottom: 1px solid var(--border); }
 .item-row:last-child { border-bottom: 0; }
 .item-row:hover { background: var(--bg-soft); text-decoration: none; }
-.item-row > .ic { margin-top: 4px; color: var(--text-3); width: 16px; height: 16px; }
 .item-row .ir-title { font-weight: 600; font-size: 15px; overflow-wrap: anywhere; }
 .item-row .ir-sum { color: var(--text-2); font-size: 13.5px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .item-row .ir-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 4px; }
@@ -188,6 +191,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .state.error .ic { color: var(--danger); }
 .fullscreen { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
 .fullscreen .box { max-width: 460px; text-align: center; }
+.fullscreen .logo { margin: 0 auto 8px; }
 .fullscreen code { display: inline-block; background: var(--bg-code); padding: 1px 6px; border-radius: 4px; font-family: var(--mono); font-size: 13px; }
 
 /* ===== Toasts ===== */
@@ -407,10 +411,8 @@ body { overflow-x: clip; }
 .t-artifact { --tc: var(--t-artifact); }
 .t-secret { --tc: var(--t-secret); }
 .t-unknown { --tc: var(--text-2); }
-.ic.t-rule, .ic.t-insight, .ic.t-procedure, .ic.t-pattern, .ic.t-knowledge, .ic.t-context,
-.ic.t-task, .ic.t-artifact, .ic.t-secret, .ic.t-unknown { color: var(--tc); }
-.tree-item .ic[class*="t-"], .item-row > .ic.tic, .pal-item .ic[class*="t-"], .tree-item.active .ic[class*="t-"] { color: var(--tc); }
-.pal-item.active .ic[class*="t-"] { color: var(--tc); }
+.tdot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--tc, var(--text-2)); }
+.tree-item .tdot { width: 6px; height: 6px; margin: 0 2px; }
 .tbadge {
   display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border-radius: 10px; flex: none;
   color: var(--tc, var(--text-2)); background: color-mix(in srgb, var(--tc, var(--text-2)) 13%, transparent);
@@ -420,7 +422,7 @@ body { overflow-x: clip; }
 .tbadge .ic { width: 12px; height: 12px; color: inherit; }
 .tbadge.lg { font-size: 13px; padding: 2px 10px; }
 .group { margin-top: 22px; }
-.group-head { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 14px; font-weight: 650; color: var(--tc, var(--text)); }
+.group-head { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 14px; font-weight: 650; color: var(--text); }
 .group-head .count { color: var(--text-3); }
 .filterbar { display: grid; gap: 10px; margin: 0 0 8px; }
 .searchbox { position: relative; display: block; }

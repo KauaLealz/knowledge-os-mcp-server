@@ -1,6 +1,7 @@
 """Front estático em /ui/: servido sem autenticação, sem build step e sem Tailwind."""
 
 import re
+import urllib.parse
 from pathlib import Path
 
 import pytest
@@ -253,14 +254,12 @@ def test_mapa_de_tipos_cobre_todos_os_tipos_da_api():
     util = _js("util.js")
     meta = util[util.index("export const TYPE_META"):util.index("export const TYPE_ORDER")]
     for t in (*ITEM_TYPES, "secret"):
-        assert re.search(rf"\b{t}: {{ label: '[^']+', plural: '[^']+', icon: '{t}' }}", meta), t
+        assert re.search(rf"\b{t}: {{ label: '[^']+', plural: '[^']+' }}", meta), t
     labels = dict(re.findall(r"(\w+): \{ label: '([^']+)'", meta))
     assert labels["rule"] == "Regra" and labels["insight"] == "Decisão"
     assert labels["task"] == "Mudança" and labels["knowledge"] == "Aprendizado"
-    html = (STATIC / "index.html").read_text(encoding="utf-8")
     tokens = (STATIC / "css" / "tokens.css").read_text(encoding="utf-8")
     for t in (*ITEM_TYPES, "secret"):
-        assert f'id="i-{t}"' in html, t  # ícone no sprite
         assert tokens.count(f"--t-{t}:") == 3, t  # claro, escuro (media) e escuro (data-theme)
 
 
@@ -312,3 +311,57 @@ def test_paleta_busca_em_todos_os_workspaces_com_ate_20_resultados():
     pal = _js("views/palette.js")
     assert "REMOTE_LIMIT = 20" in pal and "workspace_id: ws" not in pal
     assert "r.workspace_id" in pal and "r.domain_id" in pal
+
+
+
+# ---- identidade visual: logo única, sprite coerente, tipos sem ícone ----
+def _index() -> str:
+    return (STATIC / "index.html").read_text(encoding="utf-8")
+
+
+def _js_sources() -> str:
+    files = (STATIC / "js").rglob("*.js")
+    return "\n".join(p.read_text(encoding="utf-8") for p in files if "vendor" not in p.parts)
+
+
+def _norm(svg: str) -> str:
+    return re.sub(r"\s+", "", svg.replace('"', "'"))
+
+
+def test_favicon_e_cabecalho_usam_a_mesma_logo():
+    html = _index()
+    href = re.search(r'<link rel="icon" href="data:image/svg\+xml,([^"]+)"', html).group(1)
+    favicon = urllib.parse.unquote(href)
+    inner_fav = re.search(r"<svg[^>]*>(.*)</svg>", favicon, re.S).group(1)
+    inner_sprite = re.search(r'<symbol id="logo"[^>]*>(.*?)</symbol>', html, re.S).group(1)
+    assert _norm(inner_fav) == _norm(inner_sprite)
+    assert html.count('<symbol id="logo"') == 1
+    brand = re.search(r'<a class="brand".*?</a>', html, re.S).group(0)
+    assert 'href="#logo"' in brand
+    assert "Knowledge OS" in brand
+
+
+def test_sprite_sem_orfaos_e_sem_referencias_quebradas():
+    html = _index()
+    ids = set(re.findall(r'<symbol id="([^"]+)"', html))
+    body = html.split("</svg>", 1)[1]  # fora do sprite
+    refs = set(re.findall(r"#(i-[a-z-]+|logo)\b", body))
+    # nomes escolhidos em tempo de execução: `'#i-' + (cond ? 'a' : 'b')` (HTML) e `icon: 'a'` (JS)
+    dyn = re.findall(r"'#i-' \+ \([^?]*\? '([a-z-]+)' : '([a-z-]+)'\)", body)
+    refs |= {"i-" + n for pair in dyn for n in pair}
+    for m in re.finditer(r"\bicon: (?:[^'\n,]*\? )?'([a-z-]+)'(?: : '([a-z-]+)')?", _js_sources()):
+        refs |= {"i-" + n for n in m.groups() if n}
+    assert not (refs - ids), f"referências quebradas: {sorted(refs - ids)}"
+    assert not (ids - refs), f"símbolos órfãos: {sorted(ids - refs)}"
+    assert not re.search(r"<svg[^>]*style=", body)  # tamanhos e cores por classe CSS
+
+
+def test_linhas_de_item_nao_usam_icone_de_tipo():
+    html = _index()
+    assert "$icon(" not in html
+    rows = re.findall(r'<a class="item-row".*?</a>', html, re.S)
+    assert rows
+    for row in rows:
+        assert "<svg" not in row
+        assert row.count('class="tbadge"') == 1
+    assert "icon:" not in (STATIC / "js" / "util.js").read_text(encoding="utf-8")

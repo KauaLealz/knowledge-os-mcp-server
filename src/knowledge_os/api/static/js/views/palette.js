@@ -1,7 +1,6 @@
 // Paleta Ctrl/Cmd+K: Recentes / Items (busca em todos os workspaces) / Domains-Workspaces / Ações / Configurações.
 import { api } from '../api.js';
 import { go, hrefs } from '../router.js';
-import { typeIcon } from '../util.js';
 
 const REMOTE_LIMIT = 20; // máximo de itens na paleta
 
@@ -76,7 +75,7 @@ export function register(Alpine) {
               key: 'r' + r.id,
               title: r.title,
               sub: '',
-              icon: typeIcon(r.type),
+             
               type: r.type,
               hash: hrefs.item(r.conn, r.ws, r.dm, r.id),
             })),
@@ -89,13 +88,13 @@ export function register(Alpine) {
             if (seen.has(r.id)) continue;
             seen.add(r.id);
             const hash = r.workspace_id && r.domain_id ? hrefs.item(app.connId, r.workspace_id, r.domain_id, r.id) : app.hItemById(r.id);
-            items.push({ key: 'i' + r.id, title: r.title, sub: this.where(r), summary: r.summary, icon: typeIcon(r.type), type: r.type, hash });
+            items.push({ key: 'i' + r.id, title: r.title, sub: this.where(r), summary: r.summary, type: r.type, hash });
           }
           // Se a busca do servidor falhou, ainda acha pelo título nos itens do workspace aberto.
           if (!this.remote.length) {
             for (const it of Object.values(app.itemIndex)) {
               if (!match(it.title)) continue;
-              items.push({ key: 'i' + it.id, title: it.title, sub: it.domain_name, icon: typeIcon(it.type), type: it.type, hash: app.hItemById(it.id) });
+              items.push({ key: 'i' + it.id, title: it.title, sub: it.domain_name, type: it.type, hash: app.hItemById(it.id) });
             }
           }
           add('Items', items.slice(0, REMOTE_LIMIT));

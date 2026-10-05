@@ -46,29 +46,25 @@ export function formatDate(value) {
 }
 
 /**
- * Mapa único dos tipos: rótulo PT-BR, plural (cabeçalho de grupo) e ícone do sprite.
+ * Mapa único dos tipos: rótulo PT-BR e plural (cabeçalho de grupo). O tipo não tem ícone: aparece como ponto colorido + texto.
  * A cor vem da classe `t-<tipo>` (tokens --t-<tipo> em tokens.css).
  * A ordem das chaves é a ordem fixa dos grupos nas listas.
  */
 export const TYPE_META = {
-  rule: { label: 'Regra', plural: 'Regras', icon: 'rule' },
-  insight: { label: 'Decisão', plural: 'Decisões', icon: 'insight' },
-  procedure: { label: 'Procedimento', plural: 'Procedimentos', icon: 'procedure' },
-  pattern: { label: 'Padrão', plural: 'Padrões', icon: 'pattern' },
-  knowledge: { label: 'Aprendizado', plural: 'Aprendizados', icon: 'knowledge' },
-  context: { label: 'Contexto', plural: 'Contexto', icon: 'context' },
-  task: { label: 'Mudança', plural: 'Mudanças', icon: 'task' },
-  artifact: { label: 'Anexo', plural: 'Anexos', icon: 'artifact' },
-  secret: { label: 'Segredo', plural: 'Segredos', icon: 'secret' },
+  rule: { label: 'Regra', plural: 'Regras' },
+  insight: { label: 'Decisão', plural: 'Decisões' },
+  procedure: { label: 'Procedimento', plural: 'Procedimentos' },
+  pattern: { label: 'Padrão', plural: 'Padrões' },
+  knowledge: { label: 'Aprendizado', plural: 'Aprendizados' },
+  context: { label: 'Contexto', plural: 'Contexto' },
+  task: { label: 'Mudança', plural: 'Mudanças' },
+  artifact: { label: 'Anexo', plural: 'Anexos' },
+  secret: { label: 'Segredo', plural: 'Segredos' },
 };
 export const TYPE_ORDER = Object.keys(TYPE_META);
 /** Tipos que o usuário pode escolher ao criar um item (segredo ainda não é criado pela UI). */
 export const ITEM_TYPES = TYPE_ORDER.filter((t) => t !== 'secret');
 
-/** Nome do símbolo do sprite para um type (cai em "knowledge"). */
-export function typeIcon(type) {
-  return TYPE_META[type]?.icon || 'knowledge';
-}
 export function typeLabel(type) {
   return TYPE_META[type]?.label || String(type || '');
 }
