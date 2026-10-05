@@ -91,8 +91,8 @@ def test_patch_password_semantics(client):
         data = json.loads(ConfigManager.CONNECTIONS_FILE.read_text(encoding="utf-8"))
         return data["connections"][0]["password"]
 
-    r = client.patch(f"/api/connections/{cid}", json={"host": "other"})
-    assert r.status_code == 200 and r.json()["host"] == "other"
+    r = client.patch(f"/api/connections/{cid}", json={"name": "renomeada"})
+    assert r.status_code == 200 and r.json()["name"] == "renomeada"
     assert r.json()["password_set"] is True and stored() == SECRET  # ausente mantém
 
     r = client.patch(f"/api/connections/{cid}", json={"password": "novo-valor"})
@@ -103,9 +103,40 @@ def test_patch_password_semantics(client):
     assert r.json()["password_set"] is False and stored() is None
 
 
+def _json_conn():
+    return json.loads(ConfigManager.CONNECTIONS_FILE.read_text(encoding="utf-8"))["connections"][0]
+
+
+@pytest.mark.parametrize("change", [
+    {"host": "outro"}, {"port": 5433}, {"database": "outro"}, {"username": "outro"},
+])
+def test_patch_destino_sem_senha_nova_e_422_e_nao_muda_o_json(client, change):
+    cid = _pg(client).json()["id"]
+    before = _json_conn()
+    r = client.patch(f"/api/connections/{cid}", json=change)
+    assert r.status_code == 422
+    assert "Informe a senha de novo" in r.text and SECRET not in r.text
+    assert _json_conn() == before
+
+
+def test_patch_destino_com_senha_nova_e_so_nome_mantem_a_senha(client):
+    cid = _pg(client).json()["id"]
+    r = client.patch(f"/api/connections/{cid}", json={"host": "outro", "password": "nova-123"})
+    assert r.status_code == 200 and _json_conn()["host"] == "outro"
+    assert _json_conn()["password"] == "nova-123"
+    r = client.patch(f"/api/connections/{cid}", json={"name": "so-nome", "enabled": False})
+    assert r.status_code == 200 and _json_conn()["password"] == "nova-123"
+
+
+def test_patch_mesmo_destino_sem_senha_passa(client):
+    cid = _pg(client).json()["id"]
+    r = client.patch(f"/api/connections/{cid}", json={"host": "127.0.0.1", "port": 1})
+    assert r.status_code == 200
+
+
 def test_patch_blank_port_falls_back_to_default(client):
     cid = _pg(client).json()["id"]
-    r = client.patch(f"/api/connections/{cid}", json={"port": None})
+    r = client.patch(f"/api/connections/{cid}", json={"port": None, "password": SECRET})
     assert r.status_code == 200 and r.json()["port"] == 5432
 
 

@@ -36,6 +36,8 @@ UPDATABLE_FIELDS = (
     "name", "is_active", "path", "host", "port", "database", "username", "password",
 )
 _SERVER_FIELDS = ("host", "port", "database", "username", "password")
+# Mudar o destino com a senha guardada a enviaria a outro servidor: exige senha de novo.
+_DESTINATION_FIELDS = ("path", "host", "port", "database", "username")
 _HOST_FORBIDDEN = set("@/?# \t\r\n\\")
 _PROBE_TABLE = "_kos_connection_probe"
 _DEFAULT_PORTS = {"postgresql": 5432, "mysql": 3306}
@@ -403,6 +405,14 @@ class ConnectionService:
             if old.db_type != "sqlite" and data.get("port") is None:
                 data["port"] = _DEFAULT_PORTS[old.db_type]
             new = _build(data)
+            if (
+                old.password
+                and "password" not in fields
+                and any(getattr(new, k) != getattr(old, k) for k in _DESTINATION_FIELDS)
+            ):
+                raise ValidationError(
+                    "Informe a senha de novo ao mudar host, porta, banco ou usuário"
+                )
             config.connections = [new if c.id == old.id else c for c in config.connections]
             ConfigManager.save(config)
         db_session._connection_manager.invalidate(new.id)
