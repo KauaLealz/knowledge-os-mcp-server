@@ -29,3 +29,8 @@ def test_csp_so_permite_scripts_locais(client):
     csp = client.get("/ui/").headers["Content-Security-Policy"]
     assert "script-src 'self' 'unsafe-eval'" in csp and "default-src 'self'" in csp
     assert "http" not in csp
+
+
+def test_ui_pede_revalidacao_para_nao_misturar_versoes_em_cache(client):
+    for path in ("/ui/", "/ui/js/main.js", "/ui/vendor/alpine.esm.js"):
+        assert client.get(path).headers["Cache-Control"] == "no-cache", path

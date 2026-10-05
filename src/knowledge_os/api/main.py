@@ -70,6 +70,10 @@ async def _security_headers(request: Request, call_next):
     response = await call_next(request)
     for name, value in _SECURITY_HEADERS.items():
         response.headers[name] = value
+    if request.url.path.startswith("/ui"):
+        # Módulos ES sem build: sem isso o navegador mistura versões em cache depois de uma
+        # atualização (import de export inexistente = tela preta). Revalida por ETag (304).
+        response.headers["Cache-Control"] = "no-cache"
     return response
 
 
