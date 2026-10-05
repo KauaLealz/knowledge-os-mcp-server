@@ -82,7 +82,7 @@ def migrate_workspaces(
     **Use quando:** Mover o conhecimento de SQLite para PostgreSQL/MySQL, ou consolidar duas bases.
     **Retorna:** {status: success|error, workspaces_migrated, items_migrated, artifacts_migrated,
         duration_seconds, message}.
-    **Exemplo:** migrate_workspaces(from_connection_id="sqlite_local",
+    **Exemplo:** migrate_workspaces(from_connection_id="sqlite_backup",
         to_connection_id="postgres_prod", mode="replace")
     **Notas:** mode=replace apaga os dados do destino antes de copiar; mode=merge une tags/labels
         por nome e aborta se algum id já existir. Origem e destino devem ser diferentes, habilitados
@@ -176,7 +176,7 @@ def register(mcp: FastMCP) -> None:
         **Retorna:** Lista de connections (id, name, db_type, url sem senha, password_set,
             is_active).
         **Exemplo:** connection_list()
-        **Notas:** A connection default sqlite_local existe desde o início. Sem parâmetros.
+        **Notas:** O catálogo `default` existe desde o início. Sem parâmetros.
         """
         return [connection_to_dict(c) for c in ConnectionService().list()]
 

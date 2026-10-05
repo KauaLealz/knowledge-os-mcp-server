@@ -25,7 +25,7 @@ def memory_promote(
     **Exemplo:** memory_promote(item_id="item_def456", target_memory="longterm")
     **Notas:** Ordem crescente: ephemeral, working, longterm, canonical. Nunca rebaixa nem volta a
         ephemeral; ao sair de ephemeral o ttl_days é removido. connection_id: opcional; sem ele usa
-        a connection default (sqlite_local).
+        a connection default (`default`).
     """
     req = MemoryPromoteRequest(item_id=item_id, target_memory=target_memory)  # type: ignore[arg-type]
     item = MemoryService(connection_id=connection_id).promote(req.item_id, req.target_memory)
@@ -39,7 +39,7 @@ def memory_renew(item_id: str, ttl_days: int, connection_id: str | None = None) 
     **Retorna:** Item atualizado (novo ttl_days).
     **Exemplo:** memory_renew(item_id="item_def456", ttl_days=14)
     **Notas:** Só vale para items ephemeral; ttl_days deve ser positivo. connection_id: opcional;
-        sem ele usa a connection default (sqlite_local).
+        sem ele usa a connection default (`default`).
     """
     req = MemoryRenewRequest(item_id=item_id, ttl_days=ttl_days)
     item = MemoryService(connection_id=connection_id).renew(req.item_id, req.ttl_days)

@@ -229,8 +229,8 @@ Personal
 ### Variáveis de Ambiente
 
 ```bash
-# Obrigatório
-MCP_DB_PATH=./database/knowledge.db
+# Opcional: sobrescreve o caminho do catálogo (padrão: ~/.knowledge-os/knowledge.db)
+MCP_DB_PATH=/caminho/para/knowledge.db
 
 # Opcional: criptografia AES-256
 MCP_DB_KEY=seu_hash_de_32_caracteres_aqui
@@ -238,9 +238,9 @@ MCP_DB_KEY=seu_hash_de_32_caracteres_aqui
 
 ### Sem Chave (SQLite simples)
 ```bash
-# Banco fica em plain-text na pasta database/
+# Banco fica em plain-text em ~/.knowledge-os/knowledge.db
 # Adequado para desenvolvimento local
-MCP_DB_PATH=./database/knowledge.db
+# (KNOWLEDGE_OS_HOME muda a pasta; MCP_DB_PATH muda só o arquivo do catálogo)
 ```
 
 ### Com Chave (SQLCipher)

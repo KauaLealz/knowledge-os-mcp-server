@@ -31,7 +31,7 @@ def register(mcp: FastMCP) -> None:
         **Retorna:** {id, workspace_id, name, description, ...}.
         **Exemplo:** domain_create(workspace="Python Learning", name="Decorators")
         **Notas:** workspace é informado pelo nome. Nome do domain único dentro do workspace.
-            connection_id: opcional; sem ele usa a connection default (sqlite_local).
+            connection_id: opcional; sem ele usa a connection default (`default`).
         """
         data = DomainCreate(
             workspace_id=_workspace_id(workspace, connection_id), name=name, description=description
@@ -49,7 +49,7 @@ def register(mcp: FastMCP) -> None:
         **Retorna:** Lista de domains.
         **Exemplo:** domain_list(workspace="Python Learning")
         **Notas:** workspace é o nome. connection_id: opcional; sem ele usa a connection default
-            (sqlite_local).
+            (`default`).
         """
         rows = DomainService(connection_id=connection_id).list(
             _workspace_id(workspace, connection_id)
@@ -64,7 +64,7 @@ def register(mcp: FastMCP) -> None:
         **Retorna:** Dados do domain.
         **Exemplo:** domain_get(workspace="Python Learning", name="Decorators")
         **Notas:** Erro de not found se o nome não existir no workspace. connection_id: opcional;
-            sem ele usa a connection default (sqlite_local).
+            sem ele usa a connection default (`default`).
         """
         dm = DomainService(connection_id=connection_id).get(
             _workspace_id(workspace, connection_id), name
@@ -81,7 +81,7 @@ def register(mcp: FastMCP) -> None:
         **Retorna:** {status: deleted|not_found, message}.
         **Exemplo:** domain_delete(workspace="Python Learning", name="Decorators")
         **Notas:** Destrutivo: afeta os items do domain. connection_id: opcional; sem ele usa a
-            connection default (sqlite_local).
+            connection default (`default`).
         """
         if DomainService(connection_id=connection_id).delete(
             _workspace_id(workspace, connection_id), name
@@ -98,7 +98,7 @@ def register(mcp: FastMCP) -> None:
         **Use quando:** Compartilhar ou fazer backup de um único tópico.
         **Retorna:** {status: ok, domain: dados do domain}.
         **Exemplo:** domain_export(workspace="Python Learning", name="Decorators")
-        **Notas:** connection_id: opcional; sem ele usa a connection default (sqlite_local).
+        **Notas:** connection_id: opcional; sem ele usa a connection default (`default`).
         """
         data = DomainService(connection_id=connection_id).export(
             _workspace_id(workspace, connection_id), name
@@ -115,7 +115,7 @@ def register(mcp: FastMCP) -> None:
         **Retorna:** {status: ok, id, name, ...} do domain criado.
         **Exemplo:** domain_import(workspace="Python Learning", file_path="exports/decorators.zip")
         **Notas:** Falha se o domain já existir no workspace. connection_id: opcional; sem ele usa a
-            connection default (sqlite_local).
+            connection default (`default`).
         """
         dm = ImportExportService(connection_id=connection_id).import_domain(
             _workspace_id(workspace, connection_id), file_path
