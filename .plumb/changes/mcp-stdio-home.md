@@ -39,7 +39,7 @@ Registrar o MCP Knowledge OS no Claude Code (stdio, escopo user, igual ao `secre
 - [x] T2 Senha no JSON: `password` substitui `password_env` (get_url, repr, redação, chmod 600 best-effort), `password_set` nos retornos, tools MCP sem parâmetro de senha. Arquivos: src/config.py, src/services/connection_service.py, src/services/_common.py, src/mcp/connection_tools.py, src/db/dialects/*.py (redação), tests/test_config.py, tests/test_connections.py, tests/test_connection_tools.py. Prova: AC11. Verificar: `python -m pytest tests/test_config.py tests/test_connections.py tests/test_connection_tools.py tests/test_dialects.py -q`.
 - [x] T3 Subcomando `ui` com token por start, bind em 127.0.0.1 e TrustedHost, sem CORS. Arquivos: src/main.py, src/api/auth.py, src/api/main.py, tests/api/conftest.py, tests/api/test_auth.py, tests/test_cli_ui.py. Prova: AC6, AC7. Verificar: `python -m pytest tests/test_cli_ui.py tests/api/test_auth.py -q`.
 - [x] T4 package-data + teste de handshake stdio real por subprocess + seção "Instalação" no README. Arquivos: pyproject.toml, tests/test_stdio.py, README.md. Prova: AC5, AC8. Verificar: `python -m pytest tests/test_stdio.py -q` + inspeção do wheel gerado por `uv build --wheel`.
-- [ ] T5 Instalar e registrar (operação local, sem commit). `uv tool install --editable`, `--check-db` em `C:\`. Depois, **só com aprovação explícita no chat** (altera ~/.claude.json): `claude mcp add --scope user knowledge-os ...`. Prova: AC9, AC10. Verificar: `claude mcp list` + health_check numa sessão nova em C:\Polara\projpro.
+- [x] T5 Instalar e registrar (operação local, sem commit). `uv tool install --editable`, `--check-db` em `C:\`. Depois, **só com aprovação explícita no chat** (altera ~/.claude.json): `claude mcp add --scope user knowledge-os ...`. Prova: AC9, AC10. Verificar: `claude mcp list` + health_check numa sessão nova em C:\Polara\projpro.
 
 ## Decisões
 - 2026-10-02 usuário: instalar como o MCP `secrets` (stdio, escopo user), com as tools nativas nas sessões do Claude Code.
@@ -52,6 +52,9 @@ Registrar o MCP Knowledge OS no Claude Code (stdio, escopo user, igual ao `secre
 - Arquivos vazios que podem ser apagados: `knowledge.db` na raiz e `.knowledge/knowledge.db` (ambos no gitignore).
 - `run_knowledge_os.sh` (não versionado) roda o uvicorn em 0.0.0.0; depois da T3 ele só devolve 401. Substituir por `knowledge-mcp ui`.
 - Cada task também roda `ruff check src tests`.
+- T5 feita em 2026-10-04: `uv tool install --editable` + `claude mcp add --scope user knowledge-os` (comando: `C:\Users\kauasantos\.local\bin\knowledge-mcp.exe`, env KNOWLEDGE_OS_HOME=C:\Users\kauasantos\.knowledge-os e LOG_LEVEL=WARNING). `claude mcp list` mostra "Connected" (AC10) e `--check-db` rodado em `C:\` não cria nada lá (AC9). Falta o AC11: confirmar `health_check` e `workspace_list` numa sessão nova.
+- Esta máquina falha renames dentro de `AppData` (`os error 6`, com o sandbox ligado ou não). A instalação só funcionou com `UV_TOOL_DIR=C:/Users/kauasantos/.local/share/uv-tools`, `UV_CACHE_DIR=C:/Users/kauasantos/.local/share/uv-cache` e `UV_LINK_MODE=copy`. Para `uv tool upgrade/uninstall knowledge-mcp`, exporte as mesmas variáveis.
+- Bug do pyproject (anterior): exigia `sqlcipher3-binary>=3.0.0` (versão inexistente) e não há wheel dele para Windows/cp312. Virou o extra opcional `crypto` (só Linux); o `uv build` não resolve dependências e escondia o erro.
 
 ## Retro
 - correção: o usuário apontou que eu populava o workspace chamando services Python em vez de usar o MCP — turno anterior desta sessão
