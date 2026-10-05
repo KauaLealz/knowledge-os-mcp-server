@@ -99,7 +99,7 @@ def test_contexto_em_ordem_e_sem_inativos(test_engine, linked):
     linked(key="tmp", type="rule", title="Nota temporária", memory_class="ephemeral", ttl_days=3)
     md = _ctx(test_engine)["markdown"]
     assert md.index("Regra oficial") < md.index("Regra nova") < md.index("Stack do app")
-    assert "(rascunho)" in md and "`r1`" in md
+    assert "rascunho" not in md and "`r1`" in md  # não há mais aprovação
     assert "Regra velha" not in md and "Nota temporária" not in md
     assert "content" not in md and "corpo" not in md
 
@@ -157,13 +157,14 @@ def test_area_sensivel_pela_keyword_e_pelo_caminho(test_engine, linked):
     assert _ctx(test_engine)["sensitive"] is False
 
 
-def test_itens_em_foco_contam_uso_mas_o_pacote_basico_nao(test_engine, linked, items):
+def test_tudo_que_chega_ao_agente_conta_uso(test_engine, linked, items):
+    """Uso = o item chegou a um agente (pacote, foco, busca, item_get) — base da limpeza."""
     linked(key="pay", type="rule", title="Money", scope_paths=["src/payments/**"])
     linked(key="g", type="rule", title="Geral")
-    _ctx(test_engine)
+    _ctx(test_engine)  # `pay` só aparece pelo título na lista de regras com escopo: não conta
     _ctx(test_engine, paths=["src/payments/a.js"])
     uses = {r["key"]: r["uses"] for r in items.search(None, None, "", limit=10, track=False)}
-    assert uses == {"pay": 1, "g": 0}
+    assert uses == {"pay": 1, "g": 2}
 
 
 def test_sugere_retro_depois_de_5_mudancas_concluidas(test_engine, linked):

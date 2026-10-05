@@ -190,3 +190,10 @@ def test_busca_sem_projeto_usa_o_da_pasta_e_nao_vaza(server, monkeypatch):
         self, PROJECT if p == "." else p))
     assert titles() == {"Segredo de cobrança do app"}  # pasta ligada: só o projeto
     assert len(titles(everywhere=True)) == 2
+
+
+def test_item_get_conta_uso(server):
+    call(server, "project_link", project=PROJECT, workspace="W", domain="app")
+    call(server, "item_save", project=PROJECT, items=[{"key": "r", "title": "R", **RULE}])
+    assert call(server, "item_get", keys=["r"], project=PROJECT)[0]["access_count"] == 0
+    assert call(server, "item_get", keys=["r"], project=PROJECT)[0]["access_count"] == 1

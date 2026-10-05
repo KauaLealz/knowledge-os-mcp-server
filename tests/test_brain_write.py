@@ -154,3 +154,10 @@ def test_apagar_workspace_e_domain_com_tags_relacoes_e_link(test_engine, test_se
     assert DomainService(session=test_session).delete(ws_id, "D2") is True
     assert WorkspaceService(session=test_session).delete("W") is True
     assert test_session.scalar(select(func.count()).select_from(Item)) == 0
+
+
+def test_save_sem_memory_class_grava_longterm(svc, sample_workspace, sample_domain):
+    fields = {k: v for k, v in FIELDS.items() if k != "memory_class"}
+    out = svc.save([{"key": "regra/sem-classe", **fields}],
+                   default_location=(sample_workspace.id, sample_domain.id))
+    assert svc.get(out[0]["id"]).memory_class == "longterm"

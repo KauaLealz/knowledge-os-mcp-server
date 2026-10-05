@@ -23,7 +23,13 @@ def fake_uvicorn(monkeypatch):
     import uvicorn
 
     calls = []
-    monkeypatch.setattr(uvicorn, "run", lambda app, **kw: calls.append(kw))
+
+    def fake_run(self, sockets=None):
+        host, port = sockets[0].getsockname()[:2]
+        sockets[0].close()
+        calls.append({"host": host, "port": port})
+
+    monkeypatch.setattr(uvicorn.Server, "run", fake_run)
     monkeypatch.setattr(main_mod, "ensure_home", lambda: None)
     monkeypatch.setattr(main_mod, "validate_and_init_config", lambda: None)
     return calls
@@ -108,3 +114,59 @@ def test_ui_porta_ocupada_falha_antes_de_imprimir_a_url(fake_uvicorn, capsys):
     assert "/ui/" not in captured.out
     assert str(port) in captured.err and "ocupada" in captured.err
     assert fake_uvicorn == []
+
+
+def _wait_status(url, timeout=15.0):
+    import time
+
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        try:
+            return urllib.request.urlopen(url, timeout=2).status
+        except (urllib.error.URLError, ConnectionError, OSError):
+            time.sleep(0.1)
+    return None
+
+
+@pytest.fixture
+def background_ui():
+    started = []
+
+    def start(port, retry=0.2):
+        ui = main_mod.BackgroundUI(port, retry_seconds=retry)
+        ui.start()
+        started.append(ui)
+        return ui
+
+    yield start
+    for ui in started:
+        ui.stop()
+
+
+def test_ui_sobe_junto_com_o_mcp_sem_escrever_no_stdout(background_ui, capfd):
+    port = _free_port()
+    background_ui(port)
+    assert _wait_status(f"http://127.0.0.1:{port}/ui/") == 200
+    assert capfd.readouterr().out == ""  # stdout é o canal do protocolo MCP
+
+
+def test_porta_ocupada_reaproveita_e_assume_quando_a_outra_cai(background_ui):
+    busy = socket.socket()
+    busy.bind(("127.0.0.1", 0))
+    busy.listen()
+    port = busy.getsockname()[1]
+    ui = background_ui(port)
+    import time
+
+    time.sleep(0.5)
+    assert ui.serving is False  # outra instância (ou outro programa) atende a porta
+    busy.close()
+    assert _wait_status(f"http://127.0.0.1:{port}/ui/") == 200
+    assert ui.serving is True
+
+
+def test_knowledge_os_ui_0_desliga(monkeypatch):
+    monkeypatch.setenv("KNOWLEDGE_OS_UI", "0")
+    assert main_mod.ui_enabled() is False
+    monkeypatch.delenv("KNOWLEDGE_OS_UI")
+    assert main_mod.ui_enabled() is True

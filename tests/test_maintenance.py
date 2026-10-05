@@ -30,10 +30,13 @@ def db(tmp_path, monkeypatch):
     engine.dispose()
 
 
-def _item(s, ws, dm, key, memory_class="working", expires_at=None):
-    item = Item(id=str(uuid.uuid4()), workspace_id=ws, domain_id=dm, key=key, type="knowledge",
+def _item(s, ws, dm, key, memory_class="longterm", expires_at=None, *, type="knowledge",
+          updated_at=None, access_count=0):
+    item = Item(id=str(uuid.uuid4()), workspace_id=ws, domain_id=dm, key=key, type=type,
                 memory_class=memory_class, title=key, summary="s", content="c",
-                expires_at=expires_at)
+                expires_at=expires_at, access_count=access_count)
+    if updated_at:
+        item.created_at = item.updated_at = updated_at
     s.add(item)
     return item
 
@@ -87,14 +90,14 @@ def test_run_daily_so_roda_uma_vez_por_dia(db, monkeypatch):
     assert len(list(config.BACKUPS_DIR.glob("*-daily.db"))) == 2
 
 
-def test_run_daily_apaga_ephemeral_vencido_ha_mais_de_7_dias(db, monkeypatch):
+def test_run_daily_apaga_ephemeral_com_ttl_vencido(db, monkeypatch):
     monkeypatch.setattr("knowledge_os.db.session.get_engine", lambda *a: db)
     _seed(db)
     now = datetime(2026, 1, 10, 12)
     s = get_session(db)
-    velho = _item(s, "w", "d", "eph/velho", "ephemeral", now - timedelta(days=8))
-    _item(s, "w", "d", "eph/recente", "ephemeral", now - timedelta(days=1))
-    _item(s, "w", "d", "regra/fixa", "longterm", now - timedelta(days=30))
+    velho = _item(s, "w", "d", "eph/velho", "ephemeral", now - timedelta(hours=1))
+    _item(s, "w", "d", "eph/recente", "ephemeral", now + timedelta(days=1))
+    _item(s, "w", "d", "regra/fixa", "longterm", now - timedelta(days=30), access_count=3)
     tag = Tag(id="t", name="t")
     s.add(tag)
     s.flush()
@@ -103,7 +106,7 @@ def test_run_daily_apaga_ephemeral_vencido_ha_mais_de_7_dias(db, monkeypatch):
                    file_size=1))
     s.commit()
     s.close()
-    assert maintenance.run_daily(now)["purged"] == 1
+    assert maintenance.run_daily(now)["expired"] == 1
     s = get_session(db)
     assert sorted(k for (k,) in s.execute(text("SELECT item_key FROM items"))) == [
         "eph/recente", "regra/fixa"]
@@ -223,3 +226,20 @@ def test_run_daily_deixa_o_wal_com_zero_bytes(db, monkeypatch):
     assert wal.exists() and wal.stat().st_size > 0
     maintenance.run_daily(datetime(2026, 1, 10, 12))
     assert not wal.exists() or wal.stat().st_size == 0
+
+
+def test_memoria_de_longa_duracao_nunca_expira_sozinha(db, monkeypatch):
+    """Só o temporário (ephemeral com TTL) é apagado; aprendizado nunca usado continua."""
+    monkeypatch.setattr("knowledge_os.db.session.get_engine", lambda *a: db)
+    _seed(db)
+    now = datetime(2027, 6, 10, 12)
+    s = get_session(db)
+    for key, type_ in (("gotcha/nunca", "knowledge"), ("regra/nunca", "rule"),
+                       ("decisao/nunca", "insight"), ("mudanca/x", "task")):
+        _item(s, "w", "d", key, type=type_, updated_at=now - timedelta(days=400))
+    s.commit()
+    s.close()
+    assert maintenance.run_daily(now)["expired"] == 0
+    s = get_session(db)
+    assert s.execute(text("SELECT count(*) FROM items")).scalar() == 4
+    s.close()

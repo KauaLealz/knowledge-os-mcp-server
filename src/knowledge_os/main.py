@@ -2,7 +2,10 @@
 
 import argparse
 import logging
+import os
+import socket
 import sys
+import threading
 from pathlib import Path
 
 if __name__ == "__main__":
@@ -150,20 +153,86 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _bind_ui_socket(port: int) -> socket.socket | None:
+    """Reserva a porta em 127.0.0.1 com uso exclusivo; ocupada → None.
+
+    Exclusivo de verdade: no Windows, o SO_REUSEADDR que o uvicorn liga deixaria duas
+    instâncias na mesma porta, cada requisição caindo numa.
+    """
+    sock = socket.socket()
+    if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+    try:
+        sock.bind(("127.0.0.1", port))
+    except OSError:
+        sock.close()
+        return None
+    return sock
+
+
+def ui_enabled() -> bool:
+    """A UI sobe junto com o MCP, a menos que KNOWLEDGE_OS_UI=0."""
+    return os.environ.get("KNOWLEDGE_OS_UI", "1").strip().lower() not in ("0", "false", "no")
+
+
+class BackgroundUI:
+    """UI dentro do processo MCP, numa thread: nada no stdout (é o canal do protocolo).
+
+    Com dois clientes (Claude e Cursor), o primeiro serve a porta; o outro espera e assume se
+    ela ficar livre.
+    """
+
+    def __init__(self, port: int = UI_DEFAULT_PORT, retry_seconds: float = 30.0) -> None:
+        self.port = port
+        self.retry_seconds = retry_seconds
+        self.serving = False
+        self._server = None
+        self._stop = threading.Event()
+
+    def start(self) -> None:
+        threading.Thread(target=self._loop, name="knowledge-os-ui", daemon=True).start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._server is not None:
+            self._server.should_exit = True
+
+    def _loop(self) -> None:
+        while not self._stop.is_set():
+            sock = _bind_ui_socket(self.port)
+            if sock is not None:
+                self._serve(sock)
+            self._stop.wait(self.retry_seconds)
+
+    def _serve(self, sock: socket.socket) -> None:
+        try:
+            import uvicorn
+
+            from knowledge_os.api.main import app
+
+            config = uvicorn.Config(app, log_config=None, access_log=False, log_level="warning")
+            self._server = uvicorn.Server(config)
+            self.serving = True
+            print(f"UI: http://127.0.0.1:{self.port}/ui/", file=sys.stderr)
+            self._server.run(sockets=[sock])
+        except BaseException:  # noqa: BLE001 - a UI nunca derruba o MCP (uvicorn sai com SystemExit)
+            logger.warning("UI parou", exc_info=True)
+        finally:
+            self.serving = False
+            self._server = None
+            sock.close()
+
+
 def run_ui(port: int, open_browser: bool) -> None:
     """Sobe a UI/API em 127.0.0.1, sem login. A URL vai ao stdout (não é modo MCP)."""
-    import socket
-
     import uvicorn
 
     from knowledge_os.api.main import app
 
-    # Testa o bind antes de anunciar a URL: porta ocupada = URL de outro processo.
-    with socket.socket() as probe:
-        try:
-            probe.bind(("127.0.0.1", port))
-        except OSError:
-            raise ConfigError(f"Porta {port} ocupada em 127.0.0.1; use --port") from None
+    # Reserva a porta antes de anunciar a URL: porta ocupada = URL de outro processo.
+    sock = _bind_ui_socket(port)
+    if sock is None:
+        raise ConfigError(f"Porta {port} ocupada em 127.0.0.1; use --port")
 
     url = f"http://127.0.0.1:{port}/ui/"
     print(url, flush=True)
@@ -171,7 +240,7 @@ def run_ui(port: int, open_browser: bool) -> None:
         import webbrowser
 
         webbrowser.open(url)
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+    uvicorn.Server(uvicorn.Config(app, log_level="warning")).run(sockets=[sock])
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -199,10 +268,10 @@ def main(argv: list[str] | None = None) -> int:
         validate_and_init_config()
         # Diagnóstico das conexões em segundo plano: uma conexão fora do ar não pode
         # atrasar o handshake (o cliente MCP desiste em ~30 s).
-        import threading
-
         threading.Thread(target=_report_connections_safely, daemon=True).start()
         threading.Thread(target=_run_daily_safely, daemon=True).start()
+        if ui_enabled():
+            BackgroundUI().start()
         register_all_tools()
         mcp.run()
         return 0

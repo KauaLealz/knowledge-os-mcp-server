@@ -15,7 +15,6 @@ from knowledge_os.db.timeutil import utcnow
 logger = logging.getLogger(__name__)
 
 KEEP_DAILY = 7
-EPHEMERAL_GRACE_DAYS = 7
 MARKER_NAME = "maintenance.last"
 
 
@@ -72,11 +71,16 @@ def backup(reason: str, engine: Engine | None = None) -> Path | None:
 
 
 def _purge_expired_ephemeral(engine: Engine, now: datetime) -> int:
+    """Apaga a memória temporária (ephemeral) com TTL vencido.
+
+    Só ela: memória de longa duração (aprendizado, regra, decisão, procedimento) nunca expira
+    sozinha — o que não serve mais sai por `deprecated`/`supersedes`, por decisão de alguém.
+    """
     from knowledge_os.db.models import Item
     from knowledge_os.db.session import get_session, run_with_retry
     from knowledge_os.services._common import purge_item_links
 
-    cutoff = now - timedelta(days=EPHEMERAL_GRACE_DAYS)
+    cutoff = now
 
     def work() -> int:
         s = get_session(engine)
@@ -100,7 +104,7 @@ def _purge_expired_ephemeral(engine: Engine, now: datetime) -> int:
 def run_daily(now: datetime | None = None) -> dict[str, Any]:
     """Manutenção diária, no máximo uma vez por dia (marca em `<home>/maintenance.last`).
 
-    Backup "daily", remoção dos ephemeral vencidos há mais de 7 dias e checkpoint do WAL.
+    Backup "daily", remoção dos ephemeral com TTL vencido e checkpoint do WAL.
     """
     from knowledge_os.db.session import get_engine
 
@@ -115,7 +119,7 @@ def run_daily(now: datetime | None = None) -> dict[str, Any]:
     engine = get_engine()
     result: dict[str, Any] = {"ran": True}
     result["backup"] = backup("daily", engine)
-    result["purged"] = _purge_expired_ephemeral(engine, now)
+    result["expired"] = _purge_expired_ephemeral(engine, now)
     if engine.dialect.name == "sqlite":
         with engine.connect() as conn:
             conn.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))

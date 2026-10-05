@@ -630,6 +630,15 @@ class ItemService:
                 run_with_retry(lambda: self._count_use(ids))
             return results
 
+    def track_use(self, ids: list[str]) -> None:
+        """Conta o uso (item entregue a um agente); falha aqui nunca derruba a leitura."""
+        if not ids:
+            return
+        try:
+            run_with_retry(lambda: self._count_use(ids))
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Contagem de uso ignorada: %s", exc)
+
     def _count_use(self, ids: list[str]) -> None:
         with self._session() as s:
             s.execute(

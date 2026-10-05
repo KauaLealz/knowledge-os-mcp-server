@@ -58,7 +58,8 @@ def test_ui_sobe_com_default_inacessivel(down_default, monkeypatch):
     import uvicorn
 
     calls = []
-    monkeypatch.setattr(uvicorn, "run", lambda app, **kw: calls.append(kw))
+    monkeypatch.setattr(uvicorn.Server, "run",
+                        lambda self, sockets=None: calls.append(sockets[0].close()))
     assert main_mod.main(["ui", "--port", "8123", "--no-browser"]) == 0
     assert calls
 

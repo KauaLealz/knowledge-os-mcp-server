@@ -53,11 +53,11 @@ Uma ferramenta, em lote e numa transação. O modo vem de cada entrada:
 
 ```python
 item_save(project=".", items=[
-  {"key": "regra/money", "type": "rule", "memory_class": "working",
+  {"key": "regra/money", "type": "rule",
    "title": "Money em pagamentos", "summary": "Valores sempre em Money, nunca double",
    "content": "...", "scope_paths": ["src/payments/**"], "source": "PAY-142",
    "keywords": "dinheiro centavos BigDecimal"},
-  {"key": "decisao/pix-vencido", "type": "insight", "memory_class": "working",
+  {"key": "decisao/pix-vencido", "type": "insight",
    "title": "Pix vencido é recusado", "summary": "Recusar, sem estorno automático",
    "content": "Porque o financeiro revisa caso a caso.", "source": "PAY-142"},
 ])

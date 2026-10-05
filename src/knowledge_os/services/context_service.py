@@ -65,10 +65,9 @@ def _is_sensitive(item: Item) -> bool:
 
 
 def _line(item: Item, scope: list[str] | None = None) -> str:
-    draft = " _(rascunho)_" if item.memory_class == "working" else ""
     key = f" `{item.key}`" if item.key else ""
     where = f" — vale em {', '.join(scope)}" if scope else ""
-    return f"- **{item.title}**{draft} — {item.summary.strip()}{where}{key}"
+    return f"- **{item.title}** — {item.summary.strip()}{where}{key}"
 
 
 class ContextService:
@@ -139,7 +138,7 @@ class ContextService:
             session.close()
 
     def _track(self, ids: set[str]) -> None:
-        """Conta o uso dos itens trazidos em foco (alimenta a limpeza da /plumb-retro)."""
+        """Conta o uso dos itens que chegaram ao agente (a retro mostra os nunca usados)."""
         if not ids:
             return
         try:
@@ -225,6 +224,7 @@ class ContextService:
                 focus += [(by_id[i], decode_paths(by_id[i].scope_paths)) for i in wanted
                           if i in by_id]
         focus_ids = {i.id for i, _ in focus}
+        listed: set[str] = set()
         if focus:
             header = "\n## Em foco (casa com os arquivos ou com a consulta)"
             if used + len(header) <= budget:
@@ -235,7 +235,6 @@ class ContextService:
                 for item, scope in focus[:12]:
                     add(_focus_line(item, scope))
                 omitted += max(0, len(focus) - 12)
-            self._track(focus_ids)
 
         for title, types, limit in _SECTIONS:
             chosen = []
@@ -263,7 +262,8 @@ class ContextService:
             out.append(header)
             used += len(header)
             for item, scope in chosen[:limit]:
-                add(_line(item, scope))
+                if add(_line(item, scope)):
+                    listed.add(item.id)
             omitted += max(0, len(chosen) - limit)
 
         if scoped_hidden:
@@ -274,6 +274,7 @@ class ContextService:
                 for item in scoped_hidden[:15]:
                     add(f"- {item.title} — {', '.join(decode_paths(item.scope_paths))}")
 
+        self._track(focus_ids | listed)
         if omitted:
             out.append(f"\n_{omitted} item(ns) fora do orçamento: use item_search._")
         retro_due = self._done_since_retro(link["domain_id"])

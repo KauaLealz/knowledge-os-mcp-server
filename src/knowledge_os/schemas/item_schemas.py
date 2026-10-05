@@ -45,7 +45,7 @@ class ItemCreate(BaseModel):
     workspace_id: str
     domain_id: str
     type: str
-    memory_class: str
+    memory_class: str = "longterm"  # sem aprovação: já vale; ephemeral = temporário
     title: str = Field(min_length=1, max_length=255)
     summary: str = Field(min_length=1)
     content: str = Field(min_length=1)

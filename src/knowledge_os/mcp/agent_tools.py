@@ -124,6 +124,7 @@ def item_get(
         else:
             raise ValidationError("keys exigem project ou workspace e domain")
         items += [fetch(lambda k=k: svc.get_by_key(domain_id, k), {"key": k}) for k in keys]
+    svc.track_use([i.id for i in items if not isinstance(i, dict)])
     out: list[dict[str, Any]] = []
     relations = RelationService(connection_id=connection_id)
     artifacts = ArtifactService(connection_id=connection_id)
@@ -146,7 +147,7 @@ def item_get(
 def item_save(
     items: list[dict[str, Any]], project: str | None = None, connection_id: str | None = None
 ) -> list[dict[str, Any]]:
-    """Grava itens (criar, atualizar, upsert, promover, renovar, relacionar) numa transação.
+    """Grava itens (criar, atualizar, upsert, renovar, relacionar) numa transação.
 
     **Use quando:** Guardar o que vale para depois — uma regra que o usuário enunciou, as
         decisões e aprendizados ao fechar uma mudança, uma correção de um item.
@@ -154,16 +155,16 @@ def item_save(
     **Modo, por entrada:** com `key` → upsert no domain (não duplica; o preferido); com `id` →
         atualiza o item; sem os dois → cria e devolve `similar` (títulos parecidos já guardados).
     **Exemplo (upsert):** item_save(project=".", items=[{"key": "regra/money", "type": "rule",
-        "memory_class": "working", "title": "Money em pagamentos", "summary": "Valores em Money,
-        nunca double", "content": "...", "scope_paths": ["src/payments/**"], "source": "PAY-142"}])
-    **Exemplo (atualizar e promover):** item_save(items=[{"id": "...", "summary": "...",
-        "memory_class": "longterm"}])
+        "title": "Money em pagamentos", "summary": "Valores em Money, nunca double",
+        "content": "...", "scope_paths": ["src/payments/**"], "source": "PAY-142"}])
+    **Exemplo (aposentar):** item_save(project=".", items=[{"key": "regra/x",
+        "status": "deprecated"}])
     **Exemplo (substituir):** item_save(project=".", items=[{"key": "proc/deploy-v2", ...,
         "relations": [{"type": "supersedes", "target": "proc/deploy"}]}])
     **Campos:** type (rule, insight, procedure, pattern, knowledge, context, artifact, task),
-        memory_class (ephemeral c/ ttl_days, working, longterm, canonical — só sobe), title,
-        summary, content, keywords, source, scope_paths, tags, labels, confidence 0-100,
-        importance 0-10, ttl_days (renova), status (active, superseded, deprecated), relations
+        title, summary, content, keywords, source, scope_paths, status (active, done,
+        superseded, deprecated), memory_class "ephemeral" + ttl_days só para nota temporária
+        (sem aprovação: o resto já vale), tags, labels, relations
         [{type: related_to|depends_on|implements|references|supersedes|derived_from, target: id
         ou key}], workspace/domain (sem eles vale o domain ligado a `project`).
     **Notas:** Um erro desfaz o lote e aponta a entrada. Conteúdo com cara de segredo é recusado.

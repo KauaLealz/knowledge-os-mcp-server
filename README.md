@@ -66,8 +66,11 @@ Global / Geral                        o que vale para você em qualquer lugar
 | `procedure` | passo a passo |
 | `pattern` · `knowledge` · `context` | solução recorrente · fato/gotcha · pano de fundo |
 
-`memory_class`: `ephemeral` (com TTL) → `working` (rascunho) → `longterm` → `canonical`.
-Só sobe. Itens substituídos (`supersedes`) e obsoletos saem da busca e do contexto.
+Sem aprovação: o que o agente grava já vale. Para corrigir, regrave pela mesma `key`; para
+aposentar, `status: deprecated` ou `supersedes` — itens substituídos e obsoletos saem da busca e
+do contexto. Nota temporária: `memory_class: "ephemeral"` com `ttl_days` — a manutenção diária
+apaga quando o TTL vence. O resto (aprendizado, regra, decisão, procedimento) nunca expira
+sozinho; cada entrega a um agente conta em `uses`, e a `/plumb-retro` mostra o que nunca foi usado.
 
 Um repositório é ligado a um workspace/domain pela chave do remote do git
 (`project_link`, ou `knowledge-mcp link`).
@@ -79,7 +82,7 @@ Um repositório é ligado a um workspace/domain pela chave do remote do git
 | `context_get` | pacote do projeto (regras, contexto, decisões, padrões, procedimentos, aprendizados) dentro de um orçamento; `paths` traz as regras com escopo |
 | `item_search` | busca por texto; devolve resumos |
 | `item_get` | itens completos por ids ou keys, vários de uma vez |
-| `item_save` | criar, atualizar, upsert, lote, promover, renovar e relacionar — numa transação |
+| `item_save` | criar, atualizar, upsert, lote, renovar e relacionar — numa transação |
 | `project_link` | liga um repositório a workspace/domain |
 | `health_check` | versão, schema e perfil |
 
