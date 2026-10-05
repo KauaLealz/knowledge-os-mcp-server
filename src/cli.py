@@ -84,7 +84,9 @@ def _context(args: argparse.Namespace) -> int:
     hook_input: dict[str, Any] = {}
     if args.hook:
         try:
-            hook_input = json.loads(sys.stdin.read() or "{}")
+            # Bytes + utf-8-sig: o Cursor no Windows manda o JSON do hook em UTF-8 com BOM, e o
+            # stdin de texto usaria a codepage local (caminhos com acento quebrariam).
+            hook_input = json.loads(sys.stdin.buffer.read().decode("utf-8-sig") or "{}")
         except ValueError:
             hook_input = {}
     roots = hook_input.get("workspace_roots") or []

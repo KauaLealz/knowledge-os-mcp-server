@@ -71,7 +71,7 @@ def test_hook_claude_e_cursor(env, project):
     assert payload["hookEventName"] == "SessionStart" and "W / D" in payload["additionalContext"]
     assert "cérebro" in payload["additionalContext"]
     cursor = cli(env, "context", "--hook", "cursor",
-                 stdin=json.dumps({"workspace_roots": [str(project)]}))
+                 stdin="﻿" + json.dumps({"workspace_roots": [str(project)]}))  # BOM do Cursor
     assert "W / D" in json.loads(cursor.stdout)["additional_context"]
 
 
