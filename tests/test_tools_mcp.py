@@ -8,7 +8,7 @@ import pytest
 from fastmcp import Client, FastMCP
 from fastmcp.exceptions import ToolError
 
-from src.mcp import admin_tools, agent_tools
+from knowledge_os.mcp import admin_tools, agent_tools
 from tests.helpers_multidb import catalog  # noqa: F401  (fixture: catálogo isolado)
 
 PROJECT = "github.com/org/app"
@@ -184,7 +184,7 @@ def test_busca_sem_projeto_usa_o_da_pasta_e_nao_vaza(server, monkeypatch):
         return {r["title"] for r in call(server, "item_search", query="cobrança", **kw)}
 
     assert len(titles()) == 2  # pasta não ligada: busca em todos (comportamento anterior)
-    from src.services.project_service import ProjectService
+    from knowledge_os.services.project_service import ProjectService
     real = ProjectService.resolve
     monkeypatch.setattr(ProjectService, "resolve", lambda self, p: real(
         self, PROJECT if p == "." else p))

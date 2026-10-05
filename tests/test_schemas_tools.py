@@ -4,8 +4,8 @@
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 
-from src.schemas.domain_schemas import DomainCreate
-from src.schemas.workspace_schemas import WorkspaceCreate
+from knowledge_os.schemas.domain_schemas import DomainCreate
+from knowledge_os.schemas.workspace_schemas import WorkspaceCreate
 
 
 def test_workspace_create_valida_nome():

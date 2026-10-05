@@ -3,12 +3,12 @@
 import pytest
 from sqlalchemy import Engine, func, select
 
-from src.db.models import Domain, Item, Workspace
-from src.exceptions import ValidationError
-from src.services.item_service import ItemService
-from src.services.memory_service import MemoryService
-from src.services.relation_service import RelationService
-from src.services.secret_guard import find_secret
+from knowledge_os.db.models import Domain, Item, Workspace
+from knowledge_os.exceptions import ValidationError
+from knowledge_os.services.item_service import ItemService
+from knowledge_os.services.memory_service import MemoryService
+from knowledge_os.services.relation_service import RelationService
+from knowledge_os.services.secret_guard import find_secret
 
 FIELDS = dict(type="rule", memory_class="working", title="Money em pagamentos",
               summary="Valores sempre em Money", content="Use Money, nunca double.")
@@ -140,9 +140,9 @@ def test_domain_e_workspace_do_lote_reaproveitados(svc, test_session, sample_wor
 
 def test_apagar_workspace_e_domain_com_tags_relacoes_e_link(test_engine, test_session):
     """Regressão: com foreign_keys=ON, o delete falhava se os itens tinham tags ou relações."""
-    from src.services.domain_service import DomainService
-    from src.services.project_service import ProjectService
-    from src.services.workspace_service import WorkspaceService
+    from knowledge_os.services.domain_service import DomainService
+    from knowledge_os.services.project_service import ProjectService
+    from knowledge_os.services.workspace_service import WorkspaceService
 
     svc = ItemService(test_engine)
     svc.batch_upsert([{"workspace": "W", "domain": "D", "key": "a", **FIELDS, "tags": ["t"]}])

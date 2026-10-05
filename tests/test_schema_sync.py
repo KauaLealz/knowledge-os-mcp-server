@@ -2,9 +2,9 @@
 
 from sqlalchemy import inspect, text
 
-from src.db.models import Base
-from src.db.schema_sync import SCHEMA_META_TABLE, schema_sync
-from src.db.session import create_db_engine
+from knowledge_os.db.models import Base
+from knowledge_os.db.schema_sync import SCHEMA_META_TABLE, schema_sync
+from knowledge_os.db.session import create_db_engine
 
 
 def create_test_engine():

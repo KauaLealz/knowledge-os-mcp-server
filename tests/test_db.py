@@ -2,7 +2,7 @@
 
 from sqlalchemy.orm import Session
 
-from src.db.models import Domain, Item, Workspace
+from knowledge_os.db.models import Domain, Item, Workspace
 
 
 class TestWorkspace:

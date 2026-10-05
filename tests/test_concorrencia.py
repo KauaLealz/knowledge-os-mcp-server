@@ -8,20 +8,20 @@ from pathlib import Path
 
 import pytest
 
-from src.db import session as session_mod
-from src.db.session import create_db_engine, init_db
-from src.exceptions import DatabaseError
-from src.services.context_service import ContextService
-from src.services.item_service import ItemService
-from src.services.project_service import ProjectService
+from knowledge_os.db import session as session_mod
+from knowledge_os.db.session import create_db_engine, init_db
+from knowledge_os.exceptions import DatabaseError
+from knowledge_os.services.context_service import ContextService
+from knowledge_os.services.item_service import ItemService
+from knowledge_os.services.project_service import ProjectService
 
 ROOT = Path(__file__).resolve().parent.parent
 
 WORKER = (
     "import sys\n"
-    "from src.config import ensure_home, validate_and_init_config\n"
+    "from knowledge_os.config import ensure_home, validate_and_init_config\n"
     "ensure_home(); validate_and_init_config()\n"
-    "from src.services.item_service import ItemService\n"
+    "from knowledge_os.services.item_service import ItemService\n"
     "n = int(sys.argv[2])\n"
     "svc = ItemService()\n"
     "for i in range(25):\n"
@@ -32,7 +32,7 @@ WORKER = (
 
 
 def _env(home: Path) -> dict[str, str]:
-    return {**os.environ, "KNOWLEDGE_OS_HOME": str(home), "PYTHONPATH": str(ROOT),
+    return {**os.environ, "KNOWLEDGE_OS_HOME": str(home), "PYTHONPATH": str(ROOT / "src"),
             "LOG_LEVEL": "WARNING"}
 
 

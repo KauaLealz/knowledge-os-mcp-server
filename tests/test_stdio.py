@@ -10,9 +10,8 @@ import zipfile
 from pathlib import Path
 
 import pytest
-from mcp.client.stdio import stdio_client
-
 from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
 
 ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_TOOLS = 15
@@ -26,7 +25,7 @@ def server_env(tmp_path):
     env = {k: v for k, v in os.environ.items() if k != "MCP_DB_PATH"}
     env.update(
         KNOWLEDGE_OS_HOME=str(tmp_path / "home"),
-        PYTHONPATH=str(ROOT),
+        PYTHONPATH=str(ROOT / "src"),
         PYTHONDONTWRITEBYTECODE="1",
         LOG_LEVEL="WARNING",
     )
@@ -36,7 +35,7 @@ def server_env(tmp_path):
 def test_handshake_stdio_initialize_list_tools_health_check(server_env):
     cwd, env, home = server_env
     params = StdioServerParameters(
-        command=sys.executable, args=["-m", "src.main"], env=env, cwd=str(cwd)
+        command=sys.executable, args=["-m", "knowledge_os.main"], env=env, cwd=str(cwd)
     )
 
     async def scenario():
@@ -68,7 +67,7 @@ def test_stdout_so_tem_protocolo(server_env):
         {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
     ]
     proc = subprocess.Popen(
-        [sys.executable, "-m", "src.main"], cwd=cwd, env=env, text=True, encoding="utf-8",
+        [sys.executable, "-m", "knowledge_os.main"], cwd=cwd, env=env, text=True, encoding="utf-8",
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
     )
     try:
@@ -108,16 +107,22 @@ def test_wheel_inclui_instructions_e_static(tmp_path):
     )
     (wheel,) = out.glob("knowledge_mcp-*.whl")
     names = set(zipfile.ZipFile(wheel).namelist())
-    assert "src/mcp/INSTRUCTIONS.md" in names
-    static = {p.relative_to(ROOT).as_posix() for p in (ROOT / "src/api/static").rglob("*")
-              if p.is_file()}
+    assert "knowledge_os/mcp/INSTRUCTIONS.md" in names
+    assert "knowledge_os/mcp/INSTRUCTIONS_AGENT.md" in names
+    pkg = ROOT / "src" / "knowledge_os"
+    static = {"knowledge_os/" + p.relative_to(pkg).as_posix()
+              for p in (pkg / "api" / "static").rglob("*") if p.is_file()}
     assert static and static <= names
+    assert any(n.startswith("knowledge_os/api/static/vendor/") and n.endswith(".js")
+               for n in names)
+    # O atalho de instalações antigas não vai no wheel.
+    assert not any(n.startswith("src/") or n in {"cli.py", "__init__.py"} for n in names)
 
 
 def test_perfil_agent_expoe_6_tools_e_instrucoes_curtas(server_env):
     cwd, env, _ = server_env
     params = StdioServerParameters(
-        command=sys.executable, args=["-m", "src.main"],
+        command=sys.executable, args=["-m", "knowledge_os.main"],
         env={**env, "KNOWLEDGE_OS_TOOLSET": "agent"}, cwd=str(cwd),
     )
 
@@ -134,3 +139,20 @@ def test_perfil_agent_expoe_6_tools_e_instrucoes_curtas(server_env):
         "context_get", "item_search", "item_get", "item_save", "project_link", "health_check"}
     assert len(init.instructions.encode()) < 2000
     assert json.loads(health.content[0].text)["toolset"] == "agent"
+
+
+def test_atalho_src_cli_de_instalacao_antiga(tmp_path):
+    env = {k: v for k, v in os.environ.items() if k != "MCP_DB_PATH"}
+    env.update(KNOWLEDGE_OS_HOME=str(tmp_path / "home"), PYTHONPATH=str(ROOT))
+    novo = subprocess.run([sys.executable, "-m", "knowledge_os.cli", "--version"],
+                          env={**env, "PYTHONPATH": str(ROOT / "src")}, cwd=tmp_path,
+                          capture_output=True, text=True, check=True)
+    antigo = subprocess.run([sys.executable, "-m", "src.cli", "--version"], env=env,
+                            cwd=tmp_path, capture_output=True, text=True, check=True)
+    assert antigo.stdout == novo.stdout and "knowledge-mcp" in novo.stdout
+    assert "reinstale" in antigo.stderr and "--force" in antigo.stderr
+    assert "reinstale" not in novo.stderr
+    # `from src.cli import main` direto (como o entry point antigo) também funciona.
+    code = "import sys; sys.path.insert(0, sys.argv[1]); from src.cli import main"
+    subprocess.run([sys.executable, "-c", code, str(ROOT)], cwd=tmp_path, env={
+        k: v for k, v in env.items() if k != "PYTHONPATH"}, check=True)

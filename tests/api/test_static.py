@@ -6,9 +6,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from src.api.main import app
+from knowledge_os.api.main import app
 
-STATIC = Path(__file__).resolve().parents[2] / "src" / "api" / "static"
+STATIC = Path(__file__).resolve().parents[2] / "src" / "knowledge_os" / "api" / "static"
 
 ASSETS = [
     "css/tokens.css",

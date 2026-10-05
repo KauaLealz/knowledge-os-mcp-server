@@ -12,11 +12,11 @@ from pathlib import Path
 import pytest
 from sqlalchemy import create_engine, inspect, text
 
-from src import config
-from src.db.models import Artifact, Item, ItemTag, Tag
-from src.db.schema_sync import _add_column, schema_sync
-from src.db.session import create_db_engine, get_session
-from src.services import maintenance
+from knowledge_os import config
+from knowledge_os.db.models import Artifact, Item, ItemTag, Tag
+from knowledge_os.db.schema_sync import _add_column, schema_sync
+from knowledge_os.db.session import create_db_engine, get_session
+from knowledge_os.services import maintenance
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -39,8 +39,8 @@ def _item(s, ws, dm, key, memory_class="working", expires_at=None):
 
 
 def _seed(engine):
-    from src.db.models import Domain, Workspace
-    from src.db.session import ensure_connection_row
+    from knowledge_os.db.models import Domain, Workspace
+    from knowledge_os.db.session import ensure_connection_row
 
     ensure_connection_row(engine)
     s = get_session(engine)
@@ -79,7 +79,7 @@ def test_backup_nao_faz_nada_fora_do_sqlite(tmp_path, monkeypatch):
 
 
 def test_run_daily_so_roda_uma_vez_por_dia(db, monkeypatch):
-    monkeypatch.setattr("src.db.session.get_engine", lambda *a: db)
+    monkeypatch.setattr("knowledge_os.db.session.get_engine", lambda *a: db)
     now = datetime(2026, 1, 10, 12)
     assert maintenance.run_daily(now)["ran"] is True
     assert maintenance.run_daily(now + timedelta(hours=3)) == {"ran": False}
@@ -88,7 +88,7 @@ def test_run_daily_so_roda_uma_vez_por_dia(db, monkeypatch):
 
 
 def test_run_daily_apaga_ephemeral_vencido_ha_mais_de_7_dias(db, monkeypatch):
-    monkeypatch.setattr("src.db.session.get_engine", lambda *a: db)
+    monkeypatch.setattr("knowledge_os.db.session.get_engine", lambda *a: db)
     _seed(db)
     now = datetime(2026, 1, 10, 12)
     s = get_session(db)
@@ -124,7 +124,7 @@ def test_add_column_tolera_coluna_que_outro_processo_criou(db):
     table = Item.__table__
     with db.begin() as conn:
         conn.execute(text("ALTER TABLE domains DROP COLUMN description"))
-    from src.db.models import Domain
+    from knowledge_os.db.models import Domain
 
     col = Domain.__table__.c.description
     _add_column(db, Domain.__table__, col)
@@ -144,13 +144,14 @@ def test_dois_processos_subindo_juntos_com_coluna_nova(tmp_path):
     go = tmp_path / "go"
     code = (
         "import sys, time, pathlib\n"
-        "from src.db.session import create_db_engine\n"
-        "from src.db.schema_sync import schema_sync\n"
+        "from knowledge_os.db.session import create_db_engine\n"
+        "from knowledge_os.db.schema_sync import schema_sync\n"
         "e = create_db_engine(sys.argv[1])\n"
         "while not pathlib.Path(sys.argv[2]).exists(): time.sleep(0.001)\n"
         "print(schema_sync(e)['status'])\n"
     )
-    env = {**os.environ, "PYTHONPATH": str(ROOT), "KNOWLEDGE_OS_HOME": str(tmp_path / "home")}
+    env = {**os.environ, "PYTHONPATH": str(ROOT / "src"),
+           "KNOWLEDGE_OS_HOME": str(tmp_path / "home")}
     procs = [subprocess.Popen([sys.executable, "-c", code, f"sqlite:///{db_path}", str(go)],
                               env=env, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                               text=True) for _ in range(2)]

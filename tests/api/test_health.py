@@ -11,7 +11,7 @@ def test_openapi_and_docs(client):
 
 
 def test_versao_da_api_vem_do_pacote(client):
-    from src import __version__
+    from knowledge_os import __version__
 
     assert client.get("/").json()["version"] == __version__
     assert client.get("/api/openapi.json").json()["info"]["version"] == __version__

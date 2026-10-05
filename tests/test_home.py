@@ -8,12 +8,12 @@ from pathlib import Path
 
 import pytest
 
-import src.config as config
-from src.config import CATALOG_ID, ConfigManager, ConnectionConfig, ConnectionsFile
+import knowledge_os.config as config
+from knowledge_os.config import CATALOG_ID, ConfigManager, ConnectionConfig, ConnectionsFile
 
 ROOT = Path(__file__).resolve().parent.parent
 PROBE = (
-    "import json, src.config as c;"
+    "import json, knowledge_os.config as c;"
     "print(json.dumps({k: str(getattr(c, k)) for k in "
     "('KNOWLEDGE_HOME','ARTIFACTS_DIR','EXPORTS_DIR','BACKUPS_DIR','DB_PATH')}"
     " | {'cf': str(c.ConfigManager.CONNECTIONS_FILE)}))"
@@ -22,7 +22,7 @@ PROBE = (
 
 def _probe(cwd, env_extra, drop=()):
     env = {k: v for k, v in os.environ.items() if k not in drop}
-    env.update(env_extra, PYTHONPATH=str(ROOT))
+    env.update(env_extra, PYTHONPATH=str(ROOT / "src"))
     out = subprocess.run(
         [sys.executable, "-c", PROBE], cwd=cwd, env=env, capture_output=True, text=True,
         check=True,
@@ -110,7 +110,7 @@ def test_save_e_atomico_sem_sobras(_isolated_home):
 
 
 def test_sqlite_local_e_legado_foram_removidos():
-    import src.main as main
+    import knowledge_os.main as main
 
     assert not hasattr(main, "import_legacy_connections")
     assert "sqlite_local" not in main.INSTRUCTIONS_FILE.read_text(encoding="utf-8")

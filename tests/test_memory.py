@@ -2,14 +2,14 @@
 
 import pytest
 
-from src.exceptions import NotFoundError, ValidationError
-from src.services.memory_service import MemoryService
+from knowledge_os.exceptions import NotFoundError, ValidationError
+from knowledge_os.services.memory_service import MemoryService
 
 
 @pytest.fixture
 def use_test_engine(monkeypatch, test_engine):
     """Faz os services sem sessão explícita usarem o engine de teste."""
-    monkeypatch.setattr("src.services._common.get_engine", lambda: test_engine)
+    monkeypatch.setattr("knowledge_os.services._common.get_engine", lambda: test_engine)
 
 
 def _set(session, item, memory_class, ttl=None):

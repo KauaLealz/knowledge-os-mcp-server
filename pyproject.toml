@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "knowledge-mcp"
-version = "0.2.0"
+dynamic = ["version"]
 description = "MCP server: local knowledge base for Claude agents"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -20,8 +20,6 @@ dependencies = [
     "sqlalchemy>=2.0,<3",
     "pydantic>=2.0,<3",
     "python-dotenv>=1.0.0",
-    "pymysql>=1.1.0",
-    "psycopg[binary]>=3.1",
     "fastapi>=0.110.0",
     "uvicorn>=0.27.0",
     "python-multipart>=0.0.9",
@@ -29,8 +27,13 @@ dependencies = [
 
 [project.optional-dependencies]
 # Só para MCP_DB_KEY (SQLCipher). Sem wheel para Windows/cp312, por isso é opcional.
+postgres = ["psycopg[binary]>=3.1"]
+mysql = ["pymysql>=1.1.0"]
+all = ["psycopg[binary]>=3.1", "pymysql>=1.1.0"]
 crypto = ["sqlcipher3-binary>=0.5.0; sys_platform == 'linux'"]
 dev = [
+    "psycopg[binary]>=3.1",
+    "pymysql>=1.1.0",
     "pytest>=7.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0",
@@ -41,15 +44,18 @@ dev = [
 ]
 
 [project.scripts]
-knowledge-mcp = "src.cli:main"
+knowledge-mcp = "knowledge_os.cli:main"
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["src*"]
+where = ["src"]
+include = ["knowledge_os*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "knowledge_os.__version__"}
 
 [tool.setuptools.package-data]
-"src.mcp" = ["INSTRUCTIONS.md", "INSTRUCTIONS_AGENT.md"]
-"src.api" = ["static/**/*"]
+"knowledge_os.mcp" = ["INSTRUCTIONS.md", "INSTRUCTIONS_AGENT.md"]
+"knowledge_os.api" = ["static/**/*"]
 
 [tool.black]
 line-length = 100
@@ -76,3 +82,4 @@ disallow_untyped_defs = true
 [tool.pytest.ini_options]
 # Fixa o escopo padrão do loop de fixtures async (pytest-asyncio avisa quando não definido).
 asyncio_default_fixture_loop_scope = "function"
+pythonpath = ["src"]

@@ -3,10 +3,10 @@
 import pytest
 from sqlalchemy.orm import Session
 
-from src.db.models import Domain, Workspace
-from src.exceptions import NotFoundError, ValidationError
-from src.services.domain_service import DomainService
-from src.services.workspace_service import WorkspaceService
+from knowledge_os.db.models import Domain, Workspace
+from knowledge_os.exceptions import NotFoundError, ValidationError
+from knowledge_os.services.domain_service import DomainService
+from knowledge_os.services.workspace_service import WorkspaceService
 
 
 class TestWorkspaceService:

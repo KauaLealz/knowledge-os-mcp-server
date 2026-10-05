@@ -5,13 +5,13 @@ import os
 import pytest
 from sqlalchemy import create_engine, inspect
 
-from src.config import ConfigManager
-from src.db.models import DEFAULT_CONNECTION_ID, Connection, Workspace
-from src.db.session import ensure_connection_row, get_engine
-from src.exceptions import NotFoundError, ValidationError
-from src.services._common import connection_to_dict, session_scope
-from src.services.connection_service import ConnectionService
-from src.services.workspace_service import WorkspaceService
+from knowledge_os.config import ConfigManager
+from knowledge_os.db.models import DEFAULT_CONNECTION_ID, Connection, Workspace
+from knowledge_os.db.session import ensure_connection_row, get_engine
+from knowledge_os.exceptions import NotFoundError, ValidationError
+from knowledge_os.services._common import connection_to_dict, session_scope
+from knowledge_os.services.connection_service import ConnectionService
+from knowledge_os.services.workspace_service import WorkspaceService
 from tests.helpers_multidb import catalog, sqlite_url  # noqa: F401
 
 
@@ -220,7 +220,7 @@ def test_connection_test_mysql_real(svc):
 def test_test_do_catalogo_usa_o_engine_vivo_e_nao_a_url_do_espelho(svc, monkeypatch):
     from sqlalchemy import text
 
-    from src.services import connection_service
+    from knowledge_os.services import connection_service
 
     monkeypatch.setattr(connection_service, "_last_tests", {})  # estado global do módulo
 

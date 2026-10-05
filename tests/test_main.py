@@ -1,6 +1,6 @@
 """Testes do servidor principal."""
 
-from src.main import mcp
+from knowledge_os.main import mcp
 
 
 def test_mcp_has_instructions():

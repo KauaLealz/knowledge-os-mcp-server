@@ -3,9 +3,9 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from src.api.deps import get_artifacts_dir
-from src.api.main import app
-from src.config import ConfigManager
+from knowledge_os.api.deps import get_artifacts_dir
+from knowledge_os.api.main import app
+from knowledge_os.config import ConfigManager
 from tests.helpers_multidb import catalog  # noqa: F401
 
 

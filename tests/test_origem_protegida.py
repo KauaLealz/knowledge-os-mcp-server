@@ -4,11 +4,11 @@ import os
 
 import pytest
 
-import src.config as config
-from src.config import ConfigManager
-from src.exceptions import ValidationError
-from src.services.artifact_service import ArtifactService
-from src.services.import_export_service import ImportExportService
+import knowledge_os.config as config
+from knowledge_os.config import ConfigManager
+from knowledge_os.exceptions import ValidationError
+from knowledge_os.services.artifact_service import ArtifactService
+from knowledge_os.services.import_export_service import ImportExportService
 
 
 @pytest.fixture

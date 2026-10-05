@@ -21,19 +21,19 @@ dev:
 	pip install -e ".[dev]"
 
 bootstrap:
-	python src/main.py --bootstrap
+	python src/knowledge_os/main.py --bootstrap
 
 check-db:
-	python src/main.py --check-db
+	python src/knowledge_os/main.py --check-db
 
 run:
-	python src/main.py
+	python src/knowledge_os/main.py
 
 test:
 	pytest -v
 
 test-cov:
-	pytest -v --cov=src --cov-report=html
+	pytest -v --cov=knowledge_os --cov-report=html
 
 lint:
 	ruff check src/ tests/
@@ -43,7 +43,7 @@ format:
 	ruff check --fix src/ tests/
 
 typecheck:
-	mypy src/
+	mypy src/knowledge_os/
 
 clean:
 	rm -rf build/ dist/ *.egg-info

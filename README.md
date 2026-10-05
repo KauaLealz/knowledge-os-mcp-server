@@ -21,6 +21,21 @@ uv tool install --editable <caminho-do-repo>      # comando `knowledge-mcp`
 knowledge-mcp --version
 ```
 
+Se o repositório estiver num remoto Git, também dá para instalar direto dele:
+`uv tool install "git+<url-do-repositorio>"`.
+
+O SQLite (padrão) já vem incluído. Os drivers de Postgres e MySQL são opcionais:
+
+```bash
+uv tool install --editable "<caminho-do-repo>[postgres]"   # ou [mysql], ou [all]
+```
+
+Sem o driver, conectar a esse banco falha com a mensagem "instale knowledge-mcp[postgres]"
+(ou `[mysql]`).
+
+Já tinha instalado antes do layout `src/knowledge_os/`? O comando antigo segue funcionando por
+um atalho, com aviso no stderr; reinstale com `uv tool install --editable <caminho-do-repo> --force`.
+
 O instalador do Plumb (`npx plumb-harness install`) registra o servidor no Claude Code e no
 Cursor, com o perfil `agent` e o hook de início de sessão. Para registrar à mão:
 

@@ -3,9 +3,9 @@
 import pytest
 from sqlalchemy import Engine
 
-from src.db.models import Domain, Item, Workspace
-from src.exceptions import ValidationError
-from src.services.item_service import ItemService
+from knowledge_os.db.models import Domain, Item, Workspace
+from knowledge_os.exceptions import ValidationError
+from knowledge_os.services.item_service import ItemService
 
 
 @pytest.fixture

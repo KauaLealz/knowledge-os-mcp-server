@@ -3,8 +3,8 @@ import logging
 
 import pytest
 
-from src.config import ConfigManager
-from src.services import connection_service
+from knowledge_os.config import ConfigManager
+from knowledge_os.services import connection_service
 
 SECRET = "supersecret-123"
 

@@ -6,10 +6,10 @@ import socket
 import sys
 
 import pytest
+from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-import src.main as main_mod
-from mcp import ClientSession, StdioServerParameters
+import knowledge_os.main as main_mod
 from tests.helpers_multidb import catalog  # noqa: F401  (fixture reaproveitada)
 from tests.test_stdio import server_env  # noqa: F401  (fixture reaproveitada)
 
@@ -42,7 +42,7 @@ def _write_down_default(home):
 
 @pytest.fixture
 def down_default(monkeypatch, catalog):  # noqa: F811
-    import src.config as config
+    import knowledge_os.config as config
 
     _write_down_default(config.KNOWLEDGE_HOME)
     monkeypatch.setattr(main_mod, "ensure_home", lambda: None)
@@ -67,7 +67,7 @@ def test_stdio_sobe_e_tool_sem_connection_id_da_erro_explicito(server_env):  # n
     cwd, env, home = server_env
     _write_down_default(home)
     params = StdioServerParameters(
-        command=sys.executable, args=["-m", "src.main"], env=env, cwd=str(cwd)
+        command=sys.executable, args=["-m", "knowledge_os.main"], env=env, cwd=str(cwd)
     )
 
     async def scenario():

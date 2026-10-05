@@ -5,9 +5,9 @@ import subprocess
 import pytest
 from sqlalchemy import Engine
 
-from src.services.context_service import ContextService
-from src.services.item_service import ItemService
-from src.services.project_service import ProjectService, normalize_remote, project_key
+from knowledge_os.services.context_service import ContextService
+from knowledge_os.services.item_service import ItemService
+from knowledge_os.services.project_service import ProjectService, normalize_remote, project_key
 
 BASE = dict(memory_class="longterm", summary="resumo", content="corpo")
 

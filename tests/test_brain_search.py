@@ -5,11 +5,11 @@ from datetime import timedelta
 import pytest
 from sqlalchemy import DateTime, Engine, bindparam, text
 
-from src.db.dialects.sqlite import SQLiteDialect
-from src.db.models import Domain, Item, Workspace
-from src.db.search_query import match_expressions, stem, terms
-from src.db.timeutil import utcnow
-from src.services.item_service import ItemService
+from knowledge_os.db.dialects.sqlite import SQLiteDialect
+from knowledge_os.db.models import Domain, Item, Workspace
+from knowledge_os.db.search_query import match_expressions, stem, terms
+from knowledge_os.db.timeutil import utcnow
+from knowledge_os.services.item_service import ItemService
 
 
 @pytest.fixture

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-import src.main as main_mod
+import knowledge_os.main as main_mod
 
 ROOT = Path(__file__).resolve().parent.parent
 URL_RE = re.compile(r"^http://127\.0\.0\.1:(\d+)/ui/$", re.M)
@@ -77,10 +77,11 @@ def _status(url, method="GET", origin=None):
 
 def test_ui_de_verdade_responde_sem_token_e_recusa_escrita_de_outra_origem(tmp_path):
     port = _free_port()
-    env = {**os.environ, "KNOWLEDGE_OS_HOME": str(tmp_path / "home"), "PYTHONPATH": str(ROOT)}
+    env = {**os.environ, "KNOWLEDGE_OS_HOME": str(tmp_path / "home"),
+           "PYTHONPATH": str(ROOT / "src")}
     env.pop("MCP_DB_PATH", None)
     proc = subprocess.Popen(
-        [sys.executable, "-m", "src.main", "ui", "--port", str(port), "--no-browser"],
+        [sys.executable, "-m", "knowledge_os.main", "ui", "--port", str(port), "--no-browser"],
         cwd=tmp_path, env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
     )
     watchdog = threading.Timer(60, proc.kill)  # readline não trava a suíte se o servidor falhar

@@ -5,9 +5,9 @@ import pytest
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import Engine, text
 
-from src.exceptions import NotFoundError, ValidationError
-from src.schemas.item_schemas import ItemCreate, ItemSearchRequest
-from src.services.item_service import ItemService
+from knowledge_os.exceptions import NotFoundError, ValidationError
+from knowledge_os.schemas.item_schemas import ItemCreate, ItemSearchRequest
+from knowledge_os.services.item_service import ItemService
 
 
 @pytest.fixture

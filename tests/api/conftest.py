@@ -4,10 +4,10 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from src.api.deps import get_artifacts_dir, get_catalog_engine_dep, get_engine_dep
-from src.api.main import app
-from src.db.migrations import bootstrap_labels
-from src.db.session import create_db_engine, init_db
+from knowledge_os.api.deps import get_artifacts_dir, get_catalog_engine_dep, get_engine_dep
+from knowledge_os.api.main import app
+from knowledge_os.db.migrations import bootstrap_labels
+from knowledge_os.db.session import create_db_engine, init_db
 
 
 @pytest.fixture

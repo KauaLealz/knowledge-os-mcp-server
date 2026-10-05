@@ -4,15 +4,15 @@ import pytest
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import text
 
-from src.exceptions import NotFoundError, ValidationError
-from src.schemas.tag_schemas import TagCreate
-from src.services.tag_service import TagService
+from knowledge_os.exceptions import NotFoundError, ValidationError
+from knowledge_os.schemas.tag_schemas import TagCreate
+from knowledge_os.services.tag_service import TagService
 
 
 @pytest.fixture
 def use_test_engine(monkeypatch, test_engine):
     """Faz os services sem sessão explícita usarem o engine de teste."""
-    monkeypatch.setattr("src.services._common.get_engine", lambda: test_engine)
+    monkeypatch.setattr("knowledge_os.services._common.get_engine", lambda: test_engine)
 
 
 def test_create_list_unique(test_session):

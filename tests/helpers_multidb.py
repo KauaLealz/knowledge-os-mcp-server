@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-import src.db.session as session_mod
-from src.db.session import ConnectionManager, create_db_engine, init_db
+import knowledge_os.db.session as session_mod
+from knowledge_os.db.session import ConnectionManager, create_db_engine, init_db
 
 
 def sqlite_url(path: Path) -> str:

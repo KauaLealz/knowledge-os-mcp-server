@@ -7,9 +7,9 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 
-import src.services.migration_service as migration_mod
-from src.db.migrations import bootstrap_labels
-from src.db.models import (
+import knowledge_os.services.migration_service as migration_mod
+from knowledge_os.db.migrations import bootstrap_labels
+from knowledge_os.db.models import (
     Artifact,
     Domain,
     Item,
@@ -20,9 +20,9 @@ from src.db.models import (
     Tag,
     Workspace,
 )
-from src.db.session import create_db_engine, init_db
-from src.exceptions import NotFoundError, ValidationError
-from src.services.migration_service import MigrationService
+from knowledge_os.db.session import create_db_engine, init_db
+from knowledge_os.exceptions import NotFoundError, ValidationError
+from knowledge_os.services.migration_service import MigrationService
 from tests.helpers_multidb import sqlite_url
 
 

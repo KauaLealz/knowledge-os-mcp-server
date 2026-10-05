@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import DateTime, bindparam, text
 
-from src.db.timeutil import utcnow
+from knowledge_os.db.timeutil import utcnow
 
 
 def test_utcnow_e_naive_e_proximo_do_utc():

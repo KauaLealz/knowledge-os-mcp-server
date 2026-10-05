@@ -3,7 +3,7 @@
 import re
 from pathlib import Path
 
-STATIC = Path(__file__).resolve().parents[2] / "src" / "api" / "static"
+STATIC = Path(__file__).resolve().parents[2] / "src" / "knowledge_os" / "api" / "static"
 VENDOR = ("alpine.esm.js", "marked.esm.js", "purify.esm.js", "highlight.esm.js")
 
 

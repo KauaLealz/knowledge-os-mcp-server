@@ -5,17 +5,18 @@ from unittest.mock import MagicMock
 import pytest
 from sqlalchemy import text
 
-from src.db.dialects import (
+from knowledge_os.db.dialects import (
     DatabaseDialect,
     MySQLDialect,
     PostgreSQLDialect,
     SQLiteDialect,
+    detect_type,
     get_dialect,
     normalize_url,
     redact,
 )
-from src.db.models import Base
-from src.exceptions import ValidationError
+from knowledge_os.db.models import Base
+from knowledge_os.exceptions import DatabaseError, ValidationError
 
 
 @pytest.mark.parametrize("url,expected", [
@@ -132,3 +133,16 @@ def test_redact_mascara_a_senha_e_suas_variantes_codificadas():
     msg = "falha: p@ss w / p%40ss%20w / p%40ss+w"
     out = redact(msg, url)
     assert "p@ss w" not in out and "p%40ss%20w" not in out and "p%40ss+w" not in out
+
+
+@pytest.mark.parametrize("url,modulo,extra", [
+    ("mysql://u:p@h/db", "pymysql", "mysql"),
+    ("postgresql://u:p@h/db", "psycopg", "postgres"),
+])
+def test_driver_ausente_orienta_o_extra(monkeypatch, url, modulo, extra):
+    from knowledge_os.db.dialects import base
+
+    real = base.find_spec
+    monkeypatch.setattr(base, "find_spec", lambda n: None if n == modulo else real(n))
+    with pytest.raises(DatabaseError, match=rf"knowledge-mcp\[{extra}\]"):
+        get_dialect(detect_type(url)).create_engine(url)

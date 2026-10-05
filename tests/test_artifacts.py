@@ -4,10 +4,10 @@
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 
-from src.db.models import Artifact
-from src.exceptions import NotFoundError, ValidationError
-from src.schemas.artifact_schemas import ArtifactCreate, ArtifactResponse
-from src.services.artifact_service import ArtifactService
+from knowledge_os.db.models import Artifact
+from knowledge_os.exceptions import NotFoundError, ValidationError
+from knowledge_os.schemas.artifact_schemas import ArtifactCreate, ArtifactResponse
+from knowledge_os.services.artifact_service import ArtifactService
 
 
 @pytest.fixture

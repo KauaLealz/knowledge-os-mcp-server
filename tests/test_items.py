@@ -3,8 +3,8 @@
 import pytest
 from sqlalchemy import Engine
 
-from src.exceptions import ValidationError
-from src.services.item_service import ItemService
+from knowledge_os.exceptions import ValidationError
+from knowledge_os.services.item_service import ItemService
 
 
 def _kw(ws, dm, **over):

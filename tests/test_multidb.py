@@ -6,15 +6,15 @@ import pytest
 from sqlalchemy import inspect
 from sqlalchemy.exc import IntegrityError
 
-from src.config import ConfigManager, ConnectionConfig
-from src.db.models import Connection, Workspace
-from src.db.session import get_engine
-from src.exceptions import NotFoundError, ValidationError
-from src.services._common import session_scope
-from src.services.connection_service import ConnectionService
-from src.services.domain_service import DomainService
-from src.services.item_service import ItemService
-from src.services.workspace_service import WorkspaceService
+from knowledge_os.config import ConfigManager, ConnectionConfig
+from knowledge_os.db.models import Connection, Workspace
+from knowledge_os.db.session import get_engine
+from knowledge_os.exceptions import NotFoundError, ValidationError
+from knowledge_os.services._common import session_scope
+from knowledge_os.services.connection_service import ConnectionService
+from knowledge_os.services.domain_service import DomainService
+from knowledge_os.services.item_service import ItemService
+from knowledge_os.services.workspace_service import WorkspaceService
 from tests.helpers_multidb import catalog, sqlite_url  # noqa: F401
 
 

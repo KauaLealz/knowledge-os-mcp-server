@@ -8,20 +8,20 @@ import zipfile
 import pytest
 from sqlalchemy import select
 
-from src.db.models import Artifact, Domain, Item, Relation, Workspace
-from src.exceptions import NotFoundError, ValidationError
-from src.services.artifact_service import ArtifactService
-from src.services.import_export_service import ImportExportService
-from src.services.item_service import ItemService
-from src.services.relation_service import RelationService
+from knowledge_os.db.models import Artifact, Domain, Item, Relation, Workspace
+from knowledge_os.exceptions import NotFoundError, ValidationError
+from knowledge_os.services.artifact_service import ArtifactService
+from knowledge_os.services.import_export_service import ImportExportService
+from knowledge_os.services.item_service import ItemService
+from knowledge_os.services.relation_service import RelationService
 
 
 @pytest.fixture
 def art_dir(tmp_path, monkeypatch):
     d = tmp_path / "artifacts"
     d.mkdir()
-    monkeypatch.setattr("src.services.artifact_service.ARTIFACTS_DIR", d)
-    monkeypatch.setattr("src.services.import_export_service.ARTIFACTS_DIR", d)
+    monkeypatch.setattr("knowledge_os.services.artifact_service.ARTIFACTS_DIR", d)
+    monkeypatch.setattr("knowledge_os.services.import_export_service.ARTIFACTS_DIR", d)
     return d
 
 

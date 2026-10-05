@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.config import ConfigManager, ConnectionConfig, ConnectionsFile
+from knowledge_os.config import ConfigManager, ConnectionConfig, ConnectionsFile
 
 
 def test_connection_config_valid(tmp_path):
@@ -118,8 +118,8 @@ def test_json_a_mao_sem_port_assume_o_padrao():
 
 
 def test_json_com_host_ausente_aponta_conexao_e_campo_sem_vazar_senha():
-    from src.exceptions import ConfigError
-    from src.services.connection_service import ConnectionService
+    from knowledge_os.exceptions import ConfigError
+    from knowledge_os.services.connection_service import ConnectionService
 
     _write_json([{"id": "pg", "name": "PG", "db_type": "postgresql",
                   "database": "d", "username": "u", "password": "SEGREDO-123"}])
@@ -188,10 +188,10 @@ def test_knowledge_os_home_resolve_til_e_relativo(tmp_path):
     from pathlib import Path
 
     root = Path(__file__).resolve().parent.parent
-    code = "import src.config as c; print(c.KNOWLEDGE_HOME)"
+    code = "import knowledge_os.config as c; print(c.KNOWLEDGE_HOME)"
 
     def home_for(value):
-        env = {**os.environ, "KNOWLEDGE_OS_HOME": value, "PYTHONPATH": str(root)}
+        env = {**os.environ, "KNOWLEDGE_OS_HOME": value, "PYTHONPATH": str(root / "src")}
         env.pop("MCP_DB_PATH", None)
         out = subprocess.run([sys.executable, "-c", code], cwd=tmp_path, env=env,
                              capture_output=True, text=True, check=True)
@@ -202,7 +202,7 @@ def test_knowledge_os_home_resolve_til_e_relativo(tmp_path):
 
 
 def test_sqlite_path_relativo_em_subpasta_cria_o_diretorio_no_home(_isolated_home):
-    from src.services.connection_service import ConnectionService
+    from knowledge_os.services.connection_service import ConnectionService
 
     row = ConnectionService().create("sub", "sqlite", "sqlite:///./database/x.db", test=True)
     assert (_isolated_home / "database" / "x.db").is_file()
@@ -210,7 +210,7 @@ def test_sqlite_path_relativo_em_subpasta_cria_o_diretorio_no_home(_isolated_hom
 
 
 def test_sqlite_path_com_til_expande_para_o_home_do_usuario(tmp_path, monkeypatch):
-    from src.services.connection_service import ConnectionService
+    from knowledge_os.services.connection_service import ConnectionService
 
     fake = tmp_path / "usuario"
     fake.mkdir()

@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parent.parent
 @pytest.fixture
 def env(tmp_path):
     home = tmp_path / "home"
-    return {**os.environ, "KNOWLEDGE_OS_HOME": str(home), "PYTHONPATH": str(ROOT),
+    return {**os.environ, "KNOWLEDGE_OS_HOME": str(home), "PYTHONPATH": str(ROOT / "src"),
             "LOG_LEVEL": "WARNING"}
 
 
@@ -28,7 +28,7 @@ def project(tmp_path):
 
 def cli(env, *args, stdin=None):
     return subprocess.run(
-        [sys.executable, "-m", "src.cli", *args], env=env, cwd=ROOT, input=stdin,
+        [sys.executable, "-m", "knowledge_os.cli", *args], env=env, cwd=ROOT, input=stdin,
         capture_output=True, text=True, encoding="utf-8", timeout=120,
     )
 
@@ -36,10 +36,10 @@ def cli(env, *args, stdin=None):
 def _save(env, project, entries):
     code = (
         "import json,sys\n"
-        "from src.config import ensure_home, validate_and_init_config\n"
+        "from knowledge_os.config import ensure_home, validate_and_init_config\n"
         "ensure_home(); validate_and_init_config()\n"
-        "from src.services.item_service import ItemService\n"
-        "from src.services.project_service import ProjectService\n"
+        "from knowledge_os.services.item_service import ItemService\n"
+        "from knowledge_os.services.project_service import ProjectService\n"
         f"link = ProjectService().resolve({str(project)!r})\n"
         "ItemService().save(json.loads(sys.argv[1]), "
         "default_location=(link['workspace_id'], link['domain_id']))\n"
@@ -158,7 +158,7 @@ def test_dois_processos_esvaziando_a_mesma_fila_gravam_cada_key_uma_vez(env, pro
     queue.write_text("".join(_entry(f"gotcha/k{i}", f"Item {i}") + "\n" for i in range(50)),
                      encoding="utf-8")
     procs = [subprocess.Popen(
-        [sys.executable, "-m", "src.cli", "context", "--project", str(project)], env=env,
+        [sys.executable, "-m", "knowledge_os.cli", "context", "--project", str(project)], env=env,
         cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8")
         for _ in range(2)]
     outs = [p.communicate(timeout=120) for p in procs]
@@ -167,11 +167,11 @@ def test_dois_processos_esvaziando_a_mesma_fila_gravam_cada_key_uma_vez(env, pro
                 if (m := re.search(r"(\d+) item\(ns\) da fila", out)))
     assert total == 50
     code = (
-        "from src.config import ensure_home, validate_and_init_config\n"
+        "from knowledge_os.config import ensure_home, validate_and_init_config\n"
         "ensure_home(); validate_and_init_config()\n"
         "from sqlalchemy import select, func\n"
-        "from src.db.models import Item\n"
-        "from src.db.session import get_engine, get_session\n"
+        "from knowledge_os.db.models import Item\n"
+        "from knowledge_os.db.session import get_engine, get_session\n"
         "s = get_session(get_engine())\n"
         "print(s.execute(select(func.count(), func.count(func.distinct(Item.key))).where("
         "Item.key.like('gotcha/k%'))).one())\n"
@@ -183,8 +183,8 @@ def test_dois_processos_esvaziando_a_mesma_fila_gravam_cada_key_uma_vez(env, pro
 
 
 def test_linha_acrescentada_durante_a_gravacao_nao_se_perde(env, project, monkeypatch):
-    from src import cli
-    from src.services.item_service import ItemService
+    from knowledge_os import cli
+    from knowledge_os.services.item_service import ItemService
 
     cli_env_home = Path(env["KNOWLEDGE_OS_HOME"])
     cli.main(["link", "--project", str(project), "--workspace", "W", "--domain", "D"])
