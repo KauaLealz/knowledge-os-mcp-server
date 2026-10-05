@@ -20,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from src import config
 from src.config import ARTIFACTS_DIR
 from src.db.models import (
     Artifact,
@@ -37,6 +38,7 @@ from src.services._common import (
     EXPORT_VERSION,
     domain_to_dict,
     item_to_dict,
+    refuse_home_source,
     session_scope,
     utc_now_iso,
     workspace_to_dict,
@@ -402,6 +404,7 @@ class ImportExportService:
     def _open(zip_path: str, expected_type: str) -> zipfile.ZipFile:
         """Abre o ZIP e valida o manifest (tipo e versão)."""
         path = Path(zip_path)
+        refuse_home_source(path, allow_under=config.EXPORTS_DIR)
         if not path.is_file():
             raise NotFoundError(f"Arquivo ZIP não encontrado: {zip_path}")
         try:

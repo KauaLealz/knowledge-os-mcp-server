@@ -3,16 +3,36 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
+import src.config as config
 from src.db.models import Connection, Domain, Item, Workspace
 from src.db.session import get_engine, get_session
+from src.exceptions import ValidationError
 
 EXPORT_VERSION = "1.0"
+
+
+def refuse_home_source(path: Path, *, allow_under: Path | None = None) -> None:
+    """ValidationError se o caminho (resolvido, seguindo symlinks) está dentro do home de dados.
+
+    Protege connections.json (senhas) de leitura por attach/import. `allow_under` abre uma
+    exceção para um subdiretório do home (ex.: EXPORTS_DIR). O home é lido na chamada.
+    """
+    resolved = path.resolve()
+    if not resolved.is_relative_to(config.KNOWLEDGE_HOME.resolve()):
+        return
+    if allow_under is not None and resolved.is_relative_to(allow_under.resolve()):
+        return
+    raise ValidationError(
+        "Origem dentro do home de dados não é permitida"
+        + (f" (só {allow_under.name}/ para ZIPs de import)" if allow_under else "")
+    )
 
 
 @contextmanager

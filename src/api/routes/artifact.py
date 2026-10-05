@@ -49,7 +49,7 @@ def upload_artifact(
         src = Path(tmp) / filename
         with src.open("wb") as out:
             shutil.copyfileobj(file.file, out)
-        return ArtifactService(session, artifacts_dir).attach(item_id, str(src))
+        return ArtifactService(session, artifacts_dir).attach(item_id, str(src), check_origin=False)
 
 
 @router.get("/artifacts/{id}")
