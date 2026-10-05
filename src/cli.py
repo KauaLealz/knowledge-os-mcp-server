@@ -42,8 +42,8 @@ def _parser() -> argparse.ArgumentParser:
 
     lnk = sub.add_parser("link", help="liga o projeto a um workspace/domain")
     lnk.add_argument("--project", default=".")
-    lnk.add_argument("--workspace", required=True)
-    lnk.add_argument("--domain", required=True)
+    lnk.add_argument("--workspace", help="padrão: o nome do repositório")
+    lnk.add_argument("--domain", help="padrão: Geral")
     return p
 
 

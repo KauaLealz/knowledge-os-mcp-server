@@ -176,13 +176,15 @@ def item_save(
 
 
 def project_link(
-    project: str, workspace: str, domain: str, connection_id: str | None = None
+    project: str, workspace: str | None = None, domain: str | None = None,
+    connection_id: str | None = None,
 ) -> dict[str, str]:
     """Liga um repositório a um workspace/domain do segundo cérebro.
 
     **Use quando:** Configurar um projeto pela primeira vez (o /plumb-setup faz isso).
     **Retorna:** {project_key, workspace, domain}.
-    **Exemplo:** project_link(project=".", workspace="Polara", domain="projpro")
+    **Exemplo:** project_link(project=".")  → workspace com o nome do repositório, domain Geral
+    **Workspaces:** um por projeto; `Global` (domain `Geral`) para o que vale em todo projeto.
     **Notas:** project aceita caminho (qualquer pasta do repo), URL do remote ou chave; a chave é
         o remote do git normalizado (ou o caminho, sem remote). Workspace e domain são criados se
         não existirem. Religar move o projeto.

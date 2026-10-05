@@ -44,6 +44,14 @@ def _git_remote(root: Path) -> str | None:
     return out.stdout.strip() or None
 
 
+DEFAULT_DOMAIN = "Geral"
+
+
+def default_workspace(key: str) -> str:
+    """Nome do workspace de um projeto: o nome do repositório (último trecho da chave)."""
+    return key.removeprefix("path:").rstrip("/").rsplit("/", 1)[-1] or key
+
+
 def project_key(project: str) -> str:
     """Chave estável do projeto: o remote normalizado ou, sem remote, o caminho da raiz.
 
@@ -78,9 +86,17 @@ class ProjectService:
     def _get_engine(self) -> Engine:
         return self._engine if self._engine is not None else get_engine(self._connection_id)
 
-    def link(self, project: str, workspace: str, domain: str) -> dict[str, str]:
-        """Liga (ou religa) o projeto; workspace e domain são criados se não existirem."""
+    def link(
+        self, project: str, workspace: str | None = None, domain: str | None = None
+    ) -> dict[str, str]:
+        """Liga (ou religa) o projeto; workspace e domain são criados se não existirem.
+
+        Sem workspace, usa um workspace só do projeto, com o nome do repositório; sem domain,
+        `Geral`. O workspace `Global` guarda o que vale para todos os projetos.
+        """
         key = project_key(project)
+        workspace = workspace or default_workspace(key)
+        domain = domain or DEFAULT_DOMAIN
         ws_id, dm_id = ItemService(self._engine, self._connection_id).ensure_location(
             workspace, domain
         )

@@ -16,15 +16,16 @@ context_get(project=".", query="estorno")                  # + itens relacionado
 Projeto não ligado: `context_get` diz como ligar. Ligue uma vez:
 
 ```python
-project_link(project=".", workspace="Polara", domain="projpro")
+project_link(project=".")   # workspace = nome do repositório, domain Geral
 ```
 
 Com `paths` ou `query`, o que casa vem **em foco**, com o começo do `content` (sem `item_get`
 depois), e o retorno traz `sensitive: true` se os arquivos tocam uma área marcada com a keyword
 `sensivel` — o Plumb usa isso para pedir revisão de segurança. Os itens em foco contam como uso.
 
-O pacote junta o domain do projeto, o domain `Geral` do mesmo workspace (convenções do
-cliente) e `Global/Geral` (suas preferências em qualquer projeto).
+Cada projeto tem o seu workspace; o pacote junta o do projeto e `Global/Geral`, onde ficam as
+diretrizes que valem em qualquer projeto (idioma, estilo, preferências). Um projeto não vê o
+outro.
 
 ## Procurar e ler
 

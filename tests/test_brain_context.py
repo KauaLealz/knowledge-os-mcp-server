@@ -60,6 +60,28 @@ def test_link_e_resolve(test_engine):
     assert (found["workspace"], found["domain"]) == ("Polara", "app")
 
 
+def test_link_sem_workspace_usa_um_workspace_so_do_projeto(test_engine):
+    out = ProjectService(test_engine).link("git@github.com:Org/agenda-api.git")
+    assert (out["workspace"], out["domain"]) == ("agenda-api", "Geral")
+    found = ProjectService(test_engine).resolve("github.com/org/agenda-api")
+    assert (found["workspace"], found["domain"]) == ("agenda-api", "Geral")
+    out = ProjectService(test_engine).link("path:c:/projects/meu-app")
+    assert out["workspace"] == "meu-app"
+
+
+def test_global_entra_em_todo_projeto_e_projetos_nao_se_misturam(test_engine, items):
+    ProjectService(test_engine).link("github.com/org/a")
+    ProjectService(test_engine).link("github.com/org/b")
+    items.batch_upsert([
+        {"workspace": "a", "domain": "Geral", "key": "r", "type": "rule", **BASE,
+         "title": "Regra do A"},
+        {"workspace": "Global", "domain": "Geral", "key": "g", "type": "rule", **BASE,
+         "title": "Responder em PT-BR"},
+    ])
+    md_b = ContextService(test_engine).build("github.com/org/b")["markdown"]
+    assert "Responder em PT-BR" in md_b and "Regra do A" not in md_b
+
+
 def test_contexto_em_ordem_e_sem_inativos(test_engine, linked):
     linked(key="r1", type="rule", title="Regra oficial", memory_class="canonical")
     linked(key="r2", type="rule", title="Regra nova", memory_class="working")
