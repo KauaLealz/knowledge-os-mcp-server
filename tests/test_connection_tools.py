@@ -163,3 +163,30 @@ def test_tools_connection_nao_recebem_senha_e_devolvem_password_set(workdir):
     listed = local["connection_list"].fn()
     assert got["password_set"] is True
     assert "topsecret" not in str(got) and "topsecret" not in str(listed)
+
+
+def _pg_conn(cid, password):
+    return ConnectionConfig(
+        id=cid, name=cid.upper(), db_type="postgresql", host="h", port=5432,
+        database="d", username="u", password=password,
+    )
+
+
+def test_erros_das_tools_nao_vazam_a_senha(workdir, monkeypatch):
+    from src.mcp import connection_tools
+
+    config = ConfigManager.load_or_create()
+    config.connections += [_pg_conn("pg1", "SENHA-UM"), _pg_conn("pg2", "SENHA-DOIS")]
+    ConfigManager.save(config)
+
+    def boom(conn, dry_run):
+        raise RuntimeError(f"falha em {conn.get_url()}")
+
+    monkeypatch.setattr(connection_tools, "_sync_connection", boom)
+    monkeypatch.setattr(
+        ConfigManager, "validate_connection", lambda c: {"status": "ok", "message": ""}
+    )
+    msg = schema_sync("pg1")["message"]
+    assert "SENHA-UM" not in msg and "falha em" in msg
+    msg = migrate_workspaces("pg1", "pg2")["message"]
+    assert "SENHA-DOIS" not in msg and "SENHA-UM" not in msg and "falha em" in msg

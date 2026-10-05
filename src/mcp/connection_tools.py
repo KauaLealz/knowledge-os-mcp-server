@@ -15,6 +15,16 @@ logger = logging.getLogger(__name__)
 MIGRATION_MODES = ("replace", "merge")
 
 
+def _safe(exc: Exception, *conns: ConnectionConfig) -> str:
+    """Mensagem do erro sem a senha de nenhuma das conexões (pode vir em URLs do driver)."""
+    from src.db.dialects import redact
+
+    message = str(exc)
+    for conn in conns:
+        message = redact(message, conn.get_url())
+    return message
+
+
 def _open_engine(conn: ConnectionConfig) -> Engine:
     from src.db.session import create_db_engine
 
@@ -53,12 +63,14 @@ def schema_sync(connection_id: str, dry_run: bool = False) -> dict[str, Any]:
     **Notas:** Idempotente. dry_run=True simula sem gravar. Em status=drift, pending_manual lista
         o que exige ajuste manual. A connection precisa estar no .knowledge/connections.json.
     """
+    conn: ConnectionConfig | None = None
     try:
         conn = ConfigManager.load_or_create().get_connection(connection_id)
         result = _sync_connection(conn, dry_run)
         return {"connection_id": connection_id, **result}
     except Exception as exc:
-        return {"connection_id": connection_id, "status": "error", "message": str(exc)}
+        message = _safe(exc, *([conn] if conn else []))
+        return {"connection_id": connection_id, "status": "error", "message": message}
 
 
 def _clear_target(conn: ConnectionConfig) -> None:
@@ -88,6 +100,8 @@ def migrate_workspaces(
         por nome e aborta se algum id já existir. Origem e destino devem ser diferentes, habilitados
         e o schema do destino é sincronizado antes da cópia (schema_sync).
     """
+    src: ConnectionConfig | None = None
+    dst: ConnectionConfig | None = None
     try:
         if mode not in MIGRATION_MODES:
             return {"status": "error", "message": "mode must be 'replace' or 'merge'"}
@@ -137,7 +151,7 @@ def migrate_workspaces(
             "message": "Migration completed successfully",
         }
     except Exception as exc:
-        return {"status": "error", "message": str(exc)}
+        return {"status": "error", "message": _safe(exc, *[c for c in (src, dst) if c])}
 
 
 def register(mcp: FastMCP) -> None:
