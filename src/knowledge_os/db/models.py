@@ -10,8 +10,9 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    select,
 )
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.orm import column_property, declarative_base, deferred, relationship
 
 from knowledge_os.db.timeutil import utcnow
 
@@ -215,6 +216,22 @@ class Artifact(Base):
     __table_args__ = (
         Index("idx_artifact_item", "item_id"),
     )
+
+
+class SecretValue(Base):
+    """Valor cifrado (Fernet) de um item `secret`. Tabela à parte: nenhuma leitura, busca ou
+    exportação de item a toca; só o `knowledge-mcp run` decifra, para o processo filho."""
+    __tablename__ = "secret_values"
+
+    item_id = Column(String(36), ForeignKey("items.id", ondelete="CASCADE"), primary_key=True)
+    ciphertext = deferred(Column(Text, nullable=False))
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+# Item.has_value: se o segredo tem valor, carregado com as colunas (EXISTS), sem tocar no texto.
+Item.has_value = column_property(
+    select(SecretValue.item_id).where(SecretValue.item_id == Item.id).exists()
+)
 
 
 class ProjectLink(Base):

@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 ITEM_TYPES: tuple[str, ...] = (
     "context", "rule", "pattern", "procedure", "knowledge", "insight", "artifact",
-    "task",
+    "task", "secret",
 )
 MEMORY_CLASSES: tuple[str, ...] = ("ephemeral", "working", "longterm", "canonical")
 # done: mudança concluída (type task) — continua na busca, sai do pacote de contexto.
@@ -135,6 +135,15 @@ class ItemSearchResult(BaseModel):
     uses: int = 0  # quantas vezes o item foi devolvido de propósito (busca, foco do contexto)
 
 
+def _has_value(item: Item) -> bool:
+    """`has_value` (EXISTS) expira só logo depois do INSERT, quando ainda não há valor."""
+    from sqlalchemy import inspect
+
+    if "has_value" in inspect(item).unloaded:
+        return False
+    return bool(item.has_value)
+
+
 class ItemResponse(BaseModel):
     """Item completo, incluindo content."""
 
@@ -163,6 +172,7 @@ class ItemResponse(BaseModel):
     updated_at: datetime | None
     last_accessed: datetime | None
     access_count: int
+    has_value: bool | None = None  # só em `secret`: se o valor foi preenchido (nunca o valor)
 
     @classmethod
     def from_item(cls, item: Item) -> ItemResponse:
@@ -191,4 +201,5 @@ class ItemResponse(BaseModel):
             updated_at=item.updated_at,
             last_accessed=item.last_accessed,
             access_count=item.access_count or 0,
+            has_value=_has_value(item) if item.type == "secret" else None,
         )

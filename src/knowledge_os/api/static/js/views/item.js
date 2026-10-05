@@ -29,6 +29,52 @@ function humanSize(n) {
 }
 
 export function register(Alpine) {
+  // Valor de segredo: só escrito (PUT) ou apagado (DELETE); a API nunca o devolve.
+  Alpine.data('secretForm', (item, onUpdate) => ({
+    value: '',
+    multiline: false,
+    busy: false,
+    confirming: false,
+    error: null,
+
+    get app() {
+      return Alpine.store('app');
+    },
+    async save() {
+      if (!this.value || this.busy) return;
+      this.busy = true;
+      this.error = null;
+      try {
+        await api('PUT', `/items/${item.id}/secret`, { body: { value: this.value } });
+        onUpdate(await api('GET', `/items/${item.id}`));
+        this.app.toast('Valor salvo');
+      } catch (e) {
+        this.error = e.message;
+      } finally {
+        this.value = ''; // não fica no estado da página, nem quando a gravação falha
+        this.busy = false;
+      }
+    },
+    async clear() {
+      if (!this.confirming) {
+        this.confirming = true;
+        return;
+      }
+      this.confirming = false;
+      this.busy = true;
+      this.error = null;
+      try {
+        await api('DELETE', `/items/${item.id}/secret`);
+        onUpdate(await api('GET', `/items/${item.id}`));
+        this.app.toast('Valor apagado');
+      } catch (e) {
+        this.error = e.message;
+      } finally {
+        this.busy = false;
+      }
+    },
+  }));
+
   Alpine.data('itemView', () => {
   let observer = null; // fora do estado reativo: o x-effect não pode depender dele
   return {

@@ -26,7 +26,7 @@ def purge_item_links(s: Session, item_ids: list[str]) -> None:
     """
     from sqlalchemy import delete
 
-    from knowledge_os.db.models import Artifact, ItemLabel, ItemTag, Relation
+    from knowledge_os.db.models import Artifact, ItemLabel, ItemTag, Relation, SecretValue
 
     if not item_ids:
         return
@@ -35,6 +35,7 @@ def purge_item_links(s: Session, item_ids: list[str]) -> None:
     s.execute(delete(Relation).where(
         Relation.source_item_id.in_(item_ids) | Relation.target_item_id.in_(item_ids)))
     s.execute(delete(Artifact).where(Artifact.item_id.in_(item_ids)))
+    s.execute(delete(SecretValue).where(SecretValue.item_id.in_(item_ids)))
 
 
 def refuse_home_source(path: Path, *, allow_under: Path | None = None) -> None:

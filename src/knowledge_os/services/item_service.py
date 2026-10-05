@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -22,6 +23,7 @@ from knowledge_os.db.models import (
     ItemTag,
     Label,
     Relation,
+    SecretValue,
     Tag,
     Workspace,
 )
@@ -39,6 +41,20 @@ from knowledge_os.schemas.item_schemas import MEMORY_CLASSES, ItemCreate, ItemUp
 from knowledge_os.services.secret_guard import ensure_no_secrets
 
 logger = logging.getLogger(__name__)
+
+# Campos que trariam o valor de um segredo pelo agente: recusados no item_save.
+VALUE_FIELDS = frozenset({"value", "valor", "secret_value", "secret", "token", "password",
+                          "senha", "api_key", "apikey"})
+# Palavra com cara de credencial aleatória (16+ caracteres, maiúscula, minúscula e dígito).
+_RANDOM_WORD = re.compile(r"\S{16,}")
+
+
+def _looks_random(text: str | None) -> bool:
+    for word in _RANDOM_WORD.findall(text or ""):
+        if (any(c.islower() for c in word) and any(c.isupper() for c in word)
+                and any(c.isdigit() for c in word)):
+            return True
+    return False
 
 UPDATABLE_FIELDS = (
     "title", "type", "summary", "content", "confidence", "importance", "ttl_days",
@@ -248,6 +264,11 @@ class ItemService:
     def _apply(self, s: Session, item: Item, fields: dict[str, Any]) -> bool:
         """Aplica campos ao item na sessão. True se algo mudou."""
         changed = False
+        new_type = fields.get("type", item.type)
+        if item.type == "secret" and new_type != "secret" and item.has_value:
+            raise ValidationError(
+                "Este segredo tem valor. Apague o valor (na UI) antes de mudar o tipo do item."
+            )
         if item.memory_class == "ephemeral" and fields.get("ttl_days", item.ttl_days) is None:
             raise ValidationError("ttl_days é obrigatório para memory_class 'ephemeral'")
         for name, value in fields.items():
@@ -396,6 +417,30 @@ class ItemService:
         plans = []
         for i, raw in enumerate(entries):
             e = dict(raw)
+            if VALUE_FIELDS & {str(k).lower() for k in e}:
+                raise ValidationError(
+                    f"Entrada {i}: o valor de um segredo não passa pelo agente. Grave o item "
+                    "(type secret) sem valor e passe ao usuário o fill_url da resposta: ele "
+                    "preenche na UI local."
+                )
+            if e.get("type") == "secret" and not e.get("key") and not e.get("id"):
+                raise ValidationError(
+                    f"Entrada {i}: segredo precisa de key (segredo/<nome>): é por ela que o "
+                    "knowledge-mcp run o encontra."
+                )
+            if e.get("type") == "secret":
+                if e.get("content") and e.get("content") != e.get("summary"):
+                    raise ValidationError(
+                        f"Entrada {i}: segredo não tem corpo — só title e summary (para que "
+                        "serve). O valor vai pela UI (fill_url)."
+                    )
+                if any(_looks_random(e.get(f)) for f in ("title", "summary", "keywords")):
+                    raise ValidationError(
+                        f"Entrada {i}: o texto do segredo parece conter a credencial. Descreva "
+                        "só para que serve; o valor vai pela UI (fill_url)."
+                    )
+                if e.get("summary"):
+                    e["content"] = e["summary"]  # o resumo diz para que serve
             relations = e.pop("relations", None) or []
             item_id, key = e.pop("id", None), e.pop("key", None)
             ws, dm = e.pop("workspace", None), e.pop("domain", None)
@@ -501,6 +546,7 @@ class ItemService:
                 )
             )
             s.execute(delete(Artifact).where(Artifact.item_id == item_id))
+            s.execute(delete(SecretValue).where(SecretValue.item_id == item_id))
             s.expire(item, ["tags", "labels"])
             s.delete(item)
             s.commit()

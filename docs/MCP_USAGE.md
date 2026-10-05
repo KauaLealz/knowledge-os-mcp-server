@@ -101,7 +101,26 @@ do mesmo domain, inclusive de um item criado no mesmo lote.
 ### Erros
 
 - Um erro desfaz o lote inteiro e aponta a entrada (`Entrada 1 (regra/x): ...`).
-- Segredos são recusados sem eco do valor: descreva onde o valor fica, não o valor.
+- Segredos são recusados sem eco do valor em itens comuns: grave um item `secret` sem valor.
+
+### Segredos
+
+```python
+item_save(project=".", items=[{"key": "segredo/npm-token", "type": "secret",
+  "title": "Token do npm", "summary": "Publicar pacotes no npm"}])
+# → [{..., "has_value": false, "fill_url": "http://127.0.0.1:8765/ui/#/c/default/w/.../i/..."}]
+```
+
+Passe o `fill_url` ao usuário: ele preenche o valor na UI local. Nunca peça o valor no chat
+(`value`/`valor` no `item_save` é recusado). O pacote de contexto lista os segredos com o estado
+e, quando há valor, como usar:
+
+```bash
+knowledge-mcp run --env NPM_TOKEN=segredo/npm-token -- npm publish
+knowledge-mcp run --stdin segredo/registry -- docker login -u ci --password-stdin registry.x
+```
+
+Sem valor, o `run` não roda o comando e devolve o link para preencher.
 
 ## Administração (perfil `all`)
 
@@ -133,6 +152,6 @@ administração aceitam `connection_id` opcional (sem ele, o catálogo `default`
 | "Projeto não ligado" | `project_link` ou `/plumb-setup` |
 | Busca não acha | sinônimo; `include_inactive=True` se pode ter sido substituído |
 | `Entrada N (...)` | corrija a entrada N; nada do lote foi gravado |
-| "parece conter um segredo" | tire o valor; descreva onde ele fica |
+| "parece conter um segredo" | tire o valor; crie um item `secret` sem valor e passe o `fill_url` ao usuário |
 | Servidor fora do ar | o Plumb segue com aviso e guarda em `~/.knowledge-os/pending.jsonl` (uma entrada de `item_save` por linha, com `project`); o hook da próxima sessão grava, ou `knowledge-mcp pending` |
 | Banco remoto inacessível | `health_check`; a UI testa a conexão |

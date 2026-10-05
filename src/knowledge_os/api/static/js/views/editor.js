@@ -35,7 +35,8 @@ export function register(Alpine) {
   Alpine.data('itemEditor', (item, applyUpdate) => {
     let beforeUnload = null; // fora do estado reativo
     return {
-      types: ITEM_TYPES,
+      // Segredo só nasce pelo agente; ao editar um, o tipo dele continua na lista.
+      types: item.type === 'secret' ? ['secret', ...ITEM_TYPES] : ITEM_TYPES,
       draft: pick(item),
       saved: pick(item),
       saving: false,

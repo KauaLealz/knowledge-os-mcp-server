@@ -59,6 +59,7 @@ USE_SQLCIPHER: bool = DB_KEY is not None
 
 # Logging
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper()
+UI_DEFAULT_PORT = 8765  # UI local (127.0.0.1); o link para preencher segredos aponta para ela
 
 if SQLCIPHER_REQUESTED and DB_KEY is None:
     logger.warning(

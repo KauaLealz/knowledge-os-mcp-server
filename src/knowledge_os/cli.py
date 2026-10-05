@@ -16,7 +16,7 @@ from typing import Any
 
 from knowledge_os import __version__
 
-BRAIN_COMMANDS = ("context", "recent", "pending", "link", "backup")
+BRAIN_COMMANDS = ("context", "recent", "pending", "link", "backup", "run")
 PENDING_NAME = "pending.jsonl"  # no home do cérebro, fora de qualquer repositório
 LEGACY_PENDING = Path(".plumb") / "pending-brain.jsonl"  # versões antigas do Plumb
 HOOK_BUDGET = 1200
@@ -46,8 +46,20 @@ def _parser() -> argparse.ArgumentParser:
 
     lnk = sub.add_parser("link", help="liga o projeto a um workspace/domain")
     lnk.add_argument("--project", default=".")
-    lnk.add_argument("--workspace", help="padrão: o nome do repositório")
-    lnk.add_argument("--domain", help="padrão: Geral")
+    lnk.add_argument("--workspace",
+                     help="padrão: o de outro repo do mesmo dono já ligado, ou o nome do dono")
+    lnk.add_argument("--domain", help="padrão: o nome do repositório")
+
+    run = sub.add_parser(
+        "run", help="roda um comando com segredos do cérebro, sem shell, com a saída redigida",
+        description="Ex.: knowledge-mcp run --env NPM_TOKEN=segredo/npm-token -- npm publish",
+    )
+    run.add_argument("--env", action="append", default=[], metavar="VAR=segredo/<nome>",
+                     help="variável de ambiente do comando com o valor do segredo (repetível)")
+    run.add_argument("--stdin", metavar="segredo/<nome>",
+                     help="entrega o valor no stdin (ex.: docker login --password-stdin)")
+    run.add_argument("--project", default=".", help="pasta do projeto (padrão: atual)")
+    run.add_argument("cmd", nargs=argparse.REMAINDER, help="-- comando e argumentos")
     return p
 
 
@@ -335,6 +347,31 @@ def _backup(args: argparse.Namespace) -> int:
     return 0 if path else 1
 
 
+def _run(args: argparse.Namespace) -> int:
+    cmd = args.cmd[1:] if args.cmd[:1] == ["--"] else args.cmd
+    if not cmd:
+        print("Erro: informe o comando depois de --", file=sys.stderr)
+        return 1
+    pairs = []
+    for spec in args.env:
+        var, sep, key = spec.partition("=")
+        if not sep or not var or not key:
+            print(f"Erro: --env espera VAR=segredo/<nome>, recebi {spec!r}", file=sys.stderr)
+            return 1
+        pairs.append((var, key))
+    if not pairs and not args.stdin:
+        print("Erro: informe --env VAR=segredo/<nome> ou --stdin segredo/<nome>", file=sys.stderr)
+        return 1
+    _init()
+    from knowledge_os.services.secret_run import run
+    from knowledge_os.services.secret_service import SecretService
+
+    secrets = SecretService()
+    values = {var: secrets.resolve(args.project, key)[1] for var, key in pairs}
+    stdin_value = secrets.resolve(args.project, args.stdin)[1] if args.stdin else None
+    return run(cmd, values, stdin_value)
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["--version"]:
@@ -344,12 +381,13 @@ def main(argv: list[str] | None = None) -> int:
         from knowledge_os.main import main as server_main
 
         return server_main(argv)
-    if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
-        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+    for stream in (sys.stdout, sys.stderr):
+        if stream.encoding and stream.encoding.lower() not in ("utf-8", "utf8"):
+            stream.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
     args = _parser().parse_args(argv)
     try:
         return {"context": _context, "recent": _recent, "pending": _pending,
-                "link": _link, "backup": _backup}[args.command](args)
+                "link": _link, "backup": _backup, "run": _run}[args.command](args)
     except Exception as exc:  # noqa: BLE001
         print(f"Erro: {exc}", file=sys.stderr)
         return 1

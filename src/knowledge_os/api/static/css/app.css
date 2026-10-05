@@ -439,3 +439,12 @@ body { overflow-x: clip; }
 .tchip.on { background: color-mix(in srgb, var(--tc, var(--accent)) 14%, transparent); border-color: var(--tc, var(--accent)); color: var(--tc, var(--accent-text)); }
 .tchip.on .n { color: inherit; }
 .btn.sm { padding: 3px 8px; font-size: 13px; }
+
+/* Segredo: formulário do valor (só escrita) */
+.secret-box { margin: 4px 0 20px; gap: 10px; }
+.secret-box:hover { border-color: var(--border); background: var(--bg); }
+.secret-note { margin: 0; color: var(--text-2); font-size: 13.5px; line-height: 1.5; }
+.secret-form { display: flex; flex-wrap: wrap; gap: 8px; }
+.secret-form .input { flex: 1; min-width: 220px; }
+.secret-form textarea { flex: 1 1 100%; min-height: 120px; font-family: var(--font-mono, monospace); }
+.secret-multi { display: flex; align-items: center; gap: 6px; color: var(--text-2); font-size: 13px; }

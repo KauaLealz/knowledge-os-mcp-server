@@ -19,7 +19,9 @@ paths=[arquivos], query=tema)`. Dúvida: `item_search(query)`, `item_get(keys=[.
   pagamento, dados pessoais, tenant e segredos.
 - Não é item: bug ou dívida, andamento, medição datada, número de linha, id de tarefa, o que se
   redescobre lendo um arquivo. Ambiente da máquina e ferramenta em geral vão para o `Global`.
-- Nunca segredos nem dados pessoais.
+- Segredo (token, senha): item `secret` `segredo/<nome>` sem valor; passe ao usuário o
+  `fill_url` da resposta (ele preenche na UI). Nunca peça o valor no chat. Usar:
+  `knowledge-mcp run --env VAR=segredo/<nome> -- <comando>`. Dado pessoal: nunca.
 
 **Sem ligação:** `/plumb-setup` ou `project_link(project=".")`. **Fora do ar:** siga, avise e
 guarde em `~/.knowledge-os/pending.jsonl` (uma entrada por linha, com `project`).

@@ -26,6 +26,8 @@ def _isolated_home(tmp_path, monkeypatch):
     home = tmp_path / "home"
     monkeypatch.setattr(config, "KNOWLEDGE_HOME", home)
     monkeypatch.setattr(ConfigManager, "CONNECTIONS_FILE", home / "connections.json")
+    # Chave mestra dos segredos por variável: teste nunca toca o keyring da máquina.
+    monkeypatch.setenv("KNOWLEDGE_OS_VAULT_KEY", "dGVzdGUtdGVzdGUtdGVzdGUtdGVzdGUtdGVzdGUtMTI=")
     return home
 
 

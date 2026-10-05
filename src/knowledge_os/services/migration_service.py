@@ -20,7 +20,7 @@ CHUNK = 500
 # Ordem de cópia: respeita as FKs.
 TABLES = (
     "workspaces", "domains", "tags", "labels", "items",
-    "item_tags", "item_labels", "relations", "artifacts",
+    "item_tags", "item_labels", "relations", "artifacts", "secret_values",
 )
 # Tabelas cujo registro é identificado pelo nome: se já existe no destino, reaproveita.
 MERGE_BY_NAME = {"tags": "item_tags", "labels": "item_labels"}

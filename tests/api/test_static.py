@@ -77,12 +77,21 @@ def _static_files():
     return [f for f in STATIC.rglob("*") if f.is_file()]
 
 
-def test_campo_de_senha_so_na_view_de_conexoes():
+SECRET_OPEN = "<!-- Segredo · valor -->"
+SECRET_CLOSE = "<!-- /Segredo · valor -->"
+
+
+def test_campo_de_senha_so_nas_conexoes_e_no_valor_do_segredo():
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     assert CONN_OPEN in html and CONN_CLOSE in html
     inside = html[html.index(CONN_OPEN):html.index(CONN_CLOSE)]
-    assert html.count('type="password"') == inside.count('type="password"') == 1
+    secret = html[html.index(SECRET_OPEN):html.index(SECRET_CLOSE)]
+    assert inside.count('type="password"') == secret.count('type="password"') == 1
+    assert html.count('type="password"') == 2
     assert 'autocomplete="new-password"' in inside
+    # o do segredo não oferece "salvar senha" no navegador nem fica num <form>
+    assert 'autocomplete="off"' in secret and "data-1p-ignore" in secret
+    assert "<form" not in secret
     for f in _static_files():
         if f.name != "index.html":
             text = f.read_text(encoding="utf-8")

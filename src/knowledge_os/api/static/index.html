@@ -507,14 +507,35 @@
                           <svg class="ic"><use :href="'#i-' + ($store.app.route.params.edit ? 'eye' : 'edit')"/></svg>
                           <span x-text="$store.app.route.params.edit ? 'Ler' : 'Editar'"></span> <kbd>e</kbd>
                         </button>
-                        <button class="btn" x-show="!$store.app.route.params.edit" @click="copyMarkdown()"><svg class="ic"><use href="#i-copy"/></svg> Copiar como Markdown</button>
-                        <button class="btn" x-show="!$store.app.route.params.edit" :aria-pressed="showRaw" @click="showRaw = !showRaw">
+                        <button class="btn" x-show="!$store.app.route.params.edit && item.type !== 'secret'" @click="copyMarkdown()"><svg class="ic"><use href="#i-copy"/></svg> Copiar como Markdown</button>
+                        <button class="btn" x-show="!$store.app.route.params.edit && item.type !== 'secret'" :aria-pressed="showRaw" @click="showRaw = !showRaw">
                           <svg class="ic"><use href="#i-eye"/></svg> <span x-text="showRaw ? 'Ver renderizado' : 'Ver Markdown'"></span>
                         </button>
                       </div>
                     </div>
 
                     <p class="page-lead" x-text="item.summary"></p>
+
+                    <!-- Segredo · valor -->
+                    <template x-if="item.type === 'secret' && !$store.app.route.params.edit">
+                      <section class="card secret-box" x-data="secretForm(item, (u) => applyUpdate(u))">
+                        <div class="card-title"><span x-text="item.has_value ? 'Valor definido' : 'Sem valor'"></span></div>
+                        <p class="secret-note">O valor fica cifrado nesta máquina e nunca é mostrado de volta. O agente só o usa rodando <code>knowledge-mcp run</code>, sem ver o valor.</p>
+                        <div class="secret-form">
+                          <input class="input" type="password" autocomplete="off" data-1p-ignore data-lpignore="true" spellcheck="false" aria-label="Valor do segredo"
+                                 x-show="!multiline" @keydown.enter.prevent="save()"
+                                 :placeholder="item.has_value ? 'Novo valor (substitui o atual)' : 'Cole o valor aqui'" x-model="value">
+                          <textarea class="input mono" rows="6" autocomplete="off" data-1p-ignore data-lpignore="true" spellcheck="false" aria-label="Valor do segredo (várias linhas)"
+                                    x-show="multiline" placeholder="Cole a chave ou o arquivo aqui" x-model="value"></textarea>
+                          <button class="btn primary" type="button" :disabled="!value || busy" @click="save()">Salvar</button>
+                          <button class="btn danger" type="button" x-show="item.has_value" :disabled="busy" @click="clear()"
+                                  x-text="confirming ? 'Confirmar: apagar' : 'Apagar valor'"></button>
+                        </div>
+                        <label class="secret-multi"><input type="checkbox" x-model="multiline"> Várias linhas (chave PEM, kubeconfig) — o texto fica visível enquanto você cola</label>
+                        <span class="form-error" x-show="error" x-text="error" role="alert"></span>
+                      </section>
+                    </template>
+                    <!-- /Segredo · valor -->
 
                     <div class="chips">
                       <span class="tbadge lg" :class="$tc(item.type)"><span class="tdot" aria-hidden="true"></span><span x-text="$tlabel(item.type)"></span></span>
@@ -523,7 +544,7 @@
                       <span class="muted" style="font-size:12.5px" :title="fullDate(item.updated_at)" x-text="'atualizado ' + $ago(item.updated_at)"></span>
                     </div>
 
-                    <template x-if="!$store.app.route.params.edit">
+                    <template x-if="!$store.app.route.params.edit && item.type !== 'secret'">
                       <div>
                         <div class="prose" x-show="!showRaw" @click="onProseClick($event)"
                              x-effect="renderInto($el, item.content)"></div>

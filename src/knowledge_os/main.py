@@ -18,6 +18,7 @@ from sqlalchemy import inspect, text  # noqa: E402
 
 from knowledge_os.config import (  # noqa: E402
     LOG_LEVEL,
+    UI_DEFAULT_PORT,
     ConfigManager,
     ensure_home,
     validate_and_init_config,
@@ -32,7 +33,6 @@ logger = logging.getLogger(__name__)
 from knowledge_os import __version__  # noqa: E402
 from knowledge_os.mcp.toolset import selected_toolset  # noqa: E402
 
-UI_DEFAULT_PORT = 8765
 _MCP_DIR = Path(__file__).resolve().parent / "mcp"
 INSTRUCTIONS_FILE = _MCP_DIR / "INSTRUCTIONS.md"
 AGENT_INSTRUCTIONS_FILE = _MCP_DIR / "INSTRUCTIONS_AGENT.md"

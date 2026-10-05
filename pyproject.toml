@@ -23,6 +23,9 @@ dependencies = [
     "fastapi>=0.110.0",
     "uvicorn>=0.27.0",
     "python-multipart>=0.0.9",
+    # Segredos: cifra Fernet e chave mestra no keyring do sistema.
+    "cryptography>=42",
+    "keyring>=24",
 ]
 
 [project.optional-dependencies]

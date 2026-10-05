@@ -1,6 +1,7 @@
 """Rotas de items (CRUD, busca FTS e ajustes de confidence/importance/memory_class)."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
@@ -18,6 +19,7 @@ from knowledge_os.schemas.item_schemas import ITEM_TYPES, ItemSearchResult
 from knowledge_os.services._common import tiebreak
 from knowledge_os.services.item_service import ItemService
 from knowledge_os.services.memory_service import MemoryService
+from knowledge_os.services.secret_service import SecretService
 
 router = APIRouter()
 
@@ -136,3 +138,27 @@ def set_memory_class(
 ):
     item = MemoryService(session).promote(id, req.memory_class)
     return ItemResponse.from_item(item)
+
+
+# Valor de segredo: entra só por aqui (o formulário da UI) e nenhuma rota o devolve. O corpo é
+# lido à mão para que um erro de validação nunca ecoe o valor (o 422 padrão traz o `input`).
+@router.put("/items/{id}/secret", status_code=status.HTTP_204_NO_CONTENT)
+async def set_secret_value(
+    id: str, request: Request, engine: Engine = Depends(get_engine_dep)
+) -> Response:
+    try:
+        body = await request.json()
+    except ValueError:
+        raise HTTPException(422, "Corpo deve ser JSON: {\"value\": \"...\"}") from None
+    value = body.get("value") if isinstance(body, dict) else None
+    if not isinstance(value, str) or not value:
+        raise HTTPException(422, "Informe value (texto não vazio)")
+    # keyring e retry do SQLite bloqueiam: fora do event loop da UI
+    await run_in_threadpool(SecretService(engine).set_value, id, value)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete("/items/{id}/secret", status_code=status.HTTP_204_NO_CONTENT)
+def clear_secret_value(id: str, engine: Engine = Depends(get_engine_dep)) -> Response:
+    SecretService(engine).clear_value(id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

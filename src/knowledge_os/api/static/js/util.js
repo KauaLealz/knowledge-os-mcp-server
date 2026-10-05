@@ -62,7 +62,7 @@ export const TYPE_META = {
   secret: { label: 'Segredo', plural: 'Segredos' },
 };
 export const TYPE_ORDER = Object.keys(TYPE_META);
-/** Tipos que o usuário pode escolher ao criar um item (segredo ainda não é criado pela UI). */
+/** Tipos que o usuário pode escolher ao criar um item (segredo nasce pelo agente; a UI só preenche o valor). */
 export const ITEM_TYPES = TYPE_ORDER.filter((t) => t !== 'secret');
 
 export function typeLabel(type) {

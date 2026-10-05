@@ -17,6 +17,7 @@ from knowledge_os.services.context_service import ContextService
 from knowledge_os.services.item_service import ItemService
 from knowledge_os.services.project_service import ProjectService
 from knowledge_os.services.relation_service import RelationService
+from knowledge_os.services.secret_service import SecretService
 
 MAX_GET = 20
 
@@ -167,13 +168,19 @@ def item_save(
         (sem aprovação: o resto já vale), tags, labels, relations
         [{type: related_to|depends_on|implements|references|supersedes|derived_from, target: id
         ou key}], workspace/domain (sem eles vale o domain ligado a `project`).
+    **Segredo:** {"key": "segredo/npm-token", "type": "secret", "title": "Token do npm",
+        "summary": "publicar no npm"} — sem valor (é recusado); a resposta traz `fill_url`:
+        passe ao usuário para ele preencher na UI local. Usar: `knowledge-mcp run --env
+        NPM_TOKEN=segredo/npm-token -- <comando>`.
     **Notas:** Um erro desfaz o lote e aponta a entrada. Conteúdo com cara de segredo é recusado.
     """
     default = None
     if project:
         link = ProjectService(connection_id=connection_id).require(project)
         default = (link["workspace_id"], link["domain_id"])
-    return ItemService(connection_id=connection_id).save(items, default_location=default)
+    results = ItemService(connection_id=connection_id).save(items, default_location=default)
+    secrets = SecretService(connection_id=connection_id).describe([r["id"] for r in results])
+    return [{**r, **secrets.get(r["id"], {})} for r in results]
 
 
 def project_link(

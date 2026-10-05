@@ -19,6 +19,7 @@ from knowledge_os.db.timeutil import utcnow
 from knowledge_os.schemas.item_schemas import decode_paths
 from knowledge_os.services.item_service import ItemService
 from knowledge_os.services.project_service import ProjectService, project_key
+from knowledge_os.services.secret_service import fill_url
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ _SECTIONS: tuple[tuple[str, tuple[str, ...], int], ...] = (
     ("Decisões recentes", ("insight",), 8),
     ("Padrões", ("pattern",), 10),
     ("Procedimentos", ("procedure",), 15),
+    ("Segredos (o valor nunca passa por você)", ("secret",), 15),
     ("Aprendizados e gotchas", ("knowledge",), 10),
 )
 
@@ -70,6 +72,14 @@ def _line(item: Item, scope: list[str] | None = None) -> str:
     return f"- **{item.title}** — {item.summary.strip()}{where}{key}"
 
 
+def _secret_line(item: Item, url: str) -> str:
+    if item.has_value:
+        use = f"usar: `knowledge-mcp run --env VAR={item.key or item.id} -- <comando>`"
+    else:
+        use = f"sem valor — peça ao usuário para preencher em {url}"
+    return f"- **{item.title}** — {item.summary.strip()} · {use}"
+
+
 class ContextService:
     def __init__(self, engine: Engine | None = None, connection_id: str | None = None) -> None:
         self._engine = engine
@@ -78,7 +88,7 @@ class ContextService:
     def _get_engine(self) -> Engine:
         return self._engine if self._engine is not None else get_engine(self._connection_id)
 
-    def _domain_ids(self, link: dict[str, str]) -> list[str]:
+    def domain_chain(self, link: dict[str, str]) -> list[str]:
         """Domain do projeto + `Geral` do workspace + `Global/Geral`, quando existirem."""
         session = get_session(self._get_engine())
         try:
@@ -187,7 +197,7 @@ class ContextService:
                 ),
             }
         paths = paths or []
-        items = self._items(self._domain_ids(link))
+        items = self._items(self.domain_chain(link))
         budget = max(budget_tokens, 200) * CHARS_PER_TOKEN
         out = [f"# Segundo cérebro — {link['workspace']} / {link['domain']}"]
         used = len(out[0])
@@ -262,7 +272,9 @@ class ContextService:
             out.append(header)
             used += len(header)
             for item, scope in chosen[:limit]:
-                if add(_line(item, scope)):
+                line = (_secret_line(item, fill_url(item, self._connection_id))
+                        if item.type == "secret" else _line(item, scope))
+                if add(line):
                     listed.add(item.id)
             omitted += max(0, len(chosen) - limit)
 

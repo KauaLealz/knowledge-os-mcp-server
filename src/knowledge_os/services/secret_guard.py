@@ -50,6 +50,7 @@ def ensure_no_secrets(**fields: str | None) -> None:
         kind = find_secret(value)
         if kind:
             raise ValidationError(
-                f"'{name}' parece conter um segredo ({kind}). Segredos não entram na base: "
-                "guarde só onde o valor fica (ex.: variável de ambiente) e descreva sem o valor."
+                f"'{name}' parece conter um segredo ({kind}). O valor não entra em itens: "
+                "grave um item type secret (key segredo/<nome>) sem valor e passe ao usuário "
+                "o fill_url da resposta, para ele preencher na UI local."
             )
