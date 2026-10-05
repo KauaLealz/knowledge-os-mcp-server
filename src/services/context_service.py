@@ -6,6 +6,7 @@ tokens, avisando o que ficou de fora. Nunca traz `content`: só título, resumo 
 """
 
 import fnmatch
+import logging
 from datetime import datetime
 from typing import Any
 
@@ -13,10 +14,12 @@ from sqlalchemy import Engine, func, or_, select, update
 
 from src.db.models import Domain, Item, Workspace
 from src.db.search_query import strip_accents
-from src.db.session import get_engine, get_session
+from src.db.session import get_engine, get_session, run_with_retry
 from src.schemas.item_schemas import decode_paths
 from src.services.item_service import ItemService
 from src.services.project_service import ProjectService, project_key
+
+logger = logging.getLogger(__name__)
 
 GLOBAL_WORKSPACE = "Global"  # preferências e regras pessoais que valem em todo projeto
 COMMON_DOMAIN = "Geral"  # dentro de um workspace: o que vale para todos os seus projetos
@@ -138,6 +141,12 @@ class ContextService:
         """Conta o uso dos itens trazidos em foco (alimenta a limpeza da /plumb-retro)."""
         if not ids:
             return
+        try:
+            run_with_retry(lambda: self._count(ids))
+        except Exception as exc:  # contar uso nunca derruba a leitura do contexto
+            logger.debug("Contagem de uso ignorada: %s", exc)
+
+    def _count(self, ids: set[str]) -> None:
         session = get_session(self._get_engine())
         try:
             session.execute(

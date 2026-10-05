@@ -26,7 +26,13 @@ from src.db.models import (
     Workspace,
 )
 from src.db.search_query import match_expressions
-from src.db.session import connection_id_of, default_connection_id, get_engine, get_session
+from src.db.session import (
+    connection_id_of,
+    default_connection_id,
+    get_engine,
+    get_session,
+    run_with_retry,
+)
 from src.exceptions import NotFoundError, ValidationError
 from src.schemas.item_schemas import MEMORY_CLASSES, ItemCreate, ItemUpdate
 from src.services.secret_guard import ensure_no_secrets
@@ -126,6 +132,11 @@ class ItemService:
 
     def ensure_location(self, workspace: str, domain: str) -> tuple[str, str]:
         """Resolve workspace e domain por nome ou id, criando os que não existem."""
+        return run_with_retry(
+            lambda: self._ensure_location_once(workspace, domain), retry_conflict=True
+        )
+
+    def _ensure_location_once(self, workspace: str, domain: str) -> tuple[str, str]:
         with self._session() as s:
             ws = s.scalar(
                 select(Workspace).where(
@@ -398,10 +409,15 @@ class ItemService:
             fields = {k: v for k, v in e.items() if v is not None}
             plans.append((i, item_id, key, location, fields, relations))
 
+        return run_with_retry(lambda: self._save_plans(plans))
+
+    def _save_plans(self, plans: list[tuple]) -> list[dict[str, Any]]:
+        """Executa o plano numa transação (reexecutável: cada tentativa copia os campos)."""
         results: list[dict[str, Any]] = []
         links: list[tuple[int, Item, dict[str, Any]]] = []
         with self._session() as s:
             for i, item_id, key, location, fields, relations in plans:
+                fields = dict(fields)  # o ramo de id consome `memory_class` com pop
                 label = key or item_id or fields.get("title", "?")
                 similar: list[dict[str, Any]] = []
                 try:
@@ -606,18 +622,23 @@ class ItemService:
                 for r in rows
             ]
             if results and track:
-                s.execute(
-                    update(Item)
-                    .where(Item.id.in_([r["id"] for r in results]))
-                    .values(
-                        access_count=func.coalesce(Item.access_count, 0) + 1,
-                        last_accessed=datetime.utcnow(),
-                        updated_at=Item.updated_at,  # busca não conta como edição
-                    )
-                    .execution_options(synchronize_session=False)
-                )
-                s.commit()
+                ids = [r["id"] for r in results]
+                run_with_retry(lambda: self._count_use(ids))
             return results
+
+    def _count_use(self, ids: list[str]) -> None:
+        with self._session() as s:
+            s.execute(
+                update(Item)
+                .where(Item.id.in_(ids))
+                .values(
+                    access_count=func.coalesce(Item.access_count, 0) + 1,
+                    last_accessed=datetime.utcnow(),
+                    updated_at=Item.updated_at,  # busca não conta como edição
+                )
+                .execution_options(synchronize_session=False)
+            )
+            s.commit()
 
     def similar(self, workspace_id: str, title: str, limit: int = 3) -> list[dict[str, Any]]:
         """Itens ativos do workspace com título parecido (para avisar antes de duplicar)."""

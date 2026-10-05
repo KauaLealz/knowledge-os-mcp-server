@@ -2,9 +2,12 @@
 
 import logging
 import threading
+import time
+from collections.abc import Callable
+from typing import TypeVar
 
 from sqlalchemy import Engine
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.config import DB_URL, ConfigManager, ConnectionConfig, config_error
@@ -21,6 +24,12 @@ from src.exceptions import DatabaseError, NotFoundError, ValidationError
 
 logger = logging.getLogger(__name__)
 
+T = TypeVar("T")
+
+RETRY_BUDGET_S = 10.0  # teto total de espera em retentativas
+RETRY_FIRST_WAIT_S = 0.05  # primeira espera; dobra a cada tentativa (teto de 1 s)
+_LOCK_MARKERS = ("database is locked", "database table is locked", "busy")
+
 __all__ = [
     "FTS_COLUMNS",
     "FTS_TABLE",
@@ -36,7 +45,50 @@ __all__ = [
     "get_engine",
     "get_session",
     "init_db",
+    "run_with_retry",
 ]
+
+
+def is_lock_error(exc: BaseException) -> bool:
+    """OperationalError de trava (SQLite: "database is locked" / "busy")."""
+    return isinstance(exc, OperationalError) and any(
+        m in str(exc.orig if exc.orig is not None else exc).lower() for m in _LOCK_MARKERS
+    )
+
+
+def run_with_retry(work: Callable[[], T], *, retry_conflict: bool = False) -> T:
+    """Reexecuta a unidade de trabalho inteira enquanto o banco estiver travado.
+
+    Espera crescente até `RETRY_BUDGET_S`; no fim converte para DatabaseError legível.
+    `work` deve abrir e fechar a própria sessão (cada tentativa recomeça do zero). Com
+    `retry_conflict`, uma IntegrityError também reexecuta (outro processo criou a mesma
+    linha primeiro: na nova tentativa ela já existe).
+    """
+    deadline = time.monotonic() + RETRY_BUDGET_S
+    wait = RETRY_FIRST_WAIT_S
+    attempts = 0
+    while True:
+        attempts += 1
+        try:
+            return work()
+        except OperationalError as exc:
+            if not is_lock_error(exc):
+                raise
+            last: Exception = exc
+        except IntegrityError as exc:
+            if not retry_conflict or attempts >= 5:
+                raise
+            last = exc
+        if time.monotonic() + wait > deadline:
+            if isinstance(last, IntegrityError):
+                raise last
+            raise DatabaseError(
+                "Banco ocupado por outro processo: a gravação não conseguiu a trava a tempo. "
+                "Tente de novo em instantes."
+            ) from last
+        logger.debug("Banco ocupado, nova tentativa em %.2fs", wait)
+        time.sleep(wait)
+        wait = min(wait * 2, 1.0)
 
 
 def create_db_engine(url: str = DB_URL) -> Engine:

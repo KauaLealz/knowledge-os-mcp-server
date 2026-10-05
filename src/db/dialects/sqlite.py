@@ -1,6 +1,7 @@
 """Dialect SQLite: WAL + FTS5 (tabela external content + triggers)."""
 
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,16 @@ from src.exceptions import DatabaseError
 
 logger = logging.getLogger(__name__)
 
+BUSY_TIMEOUT_MS = 15000  # espera por trava de outro processo antes do "database is locked"
+
+
+def _busy_timeout_ms() -> int:
+    """15 s por padrão; KNOWLEDGE_OS_BUSY_TIMEOUT_MS existe para os testes."""
+    try:
+        return int(os.environ.get("KNOWLEDGE_OS_BUSY_TIMEOUT_MS", BUSY_TIMEOUT_MS))
+    except ValueError:
+        return BUSY_TIMEOUT_MS
+
 
 def _set_sqlite_pragmas(dbapi_connection: Any, connection_record: Any) -> None:
     """Aplica PRAGMAs em cada nova conexão SQLite."""
@@ -27,7 +38,7 @@ def _set_sqlite_pragmas(dbapi_connection: Any, connection_record: Any) -> None:
     try:
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA synchronous=NORMAL")
-        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.execute(f"PRAGMA busy_timeout={_busy_timeout_ms()}")
         cursor.execute("PRAGMA foreign_keys=ON")
     finally:
         cursor.close()
@@ -88,9 +99,9 @@ def _normalize(sql: str) -> str:
 class SQLiteDialect(DatabaseDialect):
     @staticmethod
     def create_engine(url: str) -> Engine:
-        """Engine SQLite com WAL, synchronous=NORMAL, busy_timeout=5000 e foreign_keys=ON."""
+        """Engine SQLite com WAL, synchronous=NORMAL, busy_timeout=15000 e foreign_keys=ON."""
         kwargs: dict[str, Any] = {"echo": False}
-        connect_args: dict[str, Any] = {"check_same_thread": False, "timeout": 10}
+        connect_args: dict[str, Any] = {"check_same_thread": False}
         if url.endswith(":memory:") or url.endswith("sqlite://"):
             # Banco em memória: uma única conexão compartilhada, senão cada conexão
             # enxergaria um banco vazio diferente.
