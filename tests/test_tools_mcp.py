@@ -126,7 +126,8 @@ def test_item_save_modos_e_erros(server):
     msg = fails(server, "item_save", project=PROJECT, items=[
         {"key": "ok", **RULE, "title": "ok"}, {"key": "ruim", **RULE, "title": "x", "type": "?"}])
     assert "Entrada 1" in msg
-    assert fails(server, "item_get", keys=["ok"], project=PROJECT)  # o lote foi desfeito
+    gone = call(server, "item_get", keys=["ok"], project=PROJECT)
+    assert gone == [{"key": "ok", "missing": True}]  # o lote foi desfeito
 
     assert "project" in fails(server, "item_save", items=[{**RULE, "title": "sem lugar"}])
     assert "não ligado" in fails(server, "item_search", query="x", project="github.com/o/n")

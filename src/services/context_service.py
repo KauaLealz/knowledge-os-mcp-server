@@ -184,7 +184,7 @@ class ContextService:
 
         if omitted:
             out.append(f"\n_{omitted} item(ns) fora do orçamento: use item_search._")
-        out.append("\n_Detalhe de um item: item_get(key=..., project=...)._")
+        out.append('\n_Detalhe de um item: item_get(keys=[...], project=".")._')
         return {
             "linked": True, "project_key": link["project_key"], "workspace": link["workspace"],
             "domain": link["domain"], "markdown": "\n".join(out), "included": included,

@@ -31,6 +31,9 @@ def _mk(svc, ws, dm, **over):
 def test_radical_ptbr_junta_singular_plural_e_verbo():
     assert stem("migracao") == stem("migracoes") == stem("migrar") == "migr"
     assert terms("Migrações de dados") == ["migr", "dado"]
+    assert stem("idempotencia") == stem("idempotente") == "idempot"
+    assert stem("pendencias") == stem("pendente") == "pend"
+    assert stem("cliente") == "cliente"  # radical curto demais: não corta
 
 
 def test_consulta_vira_prefixos_and_e_or():

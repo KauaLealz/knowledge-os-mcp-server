@@ -9,7 +9,7 @@ from typing import Any
 
 from fastmcp import FastMCP
 
-from src.exceptions import ValidationError
+from src.exceptions import NotFoundError, ValidationError
 from src.schemas.item_schemas import ItemResponse, ItemSearchRequest, ItemSearchResult
 from src.schemas.relation_schemas import RelationListResponse
 from src.services.artifact_service import ArtifactService
@@ -91,7 +91,8 @@ def item_get(
     """Lê itens completos (content, tags, relações, anexos) por id e/ou key, vários de uma vez.
 
     **Use quando:** O resumo da busca ou do contexto não bastou.
-    **Retorna:** Lista de itens completos, na ordem pedida.
+    **Retorna:** Lista de itens completos, na ordem pedida; o que não existe vem como
+        {key|id, missing: true}, sem derrubar os outros.
     **Exemplo:** item_get(keys=["regra/money", "proc/deploy"], project=".")
     **Notas:** keys exigem project (o domain ligado) ou workspace e domain. Até 20 por chamada.
     """
@@ -101,7 +102,14 @@ def item_get(
     if len(ids) + len(keys) > MAX_GET:
         raise ValidationError(f"No máximo {MAX_GET} itens por chamada")
     svc = ItemService(connection_id=connection_id)
-    items = [svc.get(i) for i in ids]
+
+    def fetch(getter: Any, ref: dict[str, str]) -> Any:
+        try:
+            return getter()
+        except NotFoundError:
+            return {**ref, "missing": True}
+
+    items = [fetch(lambda i=i: svc.get(i), {"id": i}) for i in ids]
     if keys:
         if project:
             domain_id = ProjectService(connection_id=connection_id).require(project)["domain_id"]
@@ -109,11 +117,14 @@ def item_get(
             domain_id = svc.resolve_domain_id(svc.resolve_workspace_id(workspace), domain)
         else:
             raise ValidationError("keys exigem project ou workspace e domain")
-        items += [svc.get_by_key(domain_id, k) for k in keys]
-    out = []
+        items += [fetch(lambda k=k: svc.get_by_key(domain_id, k), {"key": k}) for k in keys]
+    out: list[dict[str, Any]] = []
     relations = RelationService(connection_id=connection_id)
     artifacts = ArtifactService(connection_id=connection_id)
     for item in items:
+        if isinstance(item, dict):
+            out.append(item)
+            continue
         data = ItemResponse.from_item(item).model_dump(mode="json")
         data["relations"] = RelationListResponse.model_validate(
             relations.list(item.id), from_attributes=True

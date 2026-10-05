@@ -66,8 +66,10 @@ def test_hook_claude_e_cursor(env, project):
     cli(env, "link", "--project", str(project), "--workspace", "W", "--domain", "D")
     claude = cli(env, "context", "--hook", "claude",
                  stdin=json.dumps({"cwd": str(project), "hook_event_name": "SessionStart"}))
+    assert claude.stdout.isascii(), "acentos escapados: imune à codepage do Windows"
     payload = json.loads(claude.stdout)["hookSpecificOutput"]
     assert payload["hookEventName"] == "SessionStart" and "W / D" in payload["additionalContext"]
+    assert "cérebro" in payload["additionalContext"]
     cursor = cli(env, "context", "--hook", "cursor",
                  stdin=json.dumps({"workspace_roots": [str(project)]}))
     assert "W / D" in json.loads(cursor.stdout)["additional_context"]

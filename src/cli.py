@@ -110,11 +110,13 @@ def _context(args: argparse.Namespace) -> int:
             f"usuário; grave o que for durável em {PENDING_FILE.as_posix()}._"
         )
 
+    # JSON só em ASCII (acentos como \uXXXX): no Windows a ferramenta pode ler a saída do hook
+    # numa codepage local e corromper o UTF-8.
     if args.hook == "claude":
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart",
-                                                 "additionalContext": text}}, ensure_ascii=False))
+                                                 "additionalContext": text}}))
     elif args.hook == "cursor":
-        print(json.dumps({"additional_context": text}, ensure_ascii=False))
+        print(json.dumps({"additional_context": text}))
     else:
         print(text)
     return 0

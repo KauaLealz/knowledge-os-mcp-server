@@ -17,7 +17,8 @@ _STOPWORDS = frozenset(
 )
 # Sufixos já sem acento, do mais longo ao mais curto; corta só se sobrar radical útil.
 _SUFFIXES = (
-    "amentos", "imentos", "amento", "imento", "mente", "idades", "idade", "acoes", "icoes",
+    "amentos", "imentos", "amento", "imento", "mente", "idades", "idade", "encias", "ancias",
+    "encia", "ancia", "entes", "antes", "ente", "ante", "acoes", "icoes",
     "coes", "soes", "acao", "icao", "cao", "sao", "oes", "aes", "ais", "eis", "ois", "ar",
     "er", "ir", "es", "as", "os", "s",
 )
