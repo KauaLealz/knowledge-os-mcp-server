@@ -235,3 +235,11 @@ def test_pagina_de_domain_usa_limite_maximo_e_avisa():
 def test_nenhum_arquivo_estatico_menciona_401():
     for f in _static_files():
         assert "401" not in f.read_text(encoding="utf-8"), f.name
+
+
+def test_fechar_modal_sujo_pede_confirmacao():
+    assert "app.closeModal()" in _js("shortcuts.js")
+    assert "Descartar o que foi digitado?" in _js("store.js")
+    assert "modalGuard" in _js("views/editor.js")
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert html.count("close()") >= 3

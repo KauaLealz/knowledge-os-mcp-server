@@ -66,6 +66,7 @@ export const appStore = {
   helpOpen: false,
   paletteOpen: false,
   modal: null,
+  modalGuard: null, // devolve true quando o formulário do modal tem alterações não enviadas
   dirty: false,
   saveHook: null,
   lastHash: '',
@@ -296,6 +297,12 @@ export const appStore = {
     const p = this.route.params;
     if (this.route.name !== 'item') return;
     go(p.edit ? hrefs.item(p.conn, p.ws, p.dm, p.item) : hrefs.edit(p.conn, p.ws, p.dm, p.item));
+  },
+  /** Fecha o modal; se o formulário está sujo, confirma antes de descartar. */
+  closeModal() {
+    if (this.modalGuard?.() && !window.confirm('Descartar o que foi digitado?')) return;
+    this.modalGuard = null;
+    this.modal = null;
   },
   openModal(kind) {
     this.paletteOpen = false;
