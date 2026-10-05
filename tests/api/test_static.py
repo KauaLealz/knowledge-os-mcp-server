@@ -217,3 +217,8 @@ def test_erro_de_conexoes_nao_fabrica_default():
     assert "this.connError = e.message" in st
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     assert html.count("$store.app.connError") >= 3
+
+
+def test_load_workspaces_descarta_resposta_antiga():
+    st = _js("store.js")
+    assert "++this.wsSeq" in st and st.count("seq !== this.wsSeq") >= 2

@@ -48,6 +48,7 @@ export const appStore = {
   connId: null,
   workspaces: [],
   wsLoading: false,
+  wsSeq: 0,
   wsError: null,
 
   tree: null,
@@ -172,22 +173,23 @@ export const appStore = {
   },
 
   async loadWorkspaces() {
+    const seq = ++this.wsSeq; // resposta de chamada antiga (outra conexão) é descartada
     this.wsLoading = true;
     this.wsError = null;
     try {
-      this.workspaces = await api('GET', '/workspaces');
-      const stats = await Promise.allSettled(
-        this.workspaces.map((w) => api('GET', `/workspaces/${w.id}/stats`)),
-      );
-      this.workspaces = this.workspaces.map((w, i) => ({
+      const list = await api('GET', '/workspaces');
+      const stats = await Promise.allSettled(list.map((w) => api('GET', `/workspaces/${w.id}/stats`)));
+      if (seq !== this.wsSeq) return;
+      this.workspaces = list.map((w, i) => ({
         ...w,
         stats: stats[i].status === 'fulfilled' ? stats[i].value : null,
       }));
     } catch (e) {
+      if (seq !== this.wsSeq) return;
       this.workspaces = [];
-      if (e.status !== 401) this.wsError = e.message;
+      this.wsError = e.message;
     } finally {
-      this.wsLoading = false;
+      if (seq === this.wsSeq) this.wsLoading = false;
     }
   },
 
