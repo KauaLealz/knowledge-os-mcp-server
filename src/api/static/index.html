@@ -6,27 +6,9 @@
   <title>Knowledge OS</title>
   <meta name="color-scheme" content="light dark">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%234f46e5'/%3E%3Cpath d='M9 22V10l7 8 7-8v12' fill='none' stroke='white' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
-  <script>
-    // Aplica o tema antes do primeiro paint (sem flash). Funciona sem storage.
-    (function () {
-      try {
-        var t = localStorage.getItem('kos.theme');
-        if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
-      } catch (e) {}
-    })();
-  </script>
+  <script src="js/theme.js"></script>
   <link rel="stylesheet" href="css/tokens.css">
   <link rel="stylesheet" href="css/app.css">
-  <script type="importmap">
-  {
-    "imports": {
-      "alpinejs": "https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/+esm",
-      "marked": "https://cdn.jsdelivr.net/npm/marked@15.0.12/+esm",
-      "dompurify": "https://cdn.jsdelivr.net/npm/dompurify@3.2.6/+esm",
-      "highlight.js": "https://cdn.jsdelivr.net/npm/highlight.js@11.11.1/lib/common/+esm"
-    }
-  }
-  </script>
   <script type="module" src="js/main.js"></script>
 </head>
 <body>

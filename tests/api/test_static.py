@@ -40,7 +40,7 @@ def test_index_servido_em_ui(ui):
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
     assert "Knowledge OS" in resp.text
-    assert 'type="importmap"' in resp.text
+    assert 'type="importmap"' not in resp.text  # bibliotecas locais, sem CDN
 
 
 def test_health_continua_em_raiz(ui):
@@ -138,7 +138,7 @@ def test_imports_relativos_dos_modulos_existem():
 
 
 def test_front_nao_tem_token_nem_login():
-    for f in STATIC.rglob("*.js"):
+    for f in (STATIC / "js").rglob("*.js"):  # o nosso código; vendor/ são bibliotecas de terceiros
         txt = f.read_text(encoding="utf-8")
         assert "Authorization" not in txt and "sessionStorage" not in txt, f.name
         assert "#token" not in txt and "captureToken" not in txt, f.name

@@ -1,5 +1,5 @@
 // Ponto de entrada: Alpine + store + views. Sem build step (ES modules + import map).
-import Alpine from 'alpinejs';
+import Alpine from '../vendor/alpine.esm.js';
 import { appStore } from './store.js';
 import { typeIcon, timeAgo, confidenceLevel } from './util.js';
 import { register as registerSidebar } from './views/sidebar.js';

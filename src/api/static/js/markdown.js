@@ -1,8 +1,8 @@
 // Markdown -> HTML seguro: marked -> DOMPurify -> highlight.js. O conteúdo vem da API e é
 // tratado como não confiável: nada chega ao DOM sem passar por DOMPurify.sanitize.
-import { marked } from 'marked';
-import DOMPurify from 'dompurify';
-import hljs from 'highlight.js';
+import { marked } from '../vendor/marked.esm.js';
+import DOMPurify from '../vendor/purify.esm.js';
+import hljs from '../vendor/highlight.esm.js';
 
 marked.use({ gfm: true, breaks: false });
 

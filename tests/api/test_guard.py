@@ -54,4 +54,5 @@ def test_headers_de_seguranca_em_api_e_ui(client):
         assert r.headers["x-frame-options"] == "DENY"
         assert r.headers["x-content-type-options"] == "nosniff"
         csp = r.headers["content-security-policy"]
-        assert csp == "frame-ancestors 'none'; form-action 'self'"
+        for part in ("frame-ancestors 'none'", "form-action 'self'", "default-src 'self'"):
+            assert part in csp

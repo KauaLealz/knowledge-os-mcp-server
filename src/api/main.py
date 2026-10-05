@@ -56,8 +56,13 @@ async def _same_origin_writes(request: Request, call_next):
 _SECURITY_HEADERS = {
     "X-Frame-Options": "DENY",
     "X-Content-Type-Options": "nosniff",
-    # Só anti-clickjacking e form: a UI usa CDN e Alpine (avalia expressões), sem script-src.
-    "Content-Security-Policy": "frame-ancestors 'none'; form-action 'self'",
+    # Tudo servido daqui (sem CDN). 'unsafe-eval': o Alpine avalia as expressões dos atributos;
+    # style 'unsafe-inline': atributos style do HTML.
+    "Content-Security-Policy": (
+        "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; "
+        "base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+    ),
 }
 
 
