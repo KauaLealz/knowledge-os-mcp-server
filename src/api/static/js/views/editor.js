@@ -86,7 +86,7 @@ export function register(Alpine) {
           this.app.toast('Alterações salvas');
           this.app.loadTree(); // atualiza updated_at na árvore
         } catch (e) {
-          if (e.status !== 401) this.error = e.message;
+          this.error = e.message;
         } finally {
           this.saving = false;
         }
@@ -147,7 +147,7 @@ export function register(Alpine) {
         else if (this.kind === 'domain') await this.createDomain();
         else await this.createItem();
       } catch (e) {
-        if (e.status !== 401) this.error = e.message;
+        this.error = e.message;
       } finally {
         this.saving = false;
       }

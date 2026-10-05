@@ -214,7 +214,7 @@ export const appStore = {
     } catch (e) {
       if (this.treeWs === wsId) {
         this.tree = null;
-        if (e.status !== 401) this.treeError = e.message;
+        this.treeError = e.message;
       }
     } finally {
       if (this.treeWs === wsId) this.treeLoading = false;

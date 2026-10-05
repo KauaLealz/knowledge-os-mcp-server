@@ -33,7 +33,7 @@ export function register(Alpine) {
         const items = await api('GET', '/items', { query: { domain_id: dm, limit: LIMIT } });
         if (seq === this.seq) this.items = items;
       } catch (e) {
-        if (seq === this.seq && e.status !== 401) this.error = e.message;
+        if (seq === this.seq) this.error = e.message;
       } finally {
         if (seq === this.seq) this.loading = false;
       }

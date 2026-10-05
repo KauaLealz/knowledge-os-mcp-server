@@ -230,3 +230,8 @@ def test_pagina_de_domain_usa_limite_maximo_e_avisa():
     assert "LIMIT = 500" in dm and "limit: LIMIT" in dm
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     assert "Mostrando " in html and "truncated" in html
+
+
+def test_nenhum_arquivo_estatico_menciona_401():
+    for f in _static_files():
+        assert "401" not in f.read_text(encoding="utf-8"), f.name

@@ -89,7 +89,7 @@ export function register(Alpine) {
         if (seq !== this.seq) return;
         this.item = null;
         if (e.status === 404) this.notFound = true;
-        else if (e.status !== 401) this.error = e.message;
+        else this.error = e.message;
       } finally {
         if (seq === this.seq) this.loading = false;
       }
