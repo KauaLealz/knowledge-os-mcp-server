@@ -1,6 +1,8 @@
 """Modelos de entrada da API (reaproveita os schemas das tools MCP)."""
 
-from pydantic import BaseModel, Field
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.schemas.domain_schemas import DomainCreate
 from src.schemas.item_schemas import ItemCreate, ItemUpdate
@@ -13,6 +15,7 @@ from src.schemas.workspace_schemas import WorkspaceCreate
 __all__ = [
     "ConfidenceUpdate",
     "ConnectionCreate",
+    "ConnectionUpdate",
     "DomainCreate",
     "DomainUpdate",
     "ImportanceUpdate",
@@ -61,6 +64,31 @@ class ItemLabelAdd(BaseModel):
 
 
 class ConnectionCreate(BaseModel):
+    """Corpo de criação: campos estruturados. `db_url`/`password_env` não existem (422)."""
+
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(min_length=1, max_length=255)
-    db_type: str
-    db_url: str = Field(min_length=1)
+    db_type: Literal["sqlite", "postgresql", "mysql"]
+    path: str | None = None  # SQLite; relativo resolve contra o home
+    host: str | None = None
+    port: int | None = None
+    database: str | None = None
+    username: str | None = None
+    password: str | None = Field(default=None, repr=False)  # só escrita
+    enabled: bool = True
+
+
+class ConnectionUpdate(BaseModel):
+    """PATCH: só o que vier muda. `password`: ausente mantém, valor substitui, null limpa."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    path: str | None = None
+    host: str | None = None
+    port: int | None = None
+    database: str | None = None
+    username: str | None = None
+    password: str | None = Field(default=None, min_length=1, repr=False)
+    enabled: bool | None = None
