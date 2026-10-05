@@ -45,3 +45,13 @@ def test_escrita_sem_origin_passa_curl_e_scripts(client):
 def test_leitura_de_outra_origem_nao_e_bloqueada_mas_nao_ganha_cors(client):
     r = client.get("/api/workspaces", headers={"Origin": "http://evil.test"})
     assert r.status_code == 200 and "access-control-allow-origin" not in r.headers
+
+
+def test_headers_de_seguranca_em_api_e_ui(client):
+    for path in ("/", "/ui/"):
+        r = client.get(path)
+        assert r.status_code == 200, path
+        assert r.headers["x-frame-options"] == "DENY"
+        assert r.headers["x-content-type-options"] == "nosniff"
+        csp = r.headers["content-security-policy"]
+        assert csp == "frame-ancestors 'none'; form-action 'self'"

@@ -53,6 +53,22 @@ async def _same_origin_writes(request: Request, call_next):
     return await call_next(request)
 
 
+_SECURITY_HEADERS = {
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    # Só anti-clickjacking e form: a UI usa CDN e Alpine (avalia expressões), sem script-src.
+    "Content-Security-Policy": "frame-ancestors 'none'; form-action 'self'",
+}
+
+
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    response = await call_next(request)
+    for name, value in _SECURITY_HEADERS.items():
+        response.headers[name] = value
+    return response
+
+
 @app.exception_handler(NotFoundError)
 async def _not_found(_: Request, exc: NotFoundError) -> JSONResponse:
     return JSONResponse(status_code=404, content={"detail": str(exc)})
