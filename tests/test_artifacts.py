@@ -1,19 +1,13 @@
 """Testes de ArtifactService, schemas e artifact_tools."""
 
-import asyncio
-import base64
-import json
 
 import pytest
-from fastmcp import Client, FastMCP
 from pydantic import ValidationError as PydanticValidationError
 
 from src.db.models import Artifact
 from src.exceptions import NotFoundError, ValidationError
-from src.mcp import artifact_tools
 from src.schemas.artifact_schemas import ArtifactCreate, ArtifactResponse
 from src.services.artifact_service import ArtifactService
-from tests.helpers_mcp import client_call, tools_by_name
 
 
 @pytest.fixture
@@ -103,45 +97,5 @@ def test_schemas():
     }
 
 
-class TestTools:
-    @pytest.fixture
-    def server(self, monkeypatch, test_engine, art_dir):
-        monkeypatch.setattr("src.services._common.get_engine", lambda: test_engine)
-        monkeypatch.setattr("src.services.artifact_service.ARTIFACTS_DIR", art_dir)
-        m = FastMCP(name="t")
-        artifact_tools.register(m)
-        return m
-
-    def _call(self, server, name, args):
-        out = []
-        for block in client_call(server, name, args):
-            value = json.loads(block.text)
-            out.extend(value if isinstance(value, list) else [value])
-        return out
-
-    def test_registra_3_tools(self, server):
-        async def run():
-            async with Client(server) as client:
-                return {t.name for t in await client.list_tools()}
-
-        assert asyncio.run(run()) == {"artifact_attach", "artifact_list", "artifact_get"}
-
-    def test_fluxo_attach_list_get(self, server, sample_item, src_file):
-        att = self._call(
-            server, "artifact_attach", {"item_id": sample_item.id, "file_path": str(src_file)}
-        )[0]
-        assert att["filename"] == "nota.txt" and att["file_size"] == src_file.stat().st_size
-        listed = self._call(server, "artifact_list", {"item_id": sample_item.id})
-        assert [x["id"] for x in listed] == [att["id"]]
-        got = self._call(server, "artifact_get", {"artifact_id": att["id"]})[0]
-        assert base64.b64decode(got["content_base64"]) == src_file.read_bytes()
-        assert got["artifact"]["id"] == att["id"]
 
 
-def test_main_registra_40_tools():
-    import src.main as main
-
-    main.register_all_tools()
-    names = set(tools_by_name(main.mcp))
-    assert len(names) == 44  # 32 (T1-T5) + 6 de connection (T7) + 2 (T9) + 4 do cérebro
-    assert {"health_check", "item_search", "artifact_get", "workspace_import"} <= names

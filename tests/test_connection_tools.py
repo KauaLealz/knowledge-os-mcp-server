@@ -142,9 +142,8 @@ def test_tools_connection_nao_recebem_senha_e_devolvem_password_set(workdir):
     import src.main as main
 
     main.register_all_tools()
-    tools = tools_by_name(main.mcp)
-    for name in ("connection_create", "connection_update"):
-        assert not [p for p in tools[name].parameters["properties"] if "pass" in p], name
+    # Conexões saíram do MCP (ficam na UI): o agente não as vê.
+    assert not [n for n in tools_by_name(main.mcp) if n.startswith("connection_")]
 
     config = ConfigManager.load_or_create()
     config.connections.append(ConnectionConfig(

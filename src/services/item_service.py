@@ -355,31 +355,120 @@ class ItemService:
         return existing, ("updated" if changed else "unchanged")
 
     def batch_upsert(self, entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Upsert de vários itens numa transação. Cada entrada traz workspace, domain e key.
-
-        Workspace e domain inexistentes são criados. Qualquer erro desfaz o lote inteiro e
-        aponta a entrada que falhou.
-        """
-        if not entries:
-            return []
-        resolved = []
+        """Upsert de vários itens numa transação. Cada entrada traz workspace, domain e key."""
         for i, e in enumerate(entries):
             missing = [f for f in ("workspace", "domain", "key") if not e.get(f)]
             if missing:
                 raise ValidationError(f"Entrada {i}: faltam {', '.join(missing)}")
-            resolved.append(self.ensure_location(e["workspace"], e["domain"]))
-        results = []
+        return [
+            {k: r[k] for k in ("key", "id", "action")} for r in self.save(entries)
+        ]
+
+    def save(
+        self, entries: list[dict[str, Any]], default_location: tuple[str, str] | None = None
+    ) -> list[dict[str, Any]]:
+        """Grava vários itens numa transação; cada entrada escolhe o modo pelo que traz.
+
+        - `id`: atualiza esse item (só os campos informados).
+        - `key`: upsert no domain (cria ou atualiza; não duplica).
+        - nenhum dos dois: cria e devolve `similar` com títulos parecidos já existentes.
+
+        Em qualquer modo: `memory_class` só sobe (promoção), `ttl_days` renova um ephemeral a
+        partir de agora, e `relations: [{type, target}]` liga ao alvo (id, ou key do mesmo
+        domain, inclusive itens criados no mesmo lote); `supersedes` marca o alvo como
+        substituído. Workspace/domain vêm da entrada ou de `default_location` e são criados se
+        não existirem. Qualquer erro desfaz o lote inteiro e aponta a entrada.
+        """
+        if not entries:
+            return []
+        plans = []
+        for i, raw in enumerate(entries):
+            e = dict(raw)
+            relations = e.pop("relations", None) or []
+            item_id, key = e.pop("id", None), e.pop("key", None)
+            ws, dm = e.pop("workspace", None), e.pop("domain", None)
+            location = None
+            if not item_id:
+                if ws and dm:
+                    location = self.ensure_location(ws, dm)
+                elif default_location:
+                    location = default_location
+                else:
+                    raise ValidationError(f"Entrada {i}: informe workspace e domain (ou project)")
+            fields = {k: v for k, v in e.items() if v is not None}
+            plans.append((i, item_id, key, location, fields, relations))
+
+        results: list[dict[str, Any]] = []
+        links: list[tuple[int, Item, dict[str, Any]]] = []
         with self._session() as s:
-            for i, (e, (ws_id, dm_id)) in enumerate(zip(entries, resolved, strict=True)):
-                fields = {k: v for k, v in e.items() if k not in ("workspace", "domain", "key")}
+            for i, item_id, key, location, fields, relations in plans:
+                label = key or item_id or fields.get("title", "?")
+                similar: list[dict[str, Any]] = []
                 try:
-                    item, action = self._upsert_in(s, ws_id, dm_id, e["key"], fields)
+                    if item_id:
+                        item = self._load(s, item_id)
+                        memory_class = fields.pop("memory_class", None)
+                        self._check_update(fields)
+                        changed = self._apply(s, item, fields)
+                        if memory_class:
+                            changed = self._raise_class(item, memory_class) or changed
+                        action = "updated" if changed else "unchanged"
+                    elif key:
+                        item, action = self._upsert_in(s, location[0], location[1], key, fields)
+                    else:
+                        if fields.get("title"):
+                            similar = self.similar(location[0], fields["title"])
+                        data = self._validate_create(
+                            workspace_id=location[0], domain_id=location[1],
+                            **{"tags": [], "labels": [], "scope_paths": [], **fields},
+                        )
+                        item, action = self._insert(s, data), "created"
                     s.flush()
                 except (ValidationError, NotFoundError) as exc:
-                    raise ValidationError(f"Entrada {i} ({e['key']}): {exc}") from exc
-                results.append({"key": e["key"], "id": item.id, "action": action})
+                    raise ValidationError(f"Entrada {i} ({label}): {exc}") from exc
+                row: dict[str, Any] = {"index": i, "id": item.id, "key": item.key, "action": action}
+                if similar:
+                    row["similar"] = similar
+                results.append(row)
+                links += [(i, item, r) for r in relations]
+            for i, item, rel in links:
+                try:
+                    created = self._relate(s, item, rel)
+                except (ValidationError, NotFoundError) as exc:
+                    raise ValidationError(f"Entrada {i}, relação {rel}: {exc}") from exc
+                if created:
+                    results[i]["relations"] = results[i].get("relations", 0) + 1
             s.commit()
         return results
+
+    def _relate(self, s: Session, item: Item, rel: dict[str, Any]) -> bool:
+        """Cria a relação item → alvo (id ou key do mesmo domain). False se já existia."""
+        from src.services.relation_service import RELATION_TYPES
+
+        rtype, target_ref = rel.get("type"), rel.get("target")
+        if rtype not in RELATION_TYPES:
+            raise ValidationError(f"type inválido: {rtype!r}. Válidos: {', '.join(RELATION_TYPES)}")
+        if not target_ref:
+            raise ValidationError("relação sem target")
+        target = s.get(Item, target_ref) or self._by_key(s, item.domain_id, target_ref)
+        if target is None:
+            raise NotFoundError(f"Alvo não encontrado: {target_ref}")
+        if target.id == item.id:
+            raise ValidationError("Um item não pode se relacionar consigo mesmo")
+        exists = s.scalar(
+            select(Relation.id).where(
+                Relation.source_item_id == item.id,
+                Relation.target_item_id == target.id,
+                Relation.relation_type == rtype,
+            )
+        )
+        if exists:
+            return False
+        s.add(Relation(id=str(uuid.uuid4()), source_item_id=item.id,
+                       target_item_id=target.id, relation_type=rtype))
+        if rtype == "supersedes":
+            target.status = "superseded"
+        return True
 
     def delete(self, item_id: str) -> bool:
         """Remove o item e seus vínculos. Levanta NotFoundError se não existir."""

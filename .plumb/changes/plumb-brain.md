@@ -1,5 +1,5 @@
 # plumb-brain: Knowledge OS como segundo cérebro obrigatório do Plumb
-Status: construindo T5 · Trilha: profunda · Branch: feature/plumb-brain
+Status: construindo T7 · Trilha: profunda · Branch: feature/plumb-brain
 
 ## Objetivo
 Tornar o Knowledge OS a memória central do Plumb com custo baixo de contexto:
@@ -15,7 +15,7 @@ versão, testes, documentação desatualizada).
 
 ## Critérios de aceite
 - AC1: Dado o fastmcp 4 instalado, quando a suíte roda, então passa inteira; `pyproject.toml` fixa `fastmcp>=4,<5` e `mcp>=2,<3`.
-- AC2: Dado `KNOWLEDGE_OS_TOOLSET=agent`, quando o cliente lista ferramentas, então recebe no máximo 10 e instruções com menos de 3.000 caracteres.
+- AC2: Dado `KNOWLEDGE_OS_TOOLSET=agent`, quando o cliente lista ferramentas, então recebe 6 (context_get, item_search, item_get, item_save, project_link, health_check) e instruções com menos de 2.000 bytes; o perfil `all` tem 15.
 - AC3: Dado um item "Migrações com Flyway", quando busco "migração", então ele vem em 1º (sem acento, plural e prefixo resolvidos) e relevância vence `importance`.
 - AC4: Dado um repositório ligado a workspace/domain, quando chamo `context_get(project=<caminho>)` ou `knowledge-mcp context --project <caminho>`, então recebo regras, contexto, decisões e procedimentos ativos em Markdown dentro do orçamento de tokens, sem itens substituídos nem ephemeral vencidos; regras com `scope_paths` só aparecem para caminhos que casam.
 - AC5: Dado `item_batch_upsert` com chaves novas e existentes, então cria as novas, atualiza as existentes numa transação e devolve `created`/`updated` por chave; sem chave, o create devolve `similar` quando há título parecido.
@@ -42,17 +42,19 @@ master e `schema_sync` (colunas extras são ignoradas pelo código antigo).
 - [x] T2 Modelo: colunas novas, `project_links`, migração do FTS — prova: AC8 — verificar: `pytest tests/test_schema_sync.py tests/test_fts.py`
 - [x] T3 Busca: BM25 primeiro, PT-BR (diacríticos, plural, prefixo), sem workspace obrigatório, filtra inativos e vencidos — prova: AC3 — verificar: `pytest tests/test_fts.py tests/test_brain_search.py`
 - [x] T4 Upsert, lote, similares, tags/labels editáveis, segredo bloqueado — prova: AC5, AC6 — verificar: `pytest tests/test_brain_write.py`
-- [ ] T5 Projetos e pacote de contexto (`project_link`, `context_get`, escopo por caminho, orçamento) — prova: AC4 — verificar: `pytest tests/test_brain_context.py`
-- [ ] T6 Perfil `agent` e instruções curtas; versão no health — prova: AC2, AC9 — verificar: `pytest tests/test_toolsets.py`
+- [x] T5 Projetos e pacote de contexto (`project_link`, `context_get`, escopo por caminho, orçamento) — prova: AC4 — verificar: `pytest tests/test_brain_context.py`
+- [x] T6 Perfil `agent` e instruções curtas; versão no health — prova: AC2, AC9 — verificar: `pytest tests/test_toolsets.py`
 - [ ] T7 CLI: `context` (com `--hook`), `recent`, `import-pending`, `--version` — prova: AC4, AC7 — verificar: `pytest tests/test_cli_brain.py`
 - [ ] T8 Documentação atual (README, MCP_USAGE), STATUS obsoleto removido, notas antigas do Plumb arquivadas — verificar: leitura
 
 ## Decisões
 - 2026-10-04 usuário: segundo cérebro obrigatório no Plumb; base local (SQLite); com a base fora do ar o fluxo segue com aviso; em arquivo ficam só Workflow/comandos no AGENTS.md, `.plumb/changes` e permissões; base = master; "implemente tudo" aprova este plano (gate 1).
 - 2026-10-04 orquestrador (delegado pelo usuário): rules com escopo e skills de projeto migram para itens com `scope_paths`; o curador grava `working` sem perguntar e pede o "sim" para `longterm`/`canonical`.
+- 2026-10-04 usuário: reavaliar e reduzir as ferramentas; aprovou a consolidação em `item_save` (create/update/upsert/lote/promover/renovar/relacionar) e a saída de conexões do MCP.
 - 2026-10-04 orquestrador: adotar fastmcp 4 e fixar a faixa, em vez de voltar para a 2.x (conflito de dependências com o pacote `mcp`).
 
 ## Notas
+- Ferramentas: 44 → 15 (`all`) e 6 (`agent`). Definições ~9.300 → ~3.400 / ~1.800 tokens; instruções ~3.500 → ~500 / ~400. Conexões, schema_sync e migração saíram do MCP (UI/biblioteca).
 - T1: suíte 454 ok / 3 skip. `test_wheel` só passa com TMP fora do AppData quando roda dentro do Claude Desktop (sandbox), fora disso passa normal.
 - mypy: 150 erros antigos (disallow_untyped_defs em código legado) — fora do escopo, não piorar.
 - Baseline na master `7a3af91`: 16 falhas em 457 testes, 11 por API do fastmcp 4 nos testes, 1 de ambiente (`uv build` na pasta temporária do app), o resto a confirmar.
@@ -60,5 +62,7 @@ master e `schema_sync` (colunas extras são ignoradas pelo código antigo).
 - O repositório não tem remoto: a distribuição pelo instalador do Plumb depende disso.
 
 ## Retro
+- correção: apagar workspace/domain com itens que têm tags, relações ou anexos falhava por chave estrangeira (achado pelo teste ponta a ponta) — corrigido com purge_item_links
+- correção: busca só com stopword ("A", "de") devolvia vazio — agora usa as palavras originais
 - correção: o servidor levava ~138 s para subir com uma conexão fora do ar (validate_connection sem connect_timeout + diagnóstico bloqueando o handshake) — corrigido em T1; teste test_default_inacessivel vira regressão
 - fato velho: testes dependiam da API do fastmcp 2/3 (`get_tools`, `isError`) e quebraram com a 4 por falta de faixa de versão

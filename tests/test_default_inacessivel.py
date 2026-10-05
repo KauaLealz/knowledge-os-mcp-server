@@ -74,8 +74,8 @@ def test_stdio_sobe_e_tool_sem_connection_id_da_erro_explicito(server_env):  # n
         async with stdio_client(params) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
-                broken = await session.call_tool("workspace_list", {})
-                cat = await session.call_tool("workspace_list", {"connection_id": "default"})
+                broken = await session.call_tool("structure_list", {})
+                cat = await session.call_tool("structure_list", {"connection_id": "default"})
                 return broken, cat
 
     broken, cat = asyncio.run(asyncio.wait_for(scenario(), timeout=60))

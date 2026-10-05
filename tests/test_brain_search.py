@@ -36,7 +36,8 @@ def test_radical_ptbr_junta_singular_plural_e_verbo():
 def test_consulta_vira_prefixos_and_e_or():
     assert match_expressions("migração banco") == ['"migr"* "banco"*', '"migr"* OR "banco"*']
     assert match_expressions("Flyway OR Liquibase") == ["Flyway OR Liquibase"]  # sintaxe FTS5
-    assert match_expressions("de a o") == []  # só stopwords
+    assert match_expressions("") == [] and match_expressions("!!") == []
+    assert match_expressions("UI")[0] == '"ui"*'  # termo curto não some
 
 
 # ------------------------------------------------------------------ busca

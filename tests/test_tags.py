@@ -5,7 +5,6 @@ from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import text
 
 from src.exceptions import NotFoundError, ValidationError
-from src.mcp import tag_tools
 from src.schemas.tag_schemas import TagCreate
 from src.services.tag_service import TagService
 
@@ -49,9 +48,3 @@ def test_schema_length():
         TagCreate(name="")
 
 
-def test_tools(use_test_engine):
-    created = tag_tools.tag_create("alpha")
-    assert created["name"] == "alpha"
-    assert [t["name"] for t in tag_tools.tag_list()] == ["alpha"]
-    assert tag_tools.tag_delete(created["id"])["status"] == "ok"
-    assert tag_tools.tag_list() == []

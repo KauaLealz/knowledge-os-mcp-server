@@ -5,7 +5,6 @@ from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import text
 
 from src.exceptions import NotFoundError, ValidationError
-from src.mcp import label_tools
 from src.schemas.label_schemas import LabelCreate
 from src.services.label_service import LabelService
 
@@ -49,9 +48,3 @@ def test_schema_length():
         LabelCreate(name="")
 
 
-def test_tools(use_test_engine):
-    created = label_tools.label_create("alpha")
-    assert created["name"] == "alpha"
-    assert [x["name"] for x in label_tools.label_list()] == ["alpha"]
-    assert label_tools.label_delete(created["id"])["status"] == "ok"
-    assert label_tools.label_list() == []

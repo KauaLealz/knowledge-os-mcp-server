@@ -59,7 +59,9 @@ def match_expressions(query: str) -> list[str]:
         return []
     if is_raw_fts(query):
         return [query]
-    found = terms(query)
+    # Só stopwords ou termos curtos ("A", "de", "UI"): usa as palavras como vieram, em vez
+    # de devolver nada.
+    found = terms(query) or list(dict.fromkeys(_WORD.findall(strip_accents(query.lower()))))
     if not found:
         return []
     quoted = [f'"{t}"*' for t in found]

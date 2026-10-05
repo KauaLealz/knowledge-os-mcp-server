@@ -3,7 +3,6 @@
 import pytest
 
 from src.exceptions import NotFoundError, ValidationError
-from src.mcp import memory_tools
 from src.services.memory_service import MemoryService
 
 
@@ -71,9 +70,3 @@ def test_renew_rejects_non_ephemeral_and_bad_ttl(test_session, sample_item):
         svc.renew("nope", 7)
 
 
-def test_tools(use_test_engine, test_session, sample_item):
-    _set(test_session, sample_item, "ephemeral", 7)
-    renewed = memory_tools.memory_renew(sample_item.id, 15)
-    assert renewed["ttl_days"] == 15 and renewed["memory_class"] == "ephemeral"
-    promoted = memory_tools.memory_promote(sample_item.id, "working")
-    assert promoted["memory_class"] == "working" and promoted["ttl_days"] is None

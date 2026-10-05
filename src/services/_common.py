@@ -18,6 +18,25 @@ from src.exceptions import ValidationError
 EXPORT_VERSION = "1.0"
 
 
+def purge_item_links(s: Session, item_ids: list[str]) -> None:
+    """Apaga o que referencia os itens (tags, labels, relações, anexos) antes de removê-los.
+
+    Com foreign_keys=ON no SQLite, remover workspace ou domain com itens que têm tags, anexos
+    ou relações falhava por chave estrangeira: o cascade do ORM só cobre a tabela items.
+    """
+    from sqlalchemy import delete
+
+    from src.db.models import Artifact, ItemLabel, ItemTag, Relation
+
+    if not item_ids:
+        return
+    s.execute(delete(ItemTag).where(ItemTag.item_id.in_(item_ids)))
+    s.execute(delete(ItemLabel).where(ItemLabel.item_id.in_(item_ids)))
+    s.execute(delete(Relation).where(
+        Relation.source_item_id.in_(item_ids) | Relation.target_item_id.in_(item_ids)))
+    s.execute(delete(Artifact).where(Artifact.item_id.in_(item_ids)))
+
+
 def refuse_home_source(path: Path, *, allow_under: Path | None = None) -> None:
     """ValidationError se o caminho (resolvido, seguindo symlinks) está dentro do home de dados.
 

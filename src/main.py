@@ -27,7 +27,7 @@ from src.exceptions import ConfigError, DatabaseError  # noqa: E402
 logger = logging.getLogger(__name__)
 
 from src import __version__  # noqa: E402
-from src.mcp.toolset import AGENT_TOOLS, FilteredMCP, selected_toolset  # noqa: E402
+from src.mcp.toolset import selected_toolset  # noqa: E402
 
 UI_DEFAULT_PORT = 8765
 _MCP_DIR = Path(__file__).resolve().parent / "mcp"
@@ -91,28 +91,12 @@ def health_check() -> dict[str, str]:
 
 
 def register_all_tools() -> None:
-    """Registra os tools do perfil ativo (`all` ou `agent`) no FastMCP."""
-    from src.mcp import (
-        artifact_tools,
-        brain_tools,
-        connection_tools,
-        domain_tools,
-        item_tools,
-        label_tools,
-        memory_tools,
-        relation_tools,
-        tag_tools,
-        workspace_tools,
-    )
+    """Registra os tools do perfil ativo: `agent` (6) ou `all` (+ administração)."""
+    from src.mcp import admin_tools, agent_tools
 
-    target = FilteredMCP(mcp, AGENT_TOOLS) if TOOLSET == "agent" else mcp
-    for module in (
-        workspace_tools, domain_tools, item_tools, relation_tools, memory_tools, tag_tools,
-        label_tools, artifact_tools,
-        connection_tools,  # schema_sync, migrate_workspaces e 6 de connection
-        brain_tools,  # project_link, context_get, item_upsert, item_batch_upsert
-    ):
-        module.register(target)  # type: ignore[arg-type]
+    agent_tools.register(mcp)
+    if TOOLSET == "all":
+        admin_tools.register(mcp)
 
 
 def report_connections() -> None:
