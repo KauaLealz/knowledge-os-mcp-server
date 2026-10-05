@@ -364,8 +364,11 @@ class ConnectionService:
         """Testa a conexão e guarda o resultado (em memória). Não levanta por falha de rede."""
         if _is_default_row(connection_id):
             key = DEFAULT_CONNECTION_ID
-            row = self._default_row(_load().default)
-            db_type, url = row.db_type, row.db_url
+            # engine vivo (como em sync_schema): a db_url do espelho pode estar defasada
+            db_type = self._default_row(_load().default).db_type
+            url = db_session.get_engine(DEFAULT_CONNECTION_ID).url.render_as_string(
+                hide_password=False
+            )
         else:
             conn = _find(_load(), connection_id)
             key, db_type, url = conn.id, conn.db_type, _url_of(conn)
