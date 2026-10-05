@@ -96,3 +96,49 @@ def test_validate_connection_error():
         database="d", username="u",
     )
     assert ConfigManager.validate_connection(conn)["status"] == "error"
+
+
+def _write_json(conns):
+    import json
+
+    ConfigManager.CONNECTIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    ConfigManager.CONNECTIONS_FILE.write_text(
+        json.dumps({"version": "1.0", "default": "default", "connections": conns}),
+        encoding="utf-8",
+    )
+
+
+def test_json_a_mao_sem_port_assume_o_padrao():
+    _write_json([{"id": "pg", "name": "PG", "db_type": "postgresql", "host": "h",
+                  "database": "d", "username": "u"},
+                 {"id": "my", "name": "My", "db_type": "mysql", "host": "h", "database": "d"}])
+    config = ConfigManager.load_or_create()
+    assert config.get_connection("pg").get_url() == "postgresql://u@h:5432/d"
+    assert config.get_connection("my").port == 3306
+
+
+def test_json_com_host_ausente_aponta_conexao_e_campo_sem_vazar_senha():
+    from src.exceptions import ConfigError
+    from src.services.connection_service import ConnectionService
+
+    _write_json([{"id": "pg", "name": "PG", "db_type": "postgresql",
+                  "database": "d", "username": "u", "password": "SEGREDO-123"}])
+    for call in (ConfigManager.load_or_create, ConnectionService().list):
+        with pytest.raises(ConfigError) as err:
+            call()
+        msg = str(err.value)
+        assert "pg" in msg and "host" in msg
+        assert "SEGREDO" not in msg and "123" not in msg
+
+
+@pytest.mark.parametrize("field", ["host", "database", "username"])
+@pytest.mark.parametrize("bad", ["d?host=outro", "a#b", "a/b", "a\\b", "a@b", "a b"])
+def test_campos_rejeitam_caracteres_de_injecao(field, bad):
+    kw = {"host": "h", "database": "d", "username": "u", field: bad}
+    with pytest.raises(ValueError):
+        ConnectionConfig(id="pg", name="PG", db_type="postgresql", **kw)
+
+
+def test_sqlite_exige_path():
+    with pytest.raises(ValueError):
+        ConnectionConfig(id="s", name="S", db_type="sqlite")

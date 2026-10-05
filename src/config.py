@@ -11,6 +11,7 @@ from typing import Literal
 from urllib.parse import quote
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import ValidationError as PydanticValidationError
 
 if __name__ == "__main__":
     # `python src/config.py` põe src/ em sys.path[0]; troca pela raiz do projeto.
@@ -30,6 +31,9 @@ KNOWLEDGE_HOME: Path = Path(
 ARTIFACTS_DIR: Path = KNOWLEDGE_HOME / "artifacts"
 EXPORTS_DIR: Path = KNOWLEDGE_HOME / "exports"
 BACKUPS_DIR: Path = KNOWLEDGE_HOME / "backups"
+
+_DEFAULT_PORTS = {"postgresql": 5432, "mysql": 3306}
+_FORBIDDEN_CHARS = set("?#/\\@")
 
 # Id reservado do catálogo (banco padrão, virtual: não consta da lista de conexões).
 CATALOG_ID = "default"
@@ -133,6 +137,23 @@ class ConnectionConfig(BaseModel):
             raise ValueError("Port must be 1-65535")
         return v
 
+    @model_validator(mode="after")
+    def shape_valid(self) -> "ConnectionConfig":
+        if self.db_type == "sqlite":
+            if not self.path:
+                raise ValueError("path é obrigatório para SQLite")
+            return self
+        if self.port is None:
+            self.port = _DEFAULT_PORTS[self.db_type]
+        for field in ("host", "database"):
+            if not getattr(self, field):
+                raise ValueError(f"{field} é obrigatório")
+        for field in ("host", "database", "username"):
+            value = getattr(self, field)
+            if value and any(ch in _FORBIDDEN_CHARS or ch.isspace() for ch in value):
+                raise ValueError(f"{field} contém caracteres inválidos (? # / \\ @ ou espaço)")
+        return self
+
     def resolved_path(self) -> str:
         """Path do SQLite; o relativo resolve contra o home no momento da chamada."""
         path = Path(self.path or "")
@@ -186,11 +207,33 @@ class ConfigManager:
         return ConnectionsFile(default=CATALOG_ID, connections=[])
 
     @staticmethod
+    def _parse(path: Path) -> ConnectionsFile:
+        """Lê o JSON; o erro diz onde (conexão e campo) sem ecoar valores (há senhas)."""
+        try:
+            return ConnectionsFile(**json.loads(path.read_text(encoding="utf-8")))
+        except PydanticValidationError as exc:
+            details = []
+            for e in exc.errors(include_input=False):
+                loc = list(e["loc"])
+                where = ".".join(str(p) for p in loc)
+                if loc[:1] == ["connections"] and len(loc) > 1 and isinstance(loc[1], int):
+                    try:
+                        raw = json.loads(path.read_text(encoding="utf-8"))
+                        cid = raw["connections"][loc[1]].get("id")
+                        where = f"conexão {cid!r}: " + ".".join(str(p) for p in loc[2:])
+                    except Exception:
+                        pass
+                details.append(f"{where}: {e['msg']}")
+            raise ConfigError(f"connections.json inválido: {'; '.join(details)}") from None
+        except (ValueError, OSError, TypeError, AttributeError):
+            raise ConfigError("connections.json inválido: JSON malformado ou ilegível") from None
+
+    @staticmethod
     def load_or_create() -> ConnectionsFile:
         """Carrega o arquivo, ou grava e devolve o default se ele não existe."""
         path = ConfigManager.CONNECTIONS_FILE
         if path.exists():
-            return ConnectionsFile(**json.loads(path.read_text(encoding="utf-8")))
+            return ConfigManager._parse(path)
         config = ConfigManager.create_default_config()
         ConfigManager.save(config)
         return config
