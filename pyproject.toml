@@ -41,7 +41,7 @@ dev = [
 ]
 
 [project.scripts]
-knowledge-mcp = "src.main:main"
+knowledge-mcp = "src.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
