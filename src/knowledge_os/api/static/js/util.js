@@ -45,20 +45,53 @@ export function formatDate(value) {
   return d ? d.toLocaleString('pt-BR', { dateStyle: 'medium', timeStyle: 'short' }) : '';
 }
 
-export const ITEM_TYPES = [
-  'context', 'rule', 'pattern', 'procedure', 'knowledge', 'insight', 'artifact', 'task',
-];
-export const MEMORY_CLASSES = ['ephemeral', 'working', 'longterm', 'canonical'];
+/**
+ * Mapa único dos tipos: rótulo PT-BR, plural (cabeçalho de grupo) e ícone do sprite.
+ * A cor vem da classe `t-<tipo>` (tokens --t-<tipo> em tokens.css).
+ * A ordem das chaves é a ordem fixa dos grupos nas listas.
+ */
+export const TYPE_META = {
+  rule: { label: 'Regra', plural: 'Regras', icon: 'rule' },
+  insight: { label: 'Decisão', plural: 'Decisões', icon: 'insight' },
+  procedure: { label: 'Procedimento', plural: 'Procedimentos', icon: 'procedure' },
+  pattern: { label: 'Padrão', plural: 'Padrões', icon: 'pattern' },
+  knowledge: { label: 'Aprendizado', plural: 'Aprendizados', icon: 'knowledge' },
+  context: { label: 'Contexto', plural: 'Contexto', icon: 'context' },
+  task: { label: 'Mudança', plural: 'Mudanças', icon: 'task' },
+  artifact: { label: 'Anexo', plural: 'Anexos', icon: 'artifact' },
+  secret: { label: 'Segredo', plural: 'Segredos', icon: 'secret' },
+};
+export const TYPE_ORDER = Object.keys(TYPE_META);
+/** Tipos que o usuário pode escolher ao criar um item (segredo ainda não é criado pela UI). */
+export const ITEM_TYPES = TYPE_ORDER.filter((t) => t !== 'secret');
 
-const KNOWN_TYPES = new Set(ITEM_TYPES);
 /** Nome do símbolo do sprite para um type (cai em "knowledge"). */
 export function typeIcon(type) {
-  return KNOWN_TYPES.has(type) ? type : 'knowledge';
+  return TYPE_META[type]?.icon || 'knowledge';
+}
+export function typeLabel(type) {
+  return TYPE_META[type]?.label || String(type || '');
+}
+export function typePlural(type) {
+  return TYPE_META[type]?.plural || String(type || '');
+}
+/** Classe de cor (`t-rule`...); tipo desconhecido fica neutro. */
+export function typeClass(type) {
+  return TYPE_META[type] ? 't-' + type : 't-unknown';
 }
 
-export function confidenceLevel(c) {
-  if (c == null) return 'none';
-  if (c < 60) return 'low';
-  if (c < 85) return 'mid';
-  return 'high';
+/** Agrupa por tipo na ordem fixa; grupos vazios não aparecem; tipos fora do mapa vão ao fim. */
+export function groupByType(items) {
+  const by = new Map();
+  for (const it of items) {
+    if (!by.has(it.type)) by.set(it.type, []);
+    by.get(it.type).push(it);
+  }
+  const known = TYPE_ORDER.filter((t) => by.has(t));
+  const extra = [...by.keys()].filter((t) => !TYPE_META[t]).sort();
+  return [...known, ...extra].map((type) => ({
+    type,
+    label: typePlural(type),
+    items: by.get(type),
+  }));
 }

@@ -24,6 +24,7 @@
   <symbol id="i-insight" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.5 1 2.5h6c0-1 .3-1.8 1-2.5A6 6 0 0 0 12 3z"/></symbol>
   <symbol id="i-artifact" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z"/><path d="M14 3v5h5"/></symbol>
   <symbol id="i-task" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="m8 12 3 3 5-6"/></symbol>
+  <symbol id="i-secret" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6z"/></symbol>
   <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
   <symbol id="i-chevrons" viewBox="0 0 24 24"><path d="m8 9 4-4 4 4M8 15l4 4 4-4"/></symbol>
@@ -42,6 +43,7 @@
   <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></symbol>
   <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></symbol>
   <symbol id="i-expand" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></symbol>
+  <symbol id="i-shrink" viewBox="0 0 24 24"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></symbol>
   <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></symbol>
   <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></symbol>
   <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6"/></symbol>
@@ -153,7 +155,7 @@
                   <template x-for="it in d.items" :key="it.id">
                     <a class="tree-item" :class="{ active: $store.app.route.params.item === it.id }"
                        :href="$store.app.hItem(d.id, it.id)" :title="it.title">
-                      <svg class="ic"><use :href="'#i-' + $icon(it.type)"/></svg>
+                      <svg class="ic" :class="$tc(it.type)"><use :href="'#i-' + $icon(it.type)"/></svg>
                       <span x-text="it.title"></span>
                     </a>
                   </template>
@@ -201,13 +203,14 @@
               <svg class="ic"><use href="#i-box"/></svg><span class="grow">Novo workspace</span></button>
           </div>
         </div>
-        <button class="btn icon ghost" @click="$store.app.toggleWide()" :aria-pressed="$store.app.wide"
-                title="Largura do conteúdo" aria-label="Alternar largura do conteúdo">
-          <svg class="ic"><use href="#i-expand"/></svg>
+        <button class="btn icon ghost wide-btn" @click="$store.app.toggleWide()" :aria-pressed="$store.app.wide"
+                :title="$store.app.wide ? 'Voltar à largura padrão' : 'Usar toda a largura'"
+                :aria-label="$store.app.wide ? 'Voltar à largura padrão' : 'Usar toda a largura'">
+          <svg class="ic"><use :href="'#i-' + ($store.app.wide ? 'shrink' : 'expand')"/></svg>
         </button>
-        <button class="btn icon ghost" @click="$store.app.cycleTheme()"
-                :title="'Tema: ' + $store.app.theme" :aria-label="'Tema: ' + $store.app.theme">
-          <svg class="ic"><use :href="'#i-' + ($store.app.theme === 'dark' ? 'moon' : $store.app.theme === 'light' ? 'sun' : 'monitor')"/></svg>
+        <button class="btn icon ghost" @click="$store.app.toggleTheme()"
+                :title="$store.app.themeAction" :aria-label="$store.app.themeAction">
+          <svg class="ic"><use :href="'#i-' + ($store.app.theme === 'dark' ? 'sun' : 'moon')"/></svg>
         </button>
       </header>
 
@@ -269,6 +272,31 @@
                     <span>criado <b x-text="$ago($store.app.workspace.created_at)"></b></span>
                   </div>
 
+                  <div class="filterbar">
+                    <label class="searchbox">
+                      <svg class="ic"><use href="#i-search"/></svg>
+                      <input type="search" class="input" x-model="$store.app.filters.q" placeholder="Buscar neste workspace…" aria-label="Buscar itens" autocomplete="off">
+                    </label>
+                    <div class="type-chips" role="group" aria-label="Filtrar por tipo">
+                      <button class="tchip" :class="{ on: !filters.types.length }" :aria-pressed="!filters.types.length" @click="clearTypes()">
+                        Todos <span class="n" x-show="!searchMode" x-text="items.length"></span>
+                      </button>
+                      <template x-for="c in chipTypes" :key="c.type">
+                        <button class="tchip" :class="[$tc(c.type), { on: filters.types.includes(c.type) }]"
+                                :aria-pressed="filters.types.includes(c.type)" @click="toggleType(c.type)">
+                          <svg class="ic"><use :href="'#i-' + $icon(c.type)"/></svg>
+                          <span x-text="c.label"></span> <span class="n" x-show="c.count != null" x-text="c.count"></span>
+                        </button>
+                      </template>
+                      <button class="btn ghost sm" x-show="filtering" @click="clearFilters()">Limpar filtros</button>
+                    </div>
+                  </div>
+                  <div class="banner" role="alert" x-show="searchError">
+                    <svg class="ic"><use href="#i-alert"/></svg><span x-text="'Busca indisponível: ' + searchError"></span>
+                  </div>
+
+                  <template x-if="!filtering">
+                  <div>
                   <div class="section-title"><span>Domains</span>
                     <button class="btn" @click="$store.app.openModal('domain')"><svg class="ic"><use href="#i-plus"/></svg> Novo domain</button></div>
                   <div class="card-grid">
@@ -282,24 +310,26 @@
                       </a>
                     </template>
                   </div>
+                  </div>
+                  </template>
                   <div class="state" x-show="$store.app.tree && !$store.app.tree.domains.length">
                     <svg class="ic"><use href="#i-folder"/></svg>
                     <h3>Sem domains</h3>
                     <p>Este workspace ainda não tem domains.</p>
                   </div>
 
-                  <template x-if="recent.length">
+                  <template x-if="recent.length && !filtering">
                     <div>
                       <div class="section-title">Atualizados recentemente</div>
                       <div class="item-list">
                         <template x-for="it in recent" :key="it.id">
                           <a class="item-row" :href="$store.app.hItem(it.domain_id, it.id)">
-                            <svg class="ic"><use :href="'#i-' + $icon(it.type)"/></svg>
+                            <svg class="ic tic" :class="$tc(it.type)"><use :href="'#i-' + $icon(it.type)"/></svg>
                             <div>
                               <div class="ir-title" x-text="it.title"></div>
                               <div class="ir-meta">
+                                <span class="tbadge" :class="$tc(it.type)"><svg class="ic"><use :href="'#i-' + $icon(it.type)"/></svg><span x-text="$tlabel(it.type)"></span></span>
                                 <span class="chip outline" x-text="it.domain_name"></span>
-                                <span class="chip" :class="'mc-' + it.memory_class" x-text="it.memory_class"></span>
                                 <span class="muted" style="font-size:12.5px" x-text="$ago(it.updated_at)"></span>
                               </div>
                             </div>
@@ -308,6 +338,48 @@
                       </div>
                     </div>
                   </template>
+
+                  <div class="section-title"><span x-text="filtering ? 'Resultados' : 'Todos os itens'"></span>
+                    <span class="muted" x-show="searching">Buscando…</span></div>
+                  <div class="banner" role="alert" x-show="error">
+                    <svg class="ic"><use href="#i-alert"/></svg><span x-text="'Não foi possível carregar os itens: ' + error"></span>
+                    <button class="btn" @click="loadItems()">Tentar de novo</button>
+                  </div>
+                  <template x-for="g in groups" :key="g.type">
+                    <section class="group">
+                      <h3 class="group-head" :class="$tc(g.type)">
+                        <svg class="ic"><use :href="'#i-' + $icon(g.type)"/></svg>
+                        <span x-text="g.label"></span><span class="count" x-text="g.items.length"></span>
+                      </h3>
+                      <div class="item-list">
+                        <template x-for="it in g.items" :key="it.id">
+                          <a class="item-row" :href="$store.app.hItemOf(it)">
+                            <svg class="ic tic" :class="$tc(it.type)"><use :href="'#i-' + $icon(it.type)"/></svg>
+                            <div>
+                              <div class="ir-title" x-text="it.title"></div>
+                              <div class="ir-sum" x-text="it.summary"></div>
+                              <div class="ir-meta">
+                                <span class="tbadge" :class="$tc(it.type)"><svg class="ic"><use :href="'#i-' + $icon(it.type)"/></svg><span x-text="$tlabel(it.type)"></span></span>
+                                <span class="chip outline" x-show="true && where(it)" x-text="where(it)"></span>
+                                <span class="muted" style="font-size:12.5px" x-show="it.updated_at" x-text="$ago(it.updated_at)"></span>
+                              </div>
+                            </div>
+                          </a>
+                        </template>
+                      </div>
+                    </section>
+                  </template>
+                  <div class="state" x-show="filtering && !visible.length && !searching && !searchError">
+                    <svg class="ic"><use href="#i-search"/></svg>
+                    <h3>Nenhum item encontrado</h3>
+                    <p>Nada corresponde à busca e aos tipos escolhidos.</p>
+                    <button class="btn" @click="clearFilters()">Limpar filtros</button>
+                  </div>
+                  <div class="state" x-show="!filtering && !loading && !error && !items.length">
+                    <svg class="ic"><use href="#i-knowledge"/></svg>
+                    <h3>Nenhum item ainda</h3>
+                    <p>Crie o primeiro item deste workspace.</p>
+                  </div>
                 </div>
               </template>
               <div class="state error" x-show="$store.app.wsError" role="alert">
@@ -344,39 +416,68 @@
                     <svg class="ic"><use href="#i-alert"/></svg><span x-text="'Mostrando ' + items.length + ' de ' + totalItems + ' itens'"></span>
                   </div>
 
-                  <div class="toolbar" x-show="items.length">
-                    <select class="select sm" x-model="typeFilter" aria-label="Filtrar por type">
-                      <option value="">Todos os types</option>
-                      <template x-for="t in types" :key="t"><option :value="t" x-text="t"></option></template>
-                    </select>
+                  <div class="filterbar">
+                    <label class="searchbox">
+                      <svg class="ic"><use href="#i-search"/></svg>
+                      <input type="search" class="input" x-model="$store.app.filters.q" placeholder="Buscar neste domain…" aria-label="Buscar itens" autocomplete="off">
+                    </label>
+                    <div class="type-chips" role="group" aria-label="Filtrar por tipo">
+                      <button class="tchip" :class="{ on: !filters.types.length }" :aria-pressed="!filters.types.length" @click="clearTypes()">
+                        Todos <span class="n" x-show="!searchMode" x-text="items.length"></span>
+                      </button>
+                      <template x-for="c in chipTypes" :key="c.type">
+                        <button class="tchip" :class="[$tc(c.type), { on: filters.types.includes(c.type) }]"
+                                :aria-pressed="filters.types.includes(c.type)" @click="toggleType(c.type)">
+                          <svg class="ic"><use :href="'#i-' + $icon(c.type)"/></svg>
+                          <span x-text="c.label"></span> <span class="n" x-show="c.count != null" x-text="c.count"></span>
+                        </button>
+                      </template>
+                      <button class="btn ghost sm" x-show="filtering" @click="clearFilters()">Limpar filtros</button>
+                    </div>
+                  </div>
+                  <div class="banner" role="alert" x-show="searchError">
+                    <svg class="ic"><use href="#i-alert"/></svg><span x-text="'Busca indisponível: ' + searchError"></span>
+                  </div>
+                  <div class="toolbar" x-show="items.length && !searchMode">
                     <select class="select sm" x-model="sort" aria-label="Ordenar">
                       <option value="title">Ordem alfabética</option>
                       <option value="recent">Mais recentes</option>
                     </select>
                     <span class="grow"></span>
-                    <span class="muted" style="font-size:13px" x-text="filtered.length + ' de ' + items.length"></span>
+                    <span class="muted" style="font-size:13px" x-text="visible.length + ' de ' + items.length"></span>
                   </div>
-
-                  <div class="item-list" x-show="filtered.length">
-                    <template x-for="it in filtered" :key="it.id">
-                      <a class="item-row" :href="$store.app.hItem($store.app.domain.id, it.id)">
-                        <svg class="ic"><use :href="'#i-' + $icon(it.type)"/></svg>
-                        <div>
-                          <div class="ir-title" x-text="it.title"></div>
-                          <div class="ir-sum" x-text="it.summary"></div>
-                          <div class="ir-meta">
-                            <span class="chip accent" x-text="it.type"></span>
-                            <span class="chip" :class="'mc-' + it.memory_class" x-text="it.memory_class"></span>
-                            <span class="conf" :class="$conf(it.confidence)" x-show="it.confidence != null">
-                              <span class="conf-bar"><i :style="'width:' + it.confidence + '%'"></i></span><span x-text="it.confidence + '%'"></span>
-                            </span>
-                            <span class="muted" style="font-size:12.5px" x-text="$ago(it.updated_at)"></span>
-                          </div>
-                        </div>
-                      </a>
-                    </template>
+                  <span class="muted" x-show="searching">Buscando…</span>
+                  <template x-for="g in groups" :key="g.type">
+                    <section class="group">
+                      <h3 class="group-head" :class="$tc(g.type)">
+                        <svg class="ic"><use :href="'#i-' + $icon(g.type)"/></svg>
+                        <span x-text="g.label"></span><span class="count" x-text="g.items.length"></span>
+                      </h3>
+                      <div class="item-list">
+                        <template x-for="it in g.items" :key="it.id">
+                          <a class="item-row" :href="$store.app.hItemOf(it)">
+                            <svg class="ic tic" :class="$tc(it.type)"><use :href="'#i-' + $icon(it.type)"/></svg>
+                            <div>
+                              <div class="ir-title" x-text="it.title"></div>
+                              <div class="ir-sum" x-text="it.summary"></div>
+                              <div class="ir-meta">
+                                <span class="tbadge" :class="$tc(it.type)"><svg class="ic"><use :href="'#i-' + $icon(it.type)"/></svg><span x-text="$tlabel(it.type)"></span></span>
+                                <span class="chip outline" x-show="false && where(it)" x-text="where(it)"></span>
+                                <span class="muted" style="font-size:12.5px" x-show="it.updated_at" x-text="$ago(it.updated_at)"></span>
+                              </div>
+                            </div>
+                          </a>
+                        </template>
+                      </div>
+                    </section>
+                  </template>
+                  <div class="state" x-show="filtering && !visible.length && !searching && !searchError">
+                    <svg class="ic"><use href="#i-search"/></svg>
+                    <h3>Nenhum item encontrado</h3>
+                    <p>Nada corresponde à busca e aos tipos escolhidos.</p>
+                    <button class="btn" @click="clearFilters()">Limpar filtros</button>
                   </div>
-                  <div class="state" x-show="!loading && !error && !items.length">
+                  <div class="state" x-show="!loading && !error && !items.length && !filtering">
                     <svg class="ic"><use href="#i-folder"/></svg>
                     <h3>Domain vazio</h3>
                     <p>Ainda não há itens neste domain.</p>
@@ -430,24 +531,11 @@
                     <p class="page-lead" x-text="item.summary"></p>
 
                     <div class="chips">
-                      <span class="chip accent"><svg class="ic"><use :href="'#i-' + $icon(item.type)"/></svg><span x-text="item.type"></span></span>
-                      <span class="chip" :class="'mc-' + item.memory_class" x-text="item.memory_class"></span>
-                      <span class="conf" :class="$conf(item.confidence)" x-show="item.confidence != null" title="Confiança">
-                        <span class="conf-bar"><i :style="'width:' + item.confidence + '%'"></i></span>
-                        <span>Confiança <b x-text="item.confidence + '%'"></b></span>
-                      </span>
-                      <span class="chip outline" x-show="item.importance != null" x-text="'Importância ' + item.importance + '/10'"></span>
-                      <span class="chip outline" x-show="ttlDaysLeft != null" x-text="'TTL ' + item.ttl_days + ' d'"></span>
+                      <span class="tbadge lg" :class="$tc(item.type)"><svg class="ic"><use :href="'#i-' + $icon(item.type)"/></svg><span x-text="$tlabel(item.type)"></span></span>
                       <template x-for="t in item.tags" :key="'t' + t"><span class="chip outline" x-text="'#' + t"></span></template>
                       <template x-for="l in item.labels" :key="'l' + l"><span class="chip accent" x-text="l"></span></template>
                       <span class="muted" style="font-size:12.5px" :title="fullDate(item.updated_at)" x-text="'atualizado ' + $ago(item.updated_at)"></span>
                     </div>
-
-                    <template x-for="b in banners" :key="b.key">
-                      <div class="banner" role="status">
-                        <svg class="ic"><use href="#i-alert"/></svg><span x-text="b.text"></span>
-                      </div>
-                    </template>
 
                     <template x-if="!$store.app.route.params.edit">
                       <div>
@@ -460,14 +548,16 @@
                     <template x-if="$store.app.route.params.edit && item && item.id === $store.app.route.params.item">
                       <div class="editor" x-data="itemEditor(item, (u) => applyUpdate(u))">
                         <div class="editor-meta">
-                          <div class="field grow"><label for="ed-summary">Summary</label>
+                          <div class="field grow"><label for="ed-title">Título</label>
+                            <input id="ed-title" class="input" type="text" maxlength="255" x-model="draft.title"></div>
+                          <div class="field"><label for="ed-type">Tipo</label>
+                            <select id="ed-type" class="select" x-model="draft.type">
+                              <template x-for="t in types" :key="t"><option :value="t" :selected="t === draft.type" x-text="$tlabel(t)"></option></template>
+                            </select></div>
+                          <div class="field grow"><label for="ed-summary">Resumo</label>
                             <input id="ed-summary" class="input" type="text" x-model="draft.summary"></div>
-                          <div class="field"><label for="ed-conf">Confiança (0–100)</label>
-                            <input id="ed-conf" class="input num" type="number" min="0" max="100" x-model.number="draft.confidence"></div>
-                          <div class="field"><label for="ed-imp">Importância (0–10)</label>
-                            <input id="ed-imp" class="input num" type="number" min="0" max="10" x-model.number="draft.importance"></div>
-                          <div class="field" x-show="item.memory_class === 'ephemeral'"><label for="ed-ttl">TTL (dias)</label>
-                            <input id="ed-ttl" class="input num" type="number" min="1" x-model.number="draft.ttl_days"></div>
+                          <div class="field grow"><label for="ed-tags">Tags (separadas por vírgula)</label>
+                            <input id="ed-tags" class="input" type="text" x-model="draft.tags"></div>
                         </div>
                         <div class="editor-grid">
                           <div class="editor-col">
@@ -761,7 +851,7 @@
     <div class="palette" role="dialog" aria-modal="true" aria-label="Buscar e comandos">
       <div class="pal-input">
         <svg class="ic"><use href="#i-search"/></svg>
-        <input x-ref="input" x-model="q" type="text" placeholder="Buscar itens, domains, ações…" autocomplete="off" spellcheck="false"
+        <input x-ref="input" x-model="q" type="text" placeholder="Buscar itens em todos os workspaces, domains, ações…" autocomplete="off" spellcheck="false"
                role="combobox" aria-expanded="true" aria-controls="pal-list"
                :aria-activedescendant="'pal-' + sel"
                @keydown.arrow-down.prevent="move(1)" @keydown.arrow-up.prevent="move(-1)"
@@ -775,11 +865,13 @@
             <template x-for="e in g.entries" :key="e.key">
               <button class="pal-item" role="option" :id="'pal-' + e.idx" :class="{ active: e.idx === sel }"
                       :aria-selected="e.idx === sel" @click="choose(e)" @mousemove="sel = e.idx">
-                <svg class="ic"><use :href="'#i-' + e.icon"/></svg>
+                <svg class="ic" :class="e.type ? $tc(e.type) : ''"><use :href="'#i-' + e.icon"/></svg>
                 <span class="pal-body">
                   <span class="pal-title" x-text="e.title"></span>
                   <span class="pal-sub" x-show="e.sub" x-text="e.sub"></span>
+                  <span class="pal-sub" x-show="e.summary" x-text="e.summary"></span>
                 </span>
+                <span class="tbadge" x-show="e.type" :class="$tc(e.type)" x-text="$tlabel(e.type)"></span>
               </button>
             </template>
           </div>
@@ -831,29 +923,19 @@
                 <select id="m-domain" class="select" x-model="form.domain_id">
                   <template x-for="d in domains" :key="d.id"><option :value="d.id" x-text="d.name"></option></template>
                 </select></div>
-              <div class="field"><label for="m-type">Type</label>
+              <div class="field"><label for="m-type">Tipo</label>
                 <select id="m-type" class="select" x-model="form.type">
-                  <template x-for="t in types" :key="t"><option :value="t" x-text="t"></option></template>
-                </select></div>
-              <div class="field"><label for="m-class">Memory class</label>
-                <select id="m-class" class="select" x-model="form.memory_class">
-                  <template x-for="c in classes" :key="c"><option :value="c" x-text="c"></option></template>
+                  <template x-for="t in types" :key="t"><option :value="t" x-text="$tlabel(t)"></option></template>
                 </select></div>
             </div>
             <p class="form-hint" x-show="!domains.length">Este workspace ainda não tem domains: crie um antes do item.</p>
-            <div class="field"><label for="m-sum">Summary</label>
+            <div class="field"><label for="m-sum">Resumo</label>
               <input id="m-sum" class="input" type="text" x-model="form.summary" required></div>
             <div class="field"><label for="m-content">Conteúdo (Markdown)</label>
               <textarea id="m-content" class="textarea mono" rows="8" x-model="form.content" spellcheck="false" required></textarea></div>
             <div class="form-row">
               <div class="field"><label for="m-tags">Tags (separadas por vírgula)</label>
                 <input id="m-tags" class="input" type="text" x-model="form.tags"></div>
-              <div class="field"><label for="m-conf">Confiança</label>
-                <input id="m-conf" class="input num" type="number" min="0" max="100" x-model.number="form.confidence"></div>
-              <div class="field"><label for="m-imp">Importância</label>
-                <input id="m-imp" class="input num" type="number" min="0" max="10" x-model.number="form.importance"></div>
-              <div class="field" x-show="form.memory_class === 'ephemeral'"><label for="m-ttl">TTL (dias)</label>
-                <input id="m-ttl" class="input num" type="number" min="1" x-model.number="form.ttl_days"></div>
             </div>
           </div>
         </template>

@@ -21,6 +21,7 @@ ASSETS = [
     "js/views/sidebar.js",
     "js/views/workspace.js",
     "js/views/domain.js",
+    "js/views/listing.js",
     "js/markdown.js",
     "js/views/item.js",
     "js/views/palette.js",
@@ -226,8 +227,8 @@ def test_load_workspaces_descarta_resposta_antiga():
 
 
 def test_pagina_de_domain_usa_limite_maximo_e_avisa():
-    dm = _js("views/domain.js")
-    assert "LIMIT = 500" in dm and "limit: LIMIT" in dm
+    lst = _js("views/listing.js")
+    assert "LIMIT = 500" in lst and "limit: LIMIT" in lst
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     assert "Mostrando " in html and "truncated" in html
 
@@ -243,3 +244,71 @@ def test_fechar_modal_sujo_pede_confirmacao():
     assert "modalGuard" in _js("views/editor.js")
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     assert html.count("close()") >= 3
+
+
+
+def test_mapa_de_tipos_cobre_todos_os_tipos_da_api():
+    from knowledge_os.schemas.item_schemas import ITEM_TYPES
+
+    util = _js("util.js")
+    meta = util[util.index("export const TYPE_META"):util.index("export const TYPE_ORDER")]
+    for t in (*ITEM_TYPES, "secret"):
+        assert re.search(rf"\b{t}: {{ label: '[^']+', plural: '[^']+', icon: '{t}' }}", meta), t
+    labels = dict(re.findall(r"(\w+): \{ label: '([^']+)'", meta))
+    assert labels["rule"] == "Regra" and labels["insight"] == "Decisão"
+    assert labels["task"] == "Mudança" and labels["knowledge"] == "Aprendizado"
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    tokens = (STATIC / "css" / "tokens.css").read_text(encoding="utf-8")
+    for t in (*ITEM_TYPES, "secret"):
+        assert f'id="i-{t}"' in html, t  # ícone no sprite
+        assert tokens.count(f"--t-{t}:") == 3, t  # claro, escuro (media) e escuro (data-theme)
+
+
+def test_ui_sem_vestigios_de_aprovacao():
+    banned = re.compile(
+        r"memory_class|memoryClass|MEMORY_CLASSES|confidence|importance|\bttl|ttl_days|\$conf|mc-",
+        re.I,
+    )
+    files = [STATIC / "index.html", *(STATIC / "js").rglob("*.js"), STATIC / "css" / "app.css"]
+    for f in files:
+        if "vendor" in f.parts:
+            continue
+        for line in f.read_text(encoding="utf-8").splitlines():
+            if banned.search(line):
+                # único uso permitido: a UI cria itens sempre como longterm.
+                assert f.name == "editor.js" and "memory_class: 'longterm'" in line, (f.name, line)
+
+
+def test_tema_so_claro_e_escuro_com_dica_em_portugues():
+    st = _js("store.js")
+    assert "THEMES" not in st and "cycleTheme" not in st
+    assert "Mudar para tema claro" in st and "Mudar para tema escuro" in st
+    assert "prefers-color-scheme" in st
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert "toggleTheme()" in html and "'sun' : 'moon'" in html
+
+
+def test_largura_larga_sem_teto_e_botao_oculto_quando_nao_cabe():
+    css = (STATIC / "css" / "app.css").read_text(encoding="utf-8")
+    assert "1040px" not in css
+    assert ".app.wide .page { grid-template-columns: minmax(0, 1fr); }" in css
+    assert re.search(r"@media \(max-width: \d+px\) \{ \.btn\.wide-btn \{ display: none; \} \}", css)
+
+
+def test_listas_agrupadas_por_tipo_com_filtros_e_busca():
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert html.count('class="filterbar"') == 2 and "Todos os itens" in html
+    lst = _js("views/listing.js")
+    assert "groupByType" in lst and "/items/search" in lst and "types" in lst
+    util = _js("util.js")
+    block = re.search(r"export const TYPE_META = \{(.*?)\n\};", util, re.S).group(1)
+    keys = re.findall(r"^  (\w+): \{", block, re.M)
+    assert keys[:8] == [
+        "rule", "insight", "procedure", "pattern", "knowledge", "context", "task", "artifact",
+    ]
+
+
+def test_paleta_busca_em_todos_os_workspaces_com_ate_20_resultados():
+    pal = _js("views/palette.js")
+    assert "REMOTE_LIMIT = 20" in pal and "workspace_id: ws" not in pal
+    assert "r.workspace_id" in pal and "r.domain_id" in pal

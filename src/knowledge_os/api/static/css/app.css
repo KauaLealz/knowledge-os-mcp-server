@@ -36,7 +36,11 @@ button { font: inherit; color: inherit; cursor: pointer; }
   justify-content: center; padding: 36px 32px 120px; width: 100%;
 }
 .page.has-toc { grid-template-columns: minmax(0, var(--content-w)) var(--toc-w); }
-.app.wide .page { --content-w: 1040px; }
+/* Modo largo: o conteúdo usa todo o espaço disponível (sem teto fixo). */
+.app.wide .page { grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 1001px) { .app.wide .page.has-toc { grid-template-columns: minmax(0, 1fr) var(--toc-w); } }
+/* Sem espaço além da largura normal (sidebar visível ou tela estreita), o botão não faria nada. */
+@media (max-width: 1056px) { .btn.wide-btn { display: none; } }
 .doc { min-width: 0; }
 
 /* ===== Sidebar ===== */
@@ -174,17 +178,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .chip .ic { width: 12px; height: 12px; }
 .chip.accent { background: var(--accent-soft); color: var(--accent-text); }
 .chip.outline { background: none; border-color: var(--border); }
-.chip.mc-ephemeral { background: color-mix(in srgb, var(--conf-low) 16%, transparent); color: var(--warn-text); }
-.chip.mc-working { background: color-mix(in srgb, #0ea5e9 14%, transparent); color: #0369a1; }
-.chip.mc-longterm { background: var(--accent-soft); color: var(--accent-text); }
-.chip.mc-canonical { background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
-:root[data-theme="dark"] .chip.mc-working { color: #7dd3fc; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .chip.mc-working { color: #7dd3fc; } }
-.conf { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); }
-.conf-bar { width: 44px; height: 5px; border-radius: 3px; background: var(--border); overflow: hidden; }
-.conf-bar > i { display: block; height: 100%; background: var(--conf-high); }
-.conf.low .conf-bar > i { background: var(--conf-low); }
-.conf.mid .conf-bar > i { background: var(--conf-mid); }
 .muted { color: var(--text-3); }
 
 /* ===== Estados ===== */
@@ -402,3 +395,45 @@ body { overflow-x: clip; }
 .plan-title { margin: 0 0 6px; }
 .danger-zone { margin-top: 32px; padding: 4px 16px 12px; border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent); border-radius: var(--radius); }
 .danger-zone .section-title { color: var(--danger); }
+
+/* ===== Tipos de item: cor, selo, chips e grupos ===== */
+.t-rule { --tc: var(--t-rule); }
+.t-insight { --tc: var(--t-insight); }
+.t-procedure { --tc: var(--t-procedure); }
+.t-pattern { --tc: var(--t-pattern); }
+.t-knowledge { --tc: var(--t-knowledge); }
+.t-context { --tc: var(--t-context); }
+.t-task { --tc: var(--t-task); }
+.t-artifact { --tc: var(--t-artifact); }
+.t-secret { --tc: var(--t-secret); }
+.t-unknown { --tc: var(--text-2); }
+.ic.t-rule, .ic.t-insight, .ic.t-procedure, .ic.t-pattern, .ic.t-knowledge, .ic.t-context,
+.ic.t-task, .ic.t-artifact, .ic.t-secret, .ic.t-unknown { color: var(--tc); }
+.tree-item .ic[class*="t-"], .item-row > .ic.tic, .pal-item .ic[class*="t-"], .tree-item.active .ic[class*="t-"] { color: var(--tc); }
+.pal-item.active .ic[class*="t-"] { color: var(--tc); }
+.tbadge {
+  display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border-radius: 10px; flex: none;
+  color: var(--tc, var(--text-2)); background: color-mix(in srgb, var(--tc, var(--text-2)) 13%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tc, var(--text-2)) 30%, transparent);
+  font-size: 12px; font-weight: 600; line-height: 1.7; white-space: nowrap;
+}
+.tbadge .ic { width: 12px; height: 12px; color: inherit; }
+.tbadge.lg { font-size: 13px; padding: 2px 10px; }
+.group { margin-top: 22px; }
+.group-head { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 14px; font-weight: 650; color: var(--tc, var(--text)); }
+.group-head .count { color: var(--text-3); }
+.filterbar { display: grid; gap: 10px; margin: 0 0 8px; }
+.searchbox { position: relative; display: block; }
+.searchbox .ic { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-3); pointer-events: none; }
+.searchbox .input { padding-left: 32px; }
+.type-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.tchip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 14px;
+  border: 1px solid var(--border-strong); background: var(--bg); color: var(--text-2); font-size: 13px; font-weight: 550;
+}
+.tchip .ic { width: 13px; height: 13px; color: var(--tc, currentColor); }
+.tchip .n { font-size: 11.5px; color: var(--text-3); font-weight: 500; }
+.tchip:hover { border-color: var(--tc, var(--accent)); }
+.tchip.on { background: color-mix(in srgb, var(--tc, var(--accent)) 14%, transparent); border-color: var(--tc, var(--accent)); color: var(--tc, var(--accent-text)); }
+.tchip.on .n { color: inherit; }
+.btn.sm { padding: 3px 8px; font-size: 13px; }

@@ -2,22 +2,29 @@
 import { api } from '../api.js';
 import { go, hrefs } from '../router.js';
 import { renderTo } from '../markdown.js';
-import { ITEM_TYPES, MEMORY_CLASSES } from '../util.js';
+import { ITEM_TYPES } from '../util.js';
 
-const EDITABLE = ['summary', 'content', 'confidence', 'importance', 'ttl_days'];
+const EDITABLE = ['title', 'type', 'summary', 'content', 'tags'];
+
+const splitTags = (t) => String(t).split(',').map((x) => x.trim()).filter(Boolean);
 
 function pick(item) {
   const out = {};
   for (const k of EDITABLE) out[k] = item[k] ?? '';
+  out.tags = (item.tags || []).join(', ');
   return out;
 }
 
 const blank = (v) => v === '' || v === null || v === undefined;
 
-/** Campos que mudaram (campos numéricos em branco não contam: a API não os limpa). */
+/** Campos que mudaram (título, resumo e conteúdo em branco não contam). Tags viram lista. */
 function changes(draft, saved) {
   const out = {};
   for (const k of EDITABLE) {
+    if (k === 'tags') {
+      if (draft.tags !== saved.tags) out.tags = splitTags(draft.tags);
+      continue;
+    }
     if (blank(draft[k])) continue;
     if (draft[k] !== saved[k]) out[k] = draft[k];
   }
@@ -28,6 +35,7 @@ export function register(Alpine) {
   Alpine.data('itemEditor', (item, applyUpdate) => {
     let beforeUnload = null; // fora do estado reativo
     return {
+      types: ITEM_TYPES,
       draft: pick(item),
       saved: pick(item),
       saving: false,
@@ -73,8 +81,8 @@ export function register(Alpine) {
           this.app.toast('Nada para salvar');
           return;
         }
-        if (blank(this.draft.summary) || blank(this.draft.content)) {
-          this.error = 'Summary e conteúdo não podem ficar vazios.';
+        if (blank(this.draft.title) || blank(this.draft.summary) || blank(this.draft.content)) {
+          this.error = 'Título, resumo e conteúdo não podem ficar vazios.';
           return;
         }
         this.saving = true;
@@ -96,7 +104,6 @@ export function register(Alpine) {
 
   Alpine.data('newModal', () => ({
     types: ITEM_TYPES,
-    classes: MEMORY_CLASSES,
     form: {},
     initial: '',
     saving: false,
@@ -123,14 +130,10 @@ export function register(Alpine) {
         workspace_id: p.ws || this.app.workspaces[0]?.id || '',
         domain_id: p.dm || this.domains[0]?.id || '',
         type: 'knowledge',
-        memory_class: 'longterm',
         title: '',
         summary: '',
         content: '',
         tags: '',
-        confidence: '',
-        importance: '',
-        ttl_days: '',
       };
       this.initial = JSON.stringify(this.form);
       this.app.modalGuard = () => JSON.stringify(this.form) !== this.initial;
@@ -191,25 +194,19 @@ export function register(Alpine) {
       const ws = this.app.route.params.ws;
       if (!ws) throw new Error('Abra um workspace antes de criar um item.');
       if (!f.domain_id) throw new Error('Escolha o domain (crie um se ainda não houver).');
-      for (const [k, label] of [['title', 'título'], ['summary', 'summary'], ['content', 'conteúdo']]) {
+      for (const [k, label] of [['title', 'título'], ['summary', 'resumo'], ['content', 'conteúdo']]) {
         if (!String(f[k]).trim()) throw new Error(`Informe o ${label}.`);
       }
       const body = {
         workspace_id: ws,
         domain_id: f.domain_id,
         type: f.type,
-        memory_class: f.memory_class,
+        memory_class: 'longterm', // a UI não expõe classe de memória: itens novos nascem duradouros
         title: f.title.trim(),
         summary: f.summary.trim(),
         content: f.content,
-        tags: f.tags.split(',').map((t) => t.trim()).filter(Boolean),
+        tags: splitTags(f.tags),
       };
-      if (!blank(f.confidence)) body.confidence = f.confidence;
-      if (!blank(f.importance)) body.importance = f.importance;
-      if (f.memory_class === 'ephemeral') {
-        if (blank(f.ttl_days)) throw new Error('Itens ephemeral exigem TTL (em dias).');
-        body.ttl_days = f.ttl_days;
-      }
       const it = await api('POST', '/items', { body });
       await this.app.loadTree(ws);
       this.app.modal = null;

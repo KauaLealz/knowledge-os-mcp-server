@@ -1,6 +1,6 @@
 """Rotas de items (CRUD, busca FTS e ajustes de confidence/importance/memory_class)."""
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
@@ -14,6 +14,7 @@ from knowledge_os.api.schemas.requests import (
 )
 from knowledge_os.api.schemas.responses import ItemResponse, SearchResponse
 from knowledge_os.db.models import Item
+from knowledge_os.schemas.item_schemas import ITEM_TYPES, ItemSearchResult
 from knowledge_os.services._common import tiebreak
 from knowledge_os.services.item_service import ItemService
 from knowledge_os.services.memory_service import MemoryService
@@ -51,20 +52,55 @@ def create_item(req: ItemCreate, engine: Engine = Depends(get_engine_dep)):
     return ItemResponse.from_item(ItemService(engine).create(**req.model_dump()))
 
 
+class SearchHit(ItemSearchResult):
+    """Resultado de busca com os ids necessários para montar o link na UI."""
+
+    workspace_id: str | None = None
+    domain_id: str | None = None
+
+
+class SearchHitsResponse(SearchResponse):
+    results: list[SearchHit]  # type: ignore[assignment]
+
+
 # Declarada antes de /items/{id} para "search" não ser lido como id.
-@router.get("/items/search", response_model=SearchResponse)
+@router.get("/items/search", response_model=SearchHitsResponse)
 def search_items(
     query: str,
-    workspace_id: str,
+    workspace_id: str | None = None,
     domain_id: str | None = None,
-    limit: int = Query(default=10, ge=1, le=100),
+    types: str | None = Query(default=None, description="types separados por vírgula"),
+    limit: int = Query(default=10, ge=1, le=50),
     engine: Engine = Depends(get_engine_dep),
+    session: Session = Depends(get_session_dep),
 ):
+    type_list = [t.strip() for t in types.split(",") if t.strip()] if types else None
+    invalid = [t for t in type_list or [] if t not in ITEM_TYPES]
+    if invalid:
+        raise HTTPException(
+            422,
+            f"types inválidos: {', '.join(invalid)}. Válidos: {', '.join(ITEM_TYPES)}",
+        )
     service = ItemService(engine)
-    ws_id = service.resolve_workspace_id(workspace_id)
-    dm_id = service.resolve_domain_id(ws_id, domain_id) if domain_id else None
-    results = service.search(ws_id, dm_id, query, limit=limit)
-    return SearchResponse(query=query, total=len(results), results=results)
+    ws_id = service.resolve_workspace_id(workspace_id) if workspace_id else None
+    dm_id = domain_id
+    if domain_id and ws_id:
+        dm_id = service.resolve_domain_id(ws_id, domain_id)
+    rows = service.search(ws_id, dm_id, query, types=type_list or None, limit=limit)
+    links = {}
+    if rows:
+        found = session.execute(
+            select(Item.id, Item.workspace_id, Item.domain_id).where(
+                Item.id.in_([r["id"] for r in rows])
+            )
+        )
+        links = {i: (w, d) for i, w, d in found}
+    results = [
+        SearchHit(**r, workspace_id=links.get(r["id"], (None, None))[0],
+                  domain_id=links.get(r["id"], (None, None))[1])
+        for r in rows
+    ]
+    return SearchHitsResponse(query=query, total=len(results), results=results)
 
 
 @router.get("/items/{id}", response_model=ItemResponse)

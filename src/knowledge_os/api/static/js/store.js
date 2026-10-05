@@ -3,12 +3,11 @@ import { api, setConnection } from './api.js';
 import { parseHash, hrefs, go } from './router.js';
 import { lsGet, lsSet } from './util.js';
 
-const THEMES = ['system', 'light', 'dark'];
+const darkQuery = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+const systemTheme = () => (darkQuery && darkQuery.matches ? 'dark' : 'light');
 
 export function applyTheme(theme) {
-  const root = document.documentElement;
-  if (theme === 'light' || theme === 'dark') root.setAttribute('data-theme', theme);
-  else root.removeAttribute('data-theme');
+  document.documentElement.setAttribute('data-theme', theme === 'dark' ? 'dark' : 'light');
 }
 
 function readJson(key, fallback) {
@@ -51,13 +50,18 @@ export const appStore = {
   wsSeq: 0,
   wsError: null,
 
+  // Filtros das listas (workspace e domain): ficam no store para não se perderem ao navegar.
+  filters: { q: '', types: [] },
+  filtersWs: null,
+
   tree: null,
   treeWs: null,
   treeLoading: false,
   treeError: null,
   itemIndex: {},
 
-  theme: 'system',
+  theme: 'light', // sempre 'light' ou 'dark' (o do sistema até o primeiro clique)
+  themeChosen: false,
   wide: false,
   drawer: false,
   expanded: {},
@@ -73,11 +77,16 @@ export const appStore = {
 
   // ---- ciclo de vida ----
   async init() {
-    this.theme = THEMES.includes(lsGet('kos.theme')) ? lsGet('kos.theme') : 'system';
+    const saved = lsGet('kos.theme');
+    this.themeChosen = saved === 'light' || saved === 'dark';
+    this.theme = this.themeChosen ? saved : systemTheme();
+    if (this.themeChosen) applyTheme(this.theme);
+    darkQuery?.addEventListener?.('change', () => {
+      if (!this.themeChosen) this.theme = systemTheme(); // o CSS já segue o sistema
+    });
     this.wide = lsGet('kos.wide') === '1';
     this.expanded = readJson('kos.expanded', {});
     this.recents = readJson('kos.recents', []);
-    applyTheme(this.theme);
     this.lastHash = location.hash;
     window.addEventListener('hashchange', () => {
       // Edição com alterações não salvas: confirma antes de sair da rota.
@@ -147,6 +156,10 @@ export const appStore = {
     }
     const conn = r.params.conn;
     if (conn && conn !== this.connId) await this.selectConnection(conn);
+    if (r.params.ws !== this.filtersWs) {
+      this.filtersWs = r.params.ws || null;
+      this.filters = { q: '', types: [] };
+    }
     if (r.params.ws && r.params.ws !== this.treeWs && this.workspaces.length) {
       await this.loadTree(r.params.ws);
     }
@@ -255,6 +268,11 @@ export const appStore = {
   hItem(dmId, itemId) {
     return hrefs.item(this.connId, this.route.params.ws, dmId, itemId);
   },
+  /** Link de um item de lista/busca (usa os ids do próprio item quando vêm). */
+  hItemOf(it) {
+    const ws = it.workspace_id || this.route.params.ws;
+    return hrefs.item(this.connId, ws, it.domain_id, it.id);
+  },
   hItemById(itemId) {
     const it = this.itemIndex[itemId];
     return it ? hrefs.item(this.connId, this.route.params.ws, it.domain_id, itemId) : null;
@@ -311,12 +329,17 @@ export const appStore = {
 
   // ---- UI ----
   setTheme(theme) {
-    this.theme = theme;
-    lsSet('kos.theme', theme);
-    applyTheme(theme);
+    this.theme = theme === 'dark' ? 'dark' : 'light';
+    this.themeChosen = true;
+    lsSet('kos.theme', this.theme);
+    applyTheme(this.theme);
   },
-  cycleTheme() {
-    this.setTheme(THEMES[(THEMES.indexOf(this.theme) + 1) % THEMES.length]);
+  toggleTheme() {
+    this.setTheme(this.theme === 'dark' ? 'light' : 'dark');
+  },
+  /** Texto da ação do botão de tema. */
+  get themeAction() {
+    return this.theme === 'dark' ? 'Mudar para tema claro' : 'Mudar para tema escuro';
   },
   toggleWide() {
     this.wide = !this.wide;

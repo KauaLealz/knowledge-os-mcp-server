@@ -1,7 +1,9 @@
-// Paleta Ctrl/Cmd+K: Recentes / Items (com summary) / Domains-Workspaces / Ações / Configurações.
+// Paleta Ctrl/Cmd+K: Recentes / Items (busca em todos os workspaces) / Domains-Workspaces / Ações / Configurações.
 import { api } from '../api.js';
 import { go, hrefs } from '../router.js';
 import { typeIcon } from '../util.js';
+
+const REMOTE_LIMIT = 20; // máximo de itens na paleta
 
 const norm = (s) =>
   String(s || '')
@@ -36,8 +38,7 @@ export function register(Alpine) {
       search() {
         clearTimeout(timer);
         const q = this.q.trim();
-        const ws = this.app.route.params.ws;
-        if (q.length < 2 || !ws) {
+        if (q.length < 2) {
           this.remote = [];
           return;
         }
@@ -45,7 +46,7 @@ export function register(Alpine) {
           const mine = ++seq;
           this.searching = true;
           try {
-            const res = await api('GET', '/items/search', { query: { query: q, workspace_id: ws, limit: 8 } });
+            const res = await api('GET', '/items/search', { query: { query: q, limit: REMOTE_LIMIT } });
             if (mine === seq) this.remote = res.results;
           } catch {
             if (mine === seq) this.remote = []; // FTS pode recusar a consulta: a busca local segue valendo
@@ -76,6 +77,7 @@ export function register(Alpine) {
               title: r.title,
               sub: '',
               icon: typeIcon(r.type),
+              type: r.type,
               hash: hrefs.item(r.conn, r.ws, r.dm, r.id),
             })),
         );
@@ -84,17 +86,19 @@ export function register(Alpine) {
           const seen = new Set();
           const items = [];
           for (const r of this.remote) {
-            const it = app.itemIndex[r.id];
-            if (!it || seen.has(r.id)) continue;
+            if (seen.has(r.id)) continue;
             seen.add(r.id);
-            items.push({ key: 'i' + r.id, title: r.title, sub: r.summary, icon: typeIcon(it.type), hash: app.hItemById(r.id) });
+            const hash = r.workspace_id && r.domain_id ? hrefs.item(app.connId, r.workspace_id, r.domain_id, r.id) : app.hItemById(r.id);
+            items.push({ key: 'i' + r.id, title: r.title, sub: this.where(r), summary: r.summary, icon: typeIcon(r.type), type: r.type, hash });
           }
-          for (const it of Object.values(app.itemIndex)) {
-            if (seen.has(it.id) || !match(it.title)) continue;
-            seen.add(it.id);
-            items.push({ key: 'i' + it.id, title: it.title, sub: it.domain_name, icon: typeIcon(it.type), hash: app.hItemById(it.id) });
+          // Se a busca do servidor falhou, ainda acha pelo título nos itens do workspace aberto.
+          if (!this.remote.length) {
+            for (const it of Object.values(app.itemIndex)) {
+              if (!match(it.title)) continue;
+              items.push({ key: 'i' + it.id, title: it.title, sub: it.domain_name, icon: typeIcon(it.type), type: it.type, hash: app.hItemById(it.id) });
+            }
           }
-          add('Items', items.slice(0, 8));
+          add('Items', items.slice(0, REMOTE_LIMIT));
         }
 
         const places = [];
@@ -114,12 +118,16 @@ export function register(Alpine) {
 
         const settings = [
           { key: 's-conn', title: 'Conexões', sub: 'Configurações', icon: 'db', hash: app.hConnections() },
-          { key: 's-t-system', title: 'Tema: sistema', sub: 'Configurações', icon: 'monitor', run: () => app.setTheme('system') },
-          { key: 's-t-light', title: 'Tema: claro', sub: 'Configurações', icon: 'sun', run: () => app.setTheme('light') },
-          { key: 's-t-dark', title: 'Tema: escuro', sub: 'Configurações', icon: 'moon', run: () => app.setTheme('dark') },
+          { key: 's-theme', title: app.themeAction, sub: 'Configurações', icon: app.theme === 'dark' ? 'sun' : 'moon', run: () => app.toggleTheme() },
         ];
         add('Configurações', settings.filter((s) => match(s.title)));
         return groups;
+      },
+
+      /** "Workspace › Domain" de um resultado da busca. */
+      where(r) {
+        const ws = this.app.workspaces.find((w) => w.id === r.workspace_id)?.name;
+        return [ws, r.domain].filter(Boolean).join(' › ');
       },
 
       /** Ações da paleta. */

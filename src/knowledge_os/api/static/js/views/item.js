@@ -1,9 +1,7 @@
-// Página de item em modo leitura: chips, banners, Markdown, TOC, relações, artifacts, prev/next.
+// Página de item em modo leitura: selo de tipo, Markdown, TOC, relações, artifacts, prev/next.
 import { api, download } from '../api.js';
 import { renderTo } from '../markdown.js';
-import { formatDate, parseDate } from '../util.js';
-
-const DAY = 86400000;
+import { formatDate } from '../util.js';
 
 function copyText(text) {
   if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
@@ -154,35 +152,6 @@ export function register(Alpine) {
     // ---- derivados ----
     get domainName() {
       return this.app.tree?.domains.find((d) => d.id === this.item?.domain_id)?.name || '';
-    },
-    get ttlDaysLeft() {
-      const it = this.item;
-      if (!it || it.memory_class !== 'ephemeral' || !it.ttl_days) return null;
-      const base = parseDate(it.updated_at || it.created_at);
-      if (!base) return null;
-      return Math.ceil((base.getTime() + it.ttl_days * DAY - Date.now()) / DAY);
-    },
-    get banners() {
-      const list = [];
-      const it = this.item;
-      if (!it) return list;
-      if (it.confidence != null && it.confidence < 60) {
-        list.push({
-          key: 'conf',
-          text: `Baixa confiança (${it.confidence}%). Trate como hipótese e confirme antes de usar.`,
-        });
-      }
-      const left = this.ttlDaysLeft;
-      if (left != null && left <= 2) {
-        list.push({
-          key: 'ttl',
-          text:
-            left <= 0
-              ? 'Este item ephemeral passou do TTL e pode ser descartado a qualquer momento.'
-              : `Item ephemeral: expira em ${left} dia${left > 1 ? 's' : ''}.`,
-        });
-      }
-      return list;
     },
     get siblings() {
       return this.app.tree?.domains.find((d) => d.id === this.item?.domain_id)?.items || [];
