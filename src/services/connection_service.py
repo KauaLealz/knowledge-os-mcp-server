@@ -394,6 +394,8 @@ class ConnectionService:
                     data[key] = _clean(fields[key])
             if "password" in fields:
                 data["password"] = fields["password"] or None
+            if old.db_type != "sqlite" and data.get("port") is None:
+                data["port"] = _DEFAULT_PORTS[old.db_type]
             new = _build(data)
             config.connections = [new if c.id == old.id else c for c in config.connections]
             ConfigManager.save(config)

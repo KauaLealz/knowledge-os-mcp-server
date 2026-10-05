@@ -103,6 +103,12 @@ def test_patch_password_semantics(client, auth):
     assert r.json()["password_set"] is False and stored() is None
 
 
+def test_patch_blank_port_falls_back_to_default(client, auth):
+    cid = _pg(client, auth).json()["id"]
+    r = client.patch(f"/api/connections/{cid}", headers=auth, json={"port": None})
+    assert r.status_code == 200 and r.json()["port"] == 5432
+
+
 def test_patch_fields_and_validation(client, auth):
     cid = _create(client, auth).json()["id"]
     r = client.patch(f"/api/connections/{cid}", headers=auth,
