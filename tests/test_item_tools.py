@@ -11,6 +11,7 @@ from sqlalchemy import Engine, text
 from src.exceptions import NotFoundError, ValidationError
 from src.schemas.item_schemas import ItemCreate, ItemSearchRequest
 from src.services.item_service import ItemService
+from tests.helpers_mcp import client_call
 
 
 @pytest.fixture
@@ -128,10 +129,11 @@ class TestTools:
         return server
 
     def _call(self, mcp, name, args):
-        async def run():
-            async with Client(mcp) as client:
-                return await client.call_tool(name, args)
-        return [json.loads(block.text) for block in asyncio.run(run())]
+        out = []
+        for block in client_call(mcp, name, args):
+            value = json.loads(block.text)
+            out.extend(value if isinstance(value, list) else [value])
+        return out
 
     def test_registra_5_tools(self, mcp):
         async def run():

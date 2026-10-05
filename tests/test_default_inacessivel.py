@@ -79,7 +79,7 @@ def test_stdio_sobe_e_tool_sem_connection_id_da_erro_explicito(server_env):  # n
                 return broken, cat
 
     broken, cat = asyncio.run(asyncio.wait_for(scenario(), timeout=60))
-    assert broken.isError
+    assert broken.is_error
     assert "PG" in broken.content[0].text
     assert "segredo" not in broken.content[0].text
-    assert not cat.isError
+    assert not cat.is_error

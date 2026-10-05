@@ -1,13 +1,12 @@
 """Testes de ImportExportService e das tools workspace_import / domain_import."""
 
-import asyncio
 import io
 import json
 import uuid
 import zipfile
 
 import pytest
-from fastmcp import Client, FastMCP
+from fastmcp import FastMCP
 from sqlalchemy import select
 
 from src.db.models import Artifact, Domain, Item, Relation, Workspace
@@ -17,6 +16,7 @@ from src.services.artifact_service import ArtifactService
 from src.services.import_export_service import ImportExportService
 from src.services.item_service import ItemService
 from src.services.relation_service import RelationService
+from tests.helpers_mcp import client_call
 
 
 @pytest.fixture
@@ -249,11 +249,7 @@ class TestTools:
         return m
 
     def _call(self, server, name, args):
-        async def run():
-            async with Client(server) as client:
-                return await client.call_tool(name, args)
-
-        return [json.loads(b.text) for b in asyncio.run(run())]
+        return [json.loads(b.text) for b in client_call(server, name, args)]
 
     def test_workspace_export_grava_zip(self, server, populated, tmp_path, monkeypatch):
         out = tmp_path / "exports"

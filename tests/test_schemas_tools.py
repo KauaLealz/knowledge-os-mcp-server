@@ -1,6 +1,5 @@
 """Testes de schemas e registro de tools."""
 
-import asyncio
 
 import pytest
 from fastmcp import FastMCP
@@ -10,6 +9,7 @@ from src.exceptions import NotFoundError
 from src.mcp import domain_tools, workspace_tools
 from src.schemas.domain_schemas import DomainCreate
 from src.schemas.workspace_schemas import WorkspaceCreate
+from tests.helpers_mcp import run_tool, tools_by_name
 
 
 def test_workspace_create_valida_nome():
@@ -29,7 +29,7 @@ def test_12_tools_registrados():
     m = FastMCP(name="t")
     workspace_tools.register(m)
     domain_tools.register(m)
-    names = set(asyncio.run(m.get_tools()))
+    names = set(tools_by_name(m))
     assert names == {
         f"{p}_{a}"
         for p in ("workspace", "domain")
@@ -44,8 +44,7 @@ def test_fluxo_tools_ponta_a_ponta(test_engine, monkeypatch):
     domain_tools.register(m)
 
     def call(name: str, args: dict):
-        tool = asyncio.run(m.get_tool(name))
-        return asyncio.run(tool.run(args))
+        return run_tool(m, name, args)
 
     call("workspace_create", {"name": "w1"})
     call("domain_create", {"workspace": "w1", "name": "d1"})

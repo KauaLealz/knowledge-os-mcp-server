@@ -1,6 +1,5 @@
 """Testes de isolamento entre conexões e das tools com connection_id."""
 
-import asyncio
 import uuid
 
 import pytest
@@ -17,6 +16,7 @@ from src.services.connection_service import ConnectionService
 from src.services.domain_service import DomainService
 from src.services.item_service import ItemService
 from src.services.workspace_service import WorkspaceService
+from tests.helpers_mcp import run_tool, tools_by_name
 from tests.helpers_multidb import catalog, sqlite_url  # noqa: F401
 
 
@@ -163,7 +163,7 @@ def _all_tools():
     import src.main as main
 
     main.register_all_tools()  # idempotente: sobrescreve tools de mesmo nome
-    return asyncio.run(main.mcp.get_tools())
+    return tools_by_name(main.mcp)
 
 
 def test_server_expoe_40_tools():
@@ -196,8 +196,7 @@ def test_tools_with_connection_id_roteiam_para_a_conexao(two):
     workspace_tools.register(m)
 
     def call(name, args):
-        blocks = asyncio.run(asyncio.run(m.get_tool(name)).run(args))
-        return " ".join(b.text for b in blocks)
+        return " ".join(b.text for b in run_tool(m, name, args))
 
     call("workspace_create", {"name": "ToolWs", "connection_id": a.id})
     assert "ToolWs" in call("workspace_list", {"connection_id": a.id})
@@ -216,7 +215,7 @@ def test_default_do_json_roteia_tools_sem_connection_id(two):
     from src.mcp import workspace_tools
 
     workspace_tools.register(m)
-    blocks = asyncio.run(asyncio.run(m.get_tool("workspace_list")).run({}))
+    blocks = run_tool(m, "workspace_list", {})
     assert "InA" in " ".join(x.text for x in blocks)
     ConnectionService().set_default("default")
     assert WorkspaceService().list() == []

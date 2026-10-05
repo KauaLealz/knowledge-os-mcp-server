@@ -13,6 +13,7 @@ from src.exceptions import NotFoundError, ValidationError
 from src.mcp import artifact_tools
 from src.schemas.artifact_schemas import ArtifactCreate, ArtifactResponse
 from src.services.artifact_service import ArtifactService
+from tests.helpers_mcp import client_call, tools_by_name
 
 
 @pytest.fixture
@@ -112,11 +113,11 @@ class TestTools:
         return m
 
     def _call(self, server, name, args):
-        async def run():
-            async with Client(server) as client:
-                return await client.call_tool(name, args)
-
-        return [json.loads(b.text) for b in asyncio.run(run())]
+        out = []
+        for block in client_call(server, name, args):
+            value = json.loads(block.text)
+            out.extend(value if isinstance(value, list) else [value])
+        return out
 
     def test_registra_3_tools(self, server):
         async def run():
@@ -141,6 +142,6 @@ def test_main_registra_40_tools():
     import src.main as main
 
     main.register_all_tools()
-    names = set(asyncio.run(main.mcp.get_tools()))
+    names = set(tools_by_name(main.mcp))
     assert len(names) == 40  # 32 (T1-T5) + 6 de connection (T7) + 2 (T9)
     assert {"health_check", "item_search", "artifact_get", "workspace_import"} <= names

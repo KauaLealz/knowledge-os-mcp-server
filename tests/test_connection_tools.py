@@ -7,6 +7,7 @@ from sqlalchemy import create_engine, text
 
 from src.config import ConfigManager, ConnectionConfig
 from src.mcp.connection_tools import migrate_workspaces, schema_sync
+from tests.helpers_mcp import tools_by_name
 
 
 @pytest.fixture
@@ -137,12 +138,11 @@ def test_migrate_workspaces_same_connection(workdir):
 
 
 def test_tools_connection_nao_recebem_senha_e_devolvem_password_set(workdir):
-    import asyncio
 
     import src.main as main
 
     main.register_all_tools()
-    tools = asyncio.run(main.mcp.get_tools())
+    tools = tools_by_name(main.mcp)
     for name in ("connection_create", "connection_update"):
         assert not [p for p in tools[name].parameters["properties"] if "pass" in p], name
 
@@ -158,7 +158,7 @@ def test_tools_connection_nao_recebem_senha_e_devolvem_password_set(workdir):
 
     m = FastMCP(name="t")
     register(m)
-    local = asyncio.run(m.get_tools())
+    local = tools_by_name(m)
     got = local["connection_get"].fn(connection_id="pg")
     listed = local["connection_list"].fn()
     assert got["password_set"] is True

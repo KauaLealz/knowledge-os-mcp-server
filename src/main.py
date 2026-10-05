@@ -104,6 +104,14 @@ def report_connections() -> None:
             print(f"Failed: {conn.name} ({conn.id}) - {result['message']}", file=sys.stderr)
 
 
+def _report_connections_safely() -> None:
+    """report_connections para rodar em thread: erro vira linha no stderr, nunca exceção."""
+    try:
+        report_connections()
+    except Exception as exc:  # noqa: BLE001 - diagnóstico não pode derrubar o servidor
+        print(f"Diagnóstico de conexões falhou: {exc}", file=sys.stderr)
+
+
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="knowledge-mcp", description="MCP Knowledge OS")
     group = parser.add_mutually_exclusive_group()
@@ -167,7 +175,11 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if result["status"] == "ok" else 1
 
         validate_and_init_config()
-        report_connections()
+        # Diagnóstico das conexões em segundo plano: uma conexão fora do ar não pode
+        # atrasar o handshake (o cliente MCP desiste em ~30 s).
+        import threading
+
+        threading.Thread(target=_report_connections_safely, daemon=True).start()
         register_all_tools()
         mcp.run()
         return 0

@@ -50,7 +50,7 @@ def test_handshake_stdio_initialize_list_tools_health_check(server_env):
     init, tools, health = asyncio.run(asyncio.wait_for(scenario(), timeout=60))
     assert init.serverInfo.name == "knowledge-mcp"
     assert len(tools.tools) == EXPECTED_TOOLS
-    assert not health.isError
+    assert not health.is_error
     assert json.loads(health.content[0].text) == {"status": "ok", "database": "connected"}
     assert list(cwd.iterdir()) == []  # nada criado no cwd
     assert {p.name for p in home.iterdir()} >= {"connections.json", "knowledge.db"}
@@ -91,12 +91,17 @@ def test_wheel_inclui_instructions_e_static(tmp_path):
     # Constrói a partir de uma cópia: o build não deixa build/ nem egg-info no repo.
     proj = tmp_path / "proj"
     shutil.copytree(ROOT, proj, ignore=shutil.ignore_patterns(
-        ".git", ".venv", ".plumb", ".tmp*", ".uv*", ".*cache", "build", "dist*", "database",
-        "*.egg-info", "__pycache__", ".knowledge"))
+        ".git", ".venv", ".plumb", ".claude", ".tmp*", ".uv*", ".*cache", "build", "dist*",
+        "database", "*.egg-info", "__pycache__", ".knowledge"))
     out = tmp_path / "out"
+    # Cache e temporários isolados: o build não depende do cache global do uv (que pode
+    # estar inacessível, ex.: dentro de apps empacotados no Windows).
+    scratch = tmp_path / "uv"
+    scratch.mkdir()
+    env = dict(os.environ, UV_CACHE_DIR=str(scratch / "cache"), TMP=str(scratch), TEMP=str(scratch))
     subprocess.run(
         ["uv", "build", "--wheel", "-o", str(out), str(proj)],
-        check=True, capture_output=True, text=True, timeout=300,
+        check=True, capture_output=True, text=True, timeout=300, env=env,
     )
     (wheel,) = out.glob("knowledge_mcp-*.whl")
     names = set(zipfile.ZipFile(wheel).namelist())

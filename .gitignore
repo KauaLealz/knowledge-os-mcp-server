@@ -75,3 +75,5 @@ Thumbs.db
 .claude/worktrees/
 .plumb/changes/archive/
 *.log
+.uvtmp/
+.uvcache/

@@ -4,20 +4,21 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "knowledge-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "MCP server: local knowledge base for Claude agents"
 readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "MIT"}
 authors = [
-    {name = "Your Name", email = "you@example.com"}
+    {name = "Kauã Leal", email = "kaualealdev@gmail.com"}
 ]
 
 dependencies = [
-    "mcp>=0.9.0",
-    "fastmcp>=0.0.1",
-    "sqlalchemy>=2.0.0",
-    "pydantic>=2.0.0",
+    # Faixas fechadas: o fastmcp 4 quebrou a API dos testes sem aviso (get_tools, call_tool).
+    "mcp>=2,<3",
+    "fastmcp>=4,<5",
+    "sqlalchemy>=2.0,<3",
+    "pydantic>=2.0,<3",
     "python-dotenv>=1.0.0",
     "pymysql>=1.1.0",
     "psycopg[binary]>=3.1",
@@ -57,6 +58,8 @@ target-version = ["py312"]
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+
+[tool.ruff.lint]
 select = [
     "E",
     "F",
