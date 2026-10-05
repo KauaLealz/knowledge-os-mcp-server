@@ -26,11 +26,36 @@ from src.exceptions import ConfigError, DatabaseError  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
-UI_DEFAULT_PORT = 8765
-INSTRUCTIONS_FILE = Path(__file__).resolve().parent / "mcp" / "INSTRUCTIONS.md"
+from src import __version__  # noqa: E402
+from src.mcp.toolset import AGENT_TOOLS, FilteredMCP, selected_toolset  # noqa: E402
 
-# Inicializar FastMCP (as instructions chegam ao agente no handshake do protocolo)
-mcp = FastMCP(name="knowledge-mcp", instructions=INSTRUCTIONS_FILE.read_text(encoding="utf-8"))
+UI_DEFAULT_PORT = 8765
+_MCP_DIR = Path(__file__).resolve().parent / "mcp"
+INSTRUCTIONS_FILE = _MCP_DIR / "INSTRUCTIONS.md"
+AGENT_INSTRUCTIONS_FILE = _MCP_DIR / "INSTRUCTIONS_AGENT.md"
+TOOLSET = selected_toolset()
+
+# Inicializar FastMCP (as instructions chegam ao agente no handshake do protocolo e entram
+# no contexto de toda sessão: o perfil `agent` usa a versão curta).
+mcp = FastMCP(
+    name="knowledge-mcp",
+    instructions=(AGENT_INSTRUCTIONS_FILE if TOOLSET == "agent" else INSTRUCTIONS_FILE).read_text(
+        encoding="utf-8"
+    ),
+)
+
+
+def schema_version() -> str | None:
+    """Versão do schema gravada no banco default (None se ainda não sincronizado)."""
+    from src.db.schema_sync import SCHEMA_META_TABLE
+
+    try:
+        with get_engine().connect() as conn:
+            return conn.execute(
+                text(f"SELECT value FROM {SCHEMA_META_TABLE} WHERE key = 'schema_version'")
+            ).scalar()
+    except Exception:
+        return None
 
 
 def check_database() -> dict[str, str]:
@@ -55,17 +80,21 @@ def health_check() -> dict[str, str]:
     """Verifica a saúde do servidor MCP e do banco default.
 
     **Use quando:** Diagnosticar falhas ou confirmar que o servidor está operacional.
-    **Retorna:** {status: ok|error, database: connected | motivo do erro}.
+    **Retorna:** {status: ok|error, database: connected | motivo, version, schema_version,
+        toolset}.
     **Exemplo:** health_check()
     **Notas:** Valida a conexão e a presença de todas as tabelas (inclusive a de busca textual).
     """
-    return check_database()
+    result = check_database()
+    return {**result, "version": __version__, "schema_version": schema_version() or "",
+            "toolset": TOOLSET}
 
 
 def register_all_tools() -> None:
-    """Registra todos os tools no FastMCP."""
+    """Registra os tools do perfil ativo (`all` ou `agent`) no FastMCP."""
     from src.mcp import (
         artifact_tools,
+        brain_tools,
         connection_tools,
         domain_tools,
         item_tools,
@@ -76,15 +105,14 @@ def register_all_tools() -> None:
         workspace_tools,
     )
 
-    workspace_tools.register(mcp)
-    domain_tools.register(mcp)
-    item_tools.register(mcp)
-    relation_tools.register(mcp)
-    memory_tools.register(mcp)
-    tag_tools.register(mcp)
-    label_tools.register(mcp)
-    artifact_tools.register(mcp)
-    connection_tools.register(mcp)  # schema_sync, migrate_workspaces e 6 de connection
+    target = FilteredMCP(mcp, AGENT_TOOLS) if TOOLSET == "agent" else mcp
+    for module in (
+        workspace_tools, domain_tools, item_tools, relation_tools, memory_tools, tag_tools,
+        label_tools, artifact_tools,
+        connection_tools,  # schema_sync, migrate_workspaces e 6 de connection
+        brain_tools,  # project_link, context_get, item_upsert, item_batch_upsert
+    ):
+        module.register(target)  # type: ignore[arg-type]
 
 
 def report_connections() -> None:

@@ -143,5 +143,5 @@ def test_main_registra_40_tools():
 
     main.register_all_tools()
     names = set(tools_by_name(main.mcp))
-    assert len(names) == 40  # 32 (T1-T5) + 6 de connection (T7) + 2 (T9)
+    assert len(names) == 44  # 32 (T1-T5) + 6 de connection (T7) + 2 (T9) + 4 do cérebro
     assert {"health_check", "item_search", "artifact_get", "workspace_import"} <= names

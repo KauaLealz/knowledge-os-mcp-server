@@ -166,9 +166,9 @@ def _all_tools():
     return tools_by_name(main.mcp)
 
 
-def test_server_expoe_40_tools():
+def test_server_expoe_44_tools():
     tools = _all_tools()
-    assert len(tools) == 40
+    assert len(tools) == 44
     assert {n for n in tools if n.startswith("connection_")} == {
         f"connection_{a}"
         for a in ("create", "list", "get", "delete", "test", "update")}

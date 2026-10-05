@@ -48,7 +48,7 @@ where = ["."]
 include = ["src*"]
 
 [tool.setuptools.package-data]
-"src.mcp" = ["INSTRUCTIONS.md"]
+"src.mcp" = ["INSTRUCTIONS.md", "INSTRUCTIONS_AGENT.md"]
 "src.api" = ["static/**/*"]
 
 [tool.black]

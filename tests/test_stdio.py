@@ -15,7 +15,7 @@ from mcp.client.stdio import stdio_client
 from mcp import ClientSession, StdioServerParameters
 
 ROOT = Path(__file__).resolve().parent.parent
-EXPECTED_TOOLS = 40
+EXPECTED_TOOLS = 44
 
 
 @pytest.fixture
@@ -48,10 +48,12 @@ def test_handshake_stdio_initialize_list_tools_health_check(server_env):
                 return init, tools, health
 
     init, tools, health = asyncio.run(asyncio.wait_for(scenario(), timeout=60))
-    assert init.serverInfo.name == "knowledge-mcp"
+    assert init.server_info.name == "knowledge-mcp"
     assert len(tools.tools) == EXPECTED_TOOLS
     assert not health.is_error
-    assert json.loads(health.content[0].text) == {"status": "ok", "database": "connected"}
+    report = json.loads(health.content[0].text)
+    assert (report["status"], report["database"]) == ("ok", "connected")
+    assert report["version"] and report["schema_version"] and report["toolset"] == "all"
     assert list(cwd.iterdir()) == []  # nada criado no cwd
     assert {p.name for p in home.iterdir()} >= {"connections.json", "knowledge.db"}
 
