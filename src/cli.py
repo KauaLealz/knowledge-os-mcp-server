@@ -8,7 +8,7 @@ O resto (servidor MCP via stdio, `ui`, `--check-db`, `--bootstrap`) delega ao `s
 import argparse
 import json
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -139,7 +139,7 @@ def _recent(args: argparse.Namespace) -> int:
     since = _parse_when(args.since, today - timedelta(days=1))
     until = _parse_when(args.until, datetime.now())
     # O banco grava em UTC (utcnow); a janela vem em hora local.
-    offset = datetime.utcnow() - datetime.now()
+    offset = datetime.now(timezone.utc).replace(tzinfo=None) - datetime.now()
     since_utc, until_utc = since + offset, until + offset
     session = get_session(get_engine())
     try:
