@@ -23,7 +23,7 @@ class TestWorkspace:
         dm = Project(
             id="dm_1",
             workspace_id=sample_workspace.id,
-            name="TestDomain"
+            name="TestProject"
         )
         test_session.add(dm)
         test_session.commit()

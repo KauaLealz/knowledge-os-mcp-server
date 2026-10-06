@@ -85,7 +85,8 @@ def health_check() -> dict[str, str]:
 
 
 def register_all_tools() -> None:
-    """Registra as 14 ferramentas do servidor (sem conceito de perfil)."""
+    """Registra as 13 ferramentas de `tools.py` (sem conceito de perfil) — `health_check`,
+    a 14ª, já está decorada acima, direto neste módulo."""
     from knowledge_os.mcp import tools
 
     tools.register(mcp)

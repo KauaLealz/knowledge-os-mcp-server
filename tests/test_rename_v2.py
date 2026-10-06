@@ -51,6 +51,7 @@ def _write_old_schema(db_path: Path):
             )
         )
         conn.execute(text("CREATE UNIQUE INDEX uq_item_domain_key ON items (domain_id, item_key)"))
+        conn.execute(text("CREATE INDEX idx_item_domain ON items (domain_id)"))
         conn.execute(
             text(
                 "CREATE TABLE project_links (project_key VARCHAR(512) PRIMARY KEY, "
@@ -120,6 +121,8 @@ def test_rename_v2_migra_schema_antigo_para_novo(tmp_path):
 
     item_indexes = {i["name"] for i in inspect(engine).get_indexes("items")}
     assert "uq_item_project_key" in item_indexes
+    assert "idx_item_project" in item_indexes
+    assert "idx_item_domain" not in item_indexes
 
     repo_link_indexes = {i["name"] for i in inspect(engine).get_indexes("repo_links")}
     assert "idx_repo_link_project" in repo_link_indexes
@@ -184,3 +187,20 @@ def test_cli_migrate_v2_migra_de_verdade_sem_rodar_schema_sync_antes(tmp_path):
         item_row = conn.execute(text("SELECT project_id FROM items WHERE id = 'i1'")).one()
         assert item_row.project_id == "d1"  # o dado migrado de verdade, não uma tabela vazia
     engine.dispose()
+
+
+def test_rename_v2_depois_schema_sync_nao_duplica_indice_de_items(tmp_path):
+    """Regressão: faltava renomear `idx_item_domain`, então o `schema_sync` do startup normal
+    (que só cria índice por nome, nunca reconhece um já renomeado) criava um `idx_item_project`
+    novo do zero ao lado do `idx_item_domain` órfão — dois índices na mesma coluna."""
+    from knowledge_os.db.schema_sync import schema_sync
+
+    engine = _old_schema_engine(tmp_path)
+    rename_v2(engine)
+    schema_sync(engine)
+
+    item_indexes = {i["name"] for i in inspect(engine).get_indexes("items")}
+    assert "idx_item_domain" not in item_indexes
+    assert "idx_item_project" in item_indexes
+    assert sum(1 for i in inspect(engine).get_indexes("items")
+               if i["column_names"] == ["project_id"] and not i["unique"]) == 1

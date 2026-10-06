@@ -196,6 +196,15 @@ def rename_v2(engine: Engine) -> dict[str, Any]:
     _rename_index(
         engine,
         db_type,
+        "items",
+        "idx_item_domain",
+        "idx_item_project",
+        columns=("project_id",),
+        unique=False,
+    )
+    _rename_index(
+        engine,
+        db_type,
         _NEW_LINK_TABLE,
         "idx_project_link_domain",
         "idx_repo_link_project",

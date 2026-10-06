@@ -635,7 +635,7 @@ def backup(
 
 
 def register(mcp: FastMCP) -> None:
-    """Registra as 14 ferramentas do servidor."""
+    """Registra estas 13 ferramentas (a 14ª, `health_check`, é registrada em `main.py`)."""
     for fn in (
         workspace, project, subject, repo,
         context_get, item_search, item_get, item_save,

@@ -106,14 +106,14 @@ def test_roundtrip_workspace_ids_novos_semantica_mantida(
         d.name: d
         for d in test_session.scalars(select(Project).where(Project.workspace_id == ws.id))
     }
-    assert set(doms) == {"TestDomain", "Outro"}
-    assert doms["TestDomain"].id != populated["d1"].id
+    assert set(doms) == {"TestProject", "Outro"}
+    assert doms["TestProject"].id != populated["d1"].id
     items = {
         i.title: i for i in test_session.scalars(select(Item).where(Item.workspace_id == ws.id))
     }
     assert set(items) == {"A", "B", "C"}
     assert not ({i.id for i in items.values()} & old_ids)
-    assert items["A"].project_id == doms["TestDomain"].id
+    assert items["A"].project_id == doms["TestProject"].id
     assert items["C"].project_id == doms["Outro"].id
     assert sorted(t.name for t in items["A"].tags) == ["t1", "t2"]
     assert [lb.name for lb in items["A"].labels] == ["official"]
@@ -174,7 +174,7 @@ def test_export_project_so_project_e_seus_items(test_session, populated):
     data = ImportExportService(test_session).export_project(populated["ws"].id, populated["d1"].id)
     z = _zip(data)
     man = json.loads(z.read("manifest.json"))
-    assert man["type"] == "project" and man["name"] == "TestDomain"
+    assert man["type"] == "project" and man["name"] == "TestProject"
     assert man["counts"]["items"] == 2
     dj = json.loads(z.read("project.json"))
     assert {i["title"] for i in dj["items"]} == {"A", "B"}
@@ -195,7 +195,7 @@ def test_import_project_em_outro_workspace(test_session, populated, tmp_path, ar
     test_session.add(other)
     test_session.commit()
     dm = svc.import_project(other.id, path)
-    assert dm.id != populated["d1"].id and dm.workspace_id == other.id and dm.name == "TestDomain"
+    assert dm.id != populated["d1"].id and dm.workspace_id == other.id and dm.name == "TestProject"
     items = list(test_session.scalars(select(Item).where(Item.project_id == dm.id)))
     assert {i.title for i in items} == {"A", "B"}
     assert all(i.workspace_id == other.id for i in items)

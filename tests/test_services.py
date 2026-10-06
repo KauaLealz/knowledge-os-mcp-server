@@ -44,7 +44,7 @@ class TestWorkspaceService:
         assert data["manifest"]["type"] == "workspace"
         assert data["manifest"]["counts"] == {"projects": 1, "items": 1}
         assert data["workspace_data"]["workspace"]["name"] == "TestWorkspace"
-        assert data["workspace_data"]["projects"][0]["name"] == "TestDomain"
+        assert data["workspace_data"]["projects"][0]["name"] == "TestProject"
         assert data["workspace_data"]["items"][0]["title"] == "Test Item"
 
     def test_export_inexistente(self, test_session: Session):
@@ -116,7 +116,7 @@ class TestProjectService:
 
     def test_create_duplicado(self, test_session: Session, sample_project: Project):
         with pytest.raises(ValidationError):
-            ProjectService(test_session).create(sample_project.workspace_id, "TestDomain", None)
+            ProjectService(test_session).create(sample_project.workspace_id, "TestProject", None)
 
     def test_get_inexistente(self, test_session: Session, sample_workspace: Workspace):
         with pytest.raises(NotFoundError):
@@ -125,12 +125,12 @@ class TestProjectService:
     def test_delete(self, test_session: Session, sample_item):
         svc = ProjectService(test_session)
         wid = sample_item.workspace_id
-        assert svc.delete(wid, "TestDomain") is True
-        assert svc.delete(wid, "TestDomain") is False
+        assert svc.delete(wid, "TestProject") is True
+        assert svc.delete(wid, "TestProject") is False
 
     def test_export(self, test_session: Session, sample_item):
-        data = ProjectService(test_session).export(sample_item.workspace_id, "TestDomain")
-        assert data["project_data"]["project"]["name"] == "TestDomain"
+        data = ProjectService(test_session).export(sample_item.workspace_id, "TestProject")
+        assert data["project_data"]["project"]["name"] == "TestProject"
         assert data["project_data"]["items"][0]["title"] == "Test Item"
 
     def test_rename(self, test_session: Session, sample_workspace: Workspace):

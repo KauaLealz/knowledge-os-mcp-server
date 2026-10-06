@@ -82,7 +82,7 @@ def sample_project(test_session: Session, sample_workspace: Workspace) -> Projec
     dm = Project(
         id=str(uuid.uuid4()),
         workspace_id=sample_workspace.id,
-        name="TestDomain",
+        name="TestProject",
         description="Project para testes"
     )
     test_session.add(dm)
