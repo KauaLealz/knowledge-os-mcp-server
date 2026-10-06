@@ -39,8 +39,8 @@ def _save(env, project, entries):
         "from knowledge_os.config import ensure_home, validate_and_init_config\n"
         "ensure_home(); validate_and_init_config()\n"
         "from knowledge_os.services.item_service import ItemService\n"
-        "from knowledge_os.services.project_service import ProjectService\n"
-        f"link = ProjectService().resolve({str(project)!r})\n"
+        "from knowledge_os.services.repo_service import RepoService\n"
+        f"link = RepoService().resolve({str(project)!r})\n"
         "ItemService().save(json.loads(sys.argv[1]), "
         "default_location=(link['workspace_id'], link['domain_id']))\n"
     )
@@ -54,17 +54,17 @@ def test_version(env):
 
 
 def test_link_e_context_markdown(env, project):
-    assert cli(env, "link", "--project", str(project), "--workspace", "Polara",
+    assert cli(env, "link", "--repo", str(project), "--workspace", "Polara",
                "--domain", "app").returncode == 0
     _save(env, project, [{"key": "regra/x", "type": "rule", "memory_class": "longterm",
                           "title": "Regra X", "summary": "Sempre X", "content": "..."}])
-    out = cli(env, "context", "--project", str(project))
+    out = cli(env, "context", "--repo", str(project))
     assert out.returncode == 0
     assert "Polara / app" in out.stdout and "**Regra X**" in out.stdout
 
 
 def test_hook_claude_e_cursor(env, project):
-    cli(env, "link", "--project", str(project), "--workspace", "W", "--domain", "D")
+    cli(env, "link", "--repo", str(project), "--workspace", "W", "--domain", "D")
     claude = cli(env, "context", "--hook", "claude",
                  stdin=json.dumps({"cwd": str(project), "hook_event_name": "SessionStart"}))
     assert claude.stdout.isascii(), "acentos escapados: imune à codepage do Windows"
@@ -105,45 +105,45 @@ def _entry(key: str, title: str, **extra) -> str:
 
 
 def test_fila_offline_no_home_e_gravada_no_inicio_da_sessao(env, project, tmp_path):
-    cli(env, "link", "--project", str(project), "--workspace", "W", "--domain", "D")
+    cli(env, "link", "--repo", str(project), "--workspace", "W", "--domain", "D")
     other = tmp_path / "outro"
     (other / ".git").mkdir(parents=True)
-    cli(env, "link", "--project", str(other), "--workspace", "W", "--domain", "Outro")
+    cli(env, "link", "--repo", str(other), "--workspace", "W", "--domain", "Outro")
     queue = Path(env["KNOWLEDGE_OS_HOME"]) / "pending.jsonl"
     queue.write_text(_entry("gotcha/a", "Gravado depois") + "\n"
-                     + _entry("gotcha/b", "Do outro projeto", project=str(other)) + "\n",
+                     + _entry("gotcha/b", "Do outro projeto", repo=str(other)) + "\n",
                      encoding="utf-8")
-    out = cli(env, "context", "--project", str(project))
+    out = cli(env, "context", "--repo", str(project))
     assert "2 item(ns) da fila offline gravados" in out.stdout
     assert "Gravado depois" in out.stdout and "Do outro projeto" not in out.stdout
-    assert "Do outro projeto" in cli(env, "context", "--project", str(other)).stdout
+    assert "Do outro projeto" in cli(env, "context", "--repo", str(other)).stdout
     assert not queue.exists()
 
 
 def test_fila_antiga_do_projeto_ainda_e_lida(env, project):
-    cli(env, "link", "--project", str(project), "--workspace", "W", "--domain", "D")
+    cli(env, "link", "--repo", str(project), "--workspace", "W", "--domain", "D")
     legacy = project / ".plumb" / "pending-brain.jsonl"
     legacy.parent.mkdir()
     legacy.write_text(_entry("gotcha/velha", "Fila antiga") + "\n", encoding="utf-8")
-    out = cli(env, "context", "--project", str(project))
+    out = cli(env, "context", "--repo", str(project))
     assert "Fila antiga" in out.stdout and not legacy.exists()
 
 
 def test_mudanca_em_andamento_aparece_e_concluida_some(env, project):
-    cli(env, "link", "--project", str(project), "--workspace", "W", "--domain", "D")
+    cli(env, "link", "--repo", str(project), "--workspace", "W", "--domain", "D")
     _save(env, project, [{"key": "mudanca/pay-142", "type": "task", "memory_class": "working",
                           "title": "PAY-142 — Pix no checkout",
                           "summary": "Construindo: falta recusar método inválido",
                           "content": "# PAY-142 ..."}])
-    out = cli(env, "context", "--project", str(project)).stdout
+    out = cli(env, "context", "--repo", str(project)).stdout
     assert "## Mudanças em andamento" in out and "falta recusar método inválido" in out
     _save(env, project, [{"key": "mudanca/pay-142", "status": "done",
                           "summary": "Concluída: Pix devolve QR code"}])
-    assert "PAY-142" not in cli(env, "context", "--project", str(project)).stdout
+    assert "PAY-142" not in cli(env, "context", "--repo", str(project)).stdout
 
 
 def test_recent_json(env, project):
-    cli(env, "link", "--project", str(project), "--workspace", "W", "--domain", "D")
+    cli(env, "link", "--repo", str(project), "--workspace", "W", "--domain", "D")
     _save(env, project, [{"key": "decisao/y", "type": "insight", "memory_class": "working",
                           "title": "Decisão Y", "summary": "porque sim", "content": "...",
                           "source": "PAY-1"}])
@@ -153,12 +153,12 @@ def test_recent_json(env, project):
 
 
 def test_dois_processos_esvaziando_a_mesma_fila_gravam_cada_key_uma_vez(env, project):
-    cli(env, "link", "--project", str(project), "--workspace", "W", "--domain", "D")
+    cli(env, "link", "--repo", str(project), "--workspace", "W", "--domain", "D")
     queue = Path(env["KNOWLEDGE_OS_HOME"]) / "pending.jsonl"
     queue.write_text("".join(_entry(f"gotcha/k{i}", f"Item {i}") + "\n" for i in range(50)),
                      encoding="utf-8")
     procs = [subprocess.Popen(
-        [sys.executable, "-m", "knowledge_os.cli", "context", "--project", str(project)], env=env,
+        [sys.executable, "-m", "knowledge_os.cli", "context", "--repo", str(project)], env=env,
         cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8")
         for _ in range(2)]
     outs = [p.communicate(timeout=120) for p in procs]
@@ -187,7 +187,7 @@ def test_linha_acrescentada_durante_a_gravacao_nao_se_perde(env, project, monkey
     from knowledge_os.services.item_service import ItemService
 
     cli_env_home = Path(env["KNOWLEDGE_OS_HOME"])
-    cli.main(["link", "--project", str(project), "--workspace", "W", "--domain", "D"])
+    cli.main(["link", "--repo", str(project), "--workspace", "W", "--domain", "D"])
     queue = cli._pending_file()
     queue.write_text(_entry("gotcha/a", "A") + "\n", encoding="utf-8")
     real_save = ItemService.save
@@ -206,7 +206,7 @@ def test_linha_acrescentada_durante_a_gravacao_nao_se_perde(env, project, monkey
 def _link_inprocess(project):
     from knowledge_os import cli
 
-    cli.main(["link", "--project", str(project), "--workspace", "W", "--domain", "D"])
+    cli.main(["link", "--repo", str(project), "--workspace", "W", "--domain", "D"])
     return cli
 
 
@@ -278,10 +278,10 @@ def test_crash_depois_de_gravar_um_grupo_nao_reprocessa_o_grupo(env, project, tm
     cli = _link_inprocess(project)
     other = tmp_path / "outro"
     (other / ".git").mkdir(parents=True)
-    cli.main(["link", "--project", str(other), "--workspace", "W", "--domain", "Outro"])
+    cli.main(["link", "--repo", str(other), "--workspace", "W", "--domain", "Outro"])
     queue = cli._pending_file()
     queue.write_text(_entry("gotcha/a", "A") + "\n"
-                     + _entry("gotcha/b", "B", project=str(other)) + "\n", encoding="utf-8")
+                     + _entry("gotcha/b", "B", repo=str(other)) + "\n", encoding="utf-8")
     real_save = ItemService.save
     calls = []
 
@@ -301,7 +301,7 @@ def test_crash_depois_de_gravar_um_grupo_nao_reprocessa_o_grupo(env, project, tm
 def test_backup_pela_cli_gera_arquivo_que_abre(env, project):
     import sqlite3
 
-    cli(env, "link", "--project", str(project), "--workspace", "W", "--domain", "D")
+    cli(env, "link", "--repo", str(project), "--workspace", "W", "--domain", "D")
     out = cli(env, "backup")
     assert out.returncode == 0, out.stderr
     files = list((Path(env["KNOWLEDGE_OS_HOME"]) / "backups").glob("knowledge-*.db"))
@@ -315,6 +315,6 @@ def test_backup_pela_cli_gera_arquivo_que_abre(env, project):
 
 def test_context_aceita_a_chave_remota_como_project(env, project):
     subprocess.run(["git", "-C", str(project), "init", "-q"], capture_output=True)
-    cli(env, "link", "--project", "github.com/org/app", "--workspace", "Org", "--domain", "app")
-    out = cli(env, "context", "--project", "github.com/org/app")
+    cli(env, "link", "--repo", "github.com/org/app", "--workspace", "Org", "--domain", "app")
+    out = cli(env, "context", "--repo", "github.com/org/app")
     assert out.returncode == 0 and "Org / app" in out.stdout

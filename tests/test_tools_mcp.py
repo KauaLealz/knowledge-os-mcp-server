@@ -47,7 +47,7 @@ def test_nomes_e_documentacao(server):
 
     tools = asyncio.run(names())
     assert set(tools) == {
-        "context_get", "item_search", "item_get", "item_save", "project_link",
+        "context_get", "item_search", "item_get", "item_save", "repo_link",
         "structure_list", "structure_delete", "item_delete", "relation_delete", "vocabulary",
         "backup_export", "backup_import", "artifact_attach", "artifact_get",
     }
@@ -57,10 +57,10 @@ def test_nomes_e_documentacao(server):
 
 def test_fluxo_do_plumb(server):
     """Ligar projeto → contexto → gravar em lote → buscar → ler → promover → substituir."""
-    assert call(server, "context_get", project=PROJECT)["linked"] is False
-    call(server, "project_link", project=PROJECT, workspace="Polara", domain="app")
+    assert call(server, "context_get", repo=PROJECT)["linked"] is False
+    call(server, "repo_link", repo=PROJECT, workspace="Polara", domain="app")
 
-    saved = call(server, "item_save", project=PROJECT, items=[
+    saved = call(server, "item_save", repo=PROJECT, items=[
         {"key": "regra/money", **RULE, "title": "Money em pagamentos",
          "scope_paths": ["src/payments/**"], "source": "PAY-142"},
         {"key": "decisao/pix", "type": "insight", "memory_class": "working",
@@ -71,17 +71,17 @@ def test_fluxo_do_plumb(server):
     ])
     assert [s["action"] for s in saved] == ["created"] * 3
 
-    ctx = call(server, "context_get", project=PROJECT, paths=["src/payments/Charge.java"])
+    ctx = call(server, "context_get", repo=PROJECT, paths=["src/payments/Charge.java"])
     md = ctx["markdown"]
     assert "Money em pagamentos" in md and "Pix vencido" in md and "Deploy manual" in md
 
-    found = call(server, "item_search", query="pagamento", project=PROJECT)
+    found = call(server, "item_search", query="pagamento", repo=PROJECT)
     assert found[0]["key"] == "regra/money" and "content" not in found[0]
 
-    (full,) = call(server, "item_get", keys=["regra/money"], project=PROJECT)
+    (full,) = call(server, "item_get", keys=["regra/money"], repo=PROJECT)
     assert full["content"] == "corpo" and full["scope_paths"] == ["src/payments/**"]
 
-    again = call(server, "item_save", project=PROJECT, items=[
+    again = call(server, "item_save", repo=PROJECT, items=[
         {"id": full["id"], "memory_class": "longterm"},
         {"key": "proc/deploy-ci", "type": "procedure", "memory_class": "working",
          "title": "Deploy no CI", "summary": "pipeline", "content": "...",
@@ -90,47 +90,47 @@ def test_fluxo_do_plumb(server):
     assert again[0]["action"] == "updated" and again[1]["relations"] == 1
     (promoted,) = call(server, "item_get", ids=[full["id"]])
     assert promoted["memory_class"] == "longterm"
-    titles = [r["title"] for r in call(server, "item_search", query="deploy", project=PROJECT)]
+    titles = [r["title"] for r in call(server, "item_search", query="deploy", repo=PROJECT)]
     assert titles == ["Deploy no CI"]  # o substituído saiu da busca
     assert "Deploy manual" in [
-        r["title"] for r in call(server, "item_search", query="deploy", project=PROJECT,
+        r["title"] for r in call(server, "item_search", query="deploy", repo=PROJECT,
                                  include_inactive=True)]
 
 
 def test_item_save_modos_e_erros(server):
-    call(server, "project_link", project=PROJECT, workspace="Polara", domain="app")
-    first = call(server, "item_save", project=PROJECT,
+    call(server, "repo_link", repo=PROJECT, workspace="Polara", domain="app")
+    first = call(server, "item_save", repo=PROJECT,
                  items=[{**RULE, "title": "Cache com Redis"}])
     assert first[0]["action"] == "created" and "similar" not in first[0]
-    second = call(server, "item_save", project=PROJECT,
+    second = call(server, "item_save", repo=PROJECT,
                   items=[{**RULE, "title": "Redis como cache"}])
     assert second[0]["similar"][0]["title"] == "Cache com Redis"
 
-    unchanged = call(server, "item_save", project=PROJECT,
+    unchanged = call(server, "item_save", repo=PROJECT,
                      items=[{"key": "k", **RULE, "title": "T"}])
     assert unchanged[0]["action"] == "created"
-    assert call(server, "item_save", project=PROJECT,
+    assert call(server, "item_save", repo=PROJECT,
                 items=[{"key": "k", "summary": "resumo"}])[0]["action"] == "unchanged"
 
-    eph = call(server, "item_save", project=PROJECT, items=[
+    eph = call(server, "item_save", repo=PROJECT, items=[
         {"key": "nota", **RULE, "title": "Nota", "memory_class": "ephemeral", "ttl_days": 1}])
     (before,) = call(server, "item_get", ids=[eph[0]["id"]])
     call(server, "item_save", items=[{"id": eph[0]["id"], "ttl_days": 30}])
     (after,) = call(server, "item_get", ids=[eph[0]["id"]])
     assert after["expires_at"] > before["expires_at"]
 
-    msg = fails(server, "item_save", project=PROJECT,
+    msg = fails(server, "item_save", repo=PROJECT,
                 items=[{"key": "s", **RULE, "title": "x", "content": "password=Segredo123!"}])
     assert "segredo" in msg and "Segredo123" not in msg
 
-    msg = fails(server, "item_save", project=PROJECT, items=[
+    msg = fails(server, "item_save", repo=PROJECT, items=[
         {"key": "ok", **RULE, "title": "ok"}, {"key": "ruim", **RULE, "title": "x", "type": "?"}])
     assert "Entrada 1" in msg
-    gone = call(server, "item_get", keys=["ok"], project=PROJECT)
+    gone = call(server, "item_get", keys=["ok"], repo=PROJECT)
     assert gone == [{"key": "ok", "missing": True}]  # o lote foi desfeito
 
-    assert "project" in fails(server, "item_save", items=[{**RULE, "title": "sem lugar"}])
-    assert "não ligado" in fails(server, "item_search", query="x", project="github.com/o/n")
+    assert "repo" in fails(server, "item_save", items=[{**RULE, "title": "sem lugar"}])
+    assert "não ligado" in fails(server, "item_search", query="x", repo="github.com/o/n")
 
 
 def test_administracao(server, tmp_path):
@@ -173,27 +173,27 @@ def test_administracao(server, tmp_path):
 
 
 def test_busca_sem_projeto_usa_o_da_pasta_e_nao_vaza(server, monkeypatch):
-    call(server, "project_link", project=PROJECT, workspace="Polara", domain="app")
-    call(server, "item_save", project=PROJECT, items=[
+    call(server, "repo_link", repo=PROJECT, workspace="Polara", domain="app")
+    call(server, "item_save", repo=PROJECT, items=[
         {"key": "a", **RULE, "title": "Segredo de cobrança do app"}])
-    call(server, "project_link", project="github.com/org/outro", workspace="Outra", domain="o")
-    call(server, "item_save", project="github.com/org/outro", items=[
+    call(server, "repo_link", repo="github.com/org/outro", workspace="Outra", domain="o")
+    call(server, "item_save", repo="github.com/org/outro", items=[
         {"key": "b", **RULE, "title": "Segredo de cobrança do outro"}])
 
     def titles(**kw: Any) -> set[str]:
         return {r["title"] for r in call(server, "item_search", query="cobrança", **kw)}
 
     assert len(titles()) == 2  # pasta não ligada: busca em todos (comportamento anterior)
-    from knowledge_os.services.project_service import ProjectService
-    real = ProjectService.resolve
-    monkeypatch.setattr(ProjectService, "resolve", lambda self, p: real(
+    from knowledge_os.services.repo_service import RepoService
+    real = RepoService.resolve
+    monkeypatch.setattr(RepoService, "resolve", lambda self, p: real(
         self, PROJECT if p == "." else p))
     assert titles() == {"Segredo de cobrança do app"}  # pasta ligada: só o projeto
     assert len(titles(everywhere=True)) == 2
 
 
 def test_item_get_conta_uso(server):
-    call(server, "project_link", project=PROJECT, workspace="W", domain="app")
-    call(server, "item_save", project=PROJECT, items=[{"key": "r", "title": "R", **RULE}])
-    assert call(server, "item_get", keys=["r"], project=PROJECT)[0]["access_count"] == 0
-    assert call(server, "item_get", keys=["r"], project=PROJECT)[0]["access_count"] == 1
+    call(server, "repo_link", repo=PROJECT, workspace="W", domain="app")
+    call(server, "item_save", repo=PROJECT, items=[{"key": "r", "title": "R", **RULE}])
+    assert call(server, "item_get", keys=["r"], repo=PROJECT)[0]["access_count"] == 0
+    assert call(server, "item_get", keys=["r"], repo=PROJECT)[0]["access_count"] == 1

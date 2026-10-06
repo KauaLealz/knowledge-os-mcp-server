@@ -36,7 +36,7 @@ def structure_list(
     **Use quando:** Ver o que existe antes de organizar, ligar um projeto ou fazer backup.
     **Retorna:** [{workspace, description, items, domains: [{name, items}]}].
     **Exemplo:** structure_list() · structure_list(workspace="agenda-api")
-    **Notas:** Criar workspace/domain é implícito em item_save e project_link.
+    **Notas:** Criar workspace/domain é implícito em item_save e repo_link.
     """
     engine = get_engine(connection_id) if connection_id else get_engine()
     cid = connection_id or connection_id_of(engine) or "default"

@@ -27,7 +27,7 @@ def _parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", required=True)
 
     ctx = sub.add_parser("context", help="pacote de contexto do projeto (Markdown)")
-    ctx.add_argument("--project", default=".", help="pasta do projeto (padrão: atual)")
+    ctx.add_argument("--repo", default=".", help="pasta do projeto (padrão: atual)")
     ctx.add_argument("--paths", nargs="*", default=[], help="arquivos tocados (regras com escopo)")
     ctx.add_argument("--query", help="traz também itens relacionados a este texto")
     ctx.add_argument("--budget", type=int, default=1500, help="orçamento em tokens")
@@ -40,12 +40,12 @@ def _parser() -> argparse.ArgumentParser:
     rec.add_argument("--json", action="store_true", help="saída em JSON")
 
     pen = sub.add_parser("pending", help="grava a fila offline (<home>/pending.jsonl)")
-    pen.add_argument("--project", default=".", help="pasta do projeto (padrão: atual)")
+    pen.add_argument("--repo", default=".", help="pasta do projeto (padrão: atual)")
 
     sub.add_parser("backup", help="copia consistente do banco SQLite em <home>/backups")
 
     lnk = sub.add_parser("link", help="liga o projeto a um workspace/domain")
-    lnk.add_argument("--project", default=".")
+    lnk.add_argument("--repo", default=".")
     lnk.add_argument("--workspace",
                      help="padrão: o de outro repo do mesmo dono já ligado, ou o nome do dono")
     lnk.add_argument("--domain", help="padrão: o nome do repositório")
@@ -58,7 +58,7 @@ def _parser() -> argparse.ArgumentParser:
                      help="variável de ambiente do comando com o valor do segredo (repetível)")
     run.add_argument("--stdin", metavar="segredo/<nome>",
                      help="entrega o valor no stdin (ex.: docker login --password-stdin)")
-    run.add_argument("--project", default=".", help="pasta do projeto (padrão: atual)")
+    run.add_argument("--repo", default=".", help="pasta do projeto (padrão: atual)")
     run.add_argument("cmd", nargs=argparse.REMAINDER, help="-- comando e argumentos")
     return p
 
@@ -126,18 +126,18 @@ def _requeue(queue: Path, lines: list[str]) -> None:
             f.write("\n".join(lines) + "\n")
 
 
-def _flush_file(path: Path, project: Path) -> tuple[int, str | None]:
-    """Grava uma fila (uma entrada de item_save por linha, com `project` opcional).
+def _flush_file(path: Path, repo: Path) -> tuple[int, str | None]:
+    """Grava uma fila (uma entrada de item_save por linha, com `repo` opcional).
 
     A fila é tomada por rename antes de ler: duas sessões abrindo juntas não processam as
     mesmas linhas, e o que o agente acrescentar depois cai num arquivo novo. Entradas sem
-    `project` vão para o projeto da sessão. O que falhar volta para a fila.
+    `repo` vão para o projeto da sessão. O que falhar volta para a fila.
     """
     claimed_files, errors = _claimed_files(path)
     saved = 0
     for claimed in claimed_files:
         try:
-            n, err = _flush_claimed(claimed, path, project)
+            n, err = _flush_claimed(claimed, path, repo)
         except Exception as exc:  # noqa: BLE001 - nunca deixar um `.claimed` órfão quebrar a sessão
             n, err = 0, f"{type(exc).__name__}: {exc}"
             try:
@@ -164,9 +164,9 @@ def _rewrite_claimed(claimed: Path, lines: list[str], read_size: int) -> int:
     return len(head)
 
 
-def _flush_claimed(claimed: Path, queue: Path, project: Path) -> tuple[int, str | None]:
+def _flush_claimed(claimed: Path, queue: Path, repo: Path) -> tuple[int, str | None]:
     from knowledge_os.services.item_service import ItemService
-    from knowledge_os.services.project_service import ProjectService
+    from knowledge_os.services.repo_service import RepoService
 
     raw = claimed.read_bytes()
     read_size = len(raw)
@@ -182,7 +182,7 @@ def _flush_claimed(claimed: Path, queue: Path, project: Path) -> tuple[int, str 
             errors.append("linha inválida na fila")
             invalid.append(ln)
             continue
-        groups.setdefault(entry.pop("project", None) or str(project), []).append((entry, ln))
+        groups.setdefault(entry.pop("repo", None) or str(repo), []).append((entry, ln))
     _requeue(queue, invalid)
     pending = {proj: [ln for _, ln in items] for proj, items in groups.items()}
     if invalid:
@@ -191,13 +191,13 @@ def _flush_claimed(claimed: Path, queue: Path, project: Path) -> tuple[int, str 
     for proj, items in groups.items():
         entries = [e for e, _ in items]
         try:
-            link = ProjectService().resolve(proj)
+            link = RepoService().resolve(proj)
             default = (link["workspace_id"], link["domain_id"]) if link else None
             ItemService().save(entries, default_location=default)
             saved += len(entries)
         except Exception as exc:  # noqa: BLE001 - a fila fica para a próxima tentativa
             errors.append(f"{type(exc).__name__}: {exc}")
-            _requeue(queue, [json.dumps({**e, "project": proj}, ensure_ascii=False)
+            _requeue(queue, [json.dumps({**e, "repo": proj}, ensure_ascii=False)
                              for e in entries])
         del pending[proj]
         read_size = _rewrite_claimed(claimed, [ln for v in pending.values() for ln in v],
@@ -209,11 +209,11 @@ def _flush_claimed(claimed: Path, queue: Path, project: Path) -> tuple[int, str 
     return saved, "; ".join(errors) or None
 
 
-def _flush_pending(project: Path) -> tuple[int, str | None]:
+def _flush_pending(repo: Path) -> tuple[int, str | None]:
     """Grava a fila offline do cérebro (no home) e a fila antiga do projeto, se existir."""
     total, error = 0, None
-    for path in (_pending_file(), project / LEGACY_PENDING):
-        n, err = _flush_file(path, project)
+    for path in (_pending_file(), repo / LEGACY_PENDING):
+        n, err = _flush_file(path, repo)
         total, error = total + n, error or err
     return total, error
 
@@ -232,18 +232,18 @@ def _context(args: argparse.Namespace) -> int:
         except ValueError:
             hook_input = {}
     roots = hook_input.get("workspace_roots") or []
-    target = str(hook_input.get("cwd") or (roots[0] if roots else None) or args.project)
-    project = Path(target)  # caminho para a fila e para detectar repo; a chave usa o texto
+    target = str(hook_input.get("cwd") or (roots[0] if roots else None) or args.repo)
+    repo = Path(target)  # caminho para a fila e para detectar repo; a chave usa o texto
     budget = args.budget if not args.hook else min(args.budget, HOOK_BUDGET)
 
     try:
         _init()
-        flushed, flush_error = _flush_pending(project.resolve())
+        flushed, flush_error = _flush_pending(repo.resolve())
         from knowledge_os.services.context_service import ContextService
 
         out = ContextService().build(target, args.paths, args.query, budget)
         text = out["markdown"]
-        if not out["linked"] and args.hook and not _is_project(project.resolve()):
+        if not out["linked"] and args.hook and not _is_project(repo.resolve()):
             return 0  # pasta que não é projeto: sem ruído na sessão
         if flushed:
             text += f"\n\n_{flushed} item(ns) da fila offline gravados._"
@@ -254,7 +254,7 @@ def _context(args: argparse.Namespace) -> int:
         text = (
             f"_Segundo cérebro indisponível ({type(exc).__name__}). Siga o trabalho e avise o "
             f"usuário; grave o que for durável em {_pending_file().as_posix()} (uma entrada de "
-            f"item_save por linha, com \"project\": caminho do repositório)._"
+            f"item_save por linha, com \"repo\": caminho do repositório)._"
         )
 
     # JSON só em ASCII (acentos como \uXXXX): no Windows a ferramenta pode ler a saída do hook
@@ -322,7 +322,7 @@ def _recent(args: argparse.Namespace) -> int:
 
 def _pending(args: argparse.Namespace) -> int:
     _init()
-    count, error = _flush_pending(Path(args.project).resolve())
+    count, error = _flush_pending(Path(args.repo).resolve())
     if error:
         print(f"Fila não gravada: {error}", file=sys.stderr)
         return 1
@@ -332,9 +332,9 @@ def _pending(args: argparse.Namespace) -> int:
 
 def _link(args: argparse.Namespace) -> int:
     _init()
-    from knowledge_os.services.project_service import ProjectService
+    from knowledge_os.services.repo_service import RepoService
 
-    print(json.dumps(ProjectService().link(args.project, args.workspace, args.domain)))
+    print(json.dumps(RepoService().link(args.repo, args.workspace, args.domain)))
     return 0
 
 
@@ -367,8 +367,8 @@ def _run(args: argparse.Namespace) -> int:
     from knowledge_os.services.secret_service import SecretService
 
     secrets = SecretService()
-    values = {var: secrets.resolve(args.project, key)[1] for var, key in pairs}
-    stdin_value = secrets.resolve(args.project, args.stdin)[1] if args.stdin else None
+    values = {var: secrets.resolve(args.repo, key)[1] for var, key in pairs}
+    stdin_value = secrets.resolve(args.repo, args.stdin)[1] if args.stdin else None
     return run(cmd, values, stdin_value)
 
 

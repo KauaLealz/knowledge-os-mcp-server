@@ -6,7 +6,7 @@ from pathlib import Path
 
 from sqlalchemy import Engine, select
 
-from knowledge_os.db.models import Domain, ProjectLink, Workspace
+from knowledge_os.db.models import Domain, RepoLink, Workspace
 from knowledge_os.db.session import get_engine, get_session
 from knowledge_os.db.timeutil import utcnow
 from knowledge_os.exceptions import NotFoundError, ValidationError
@@ -66,31 +66,31 @@ def owner_name(key: str) -> str:
     return prefix.rstrip("/").rsplit("/", 1)[-1] if prefix else LOCAL_WORKSPACE
 
 
-def project_key(project: str) -> str:
-    """Chave estável do projeto: o remote normalizado ou, sem remote, o caminho da raiz.
+def repo_key(repo: str) -> str:
+    """Chave estável do repositório: o remote normalizado ou, sem remote, o caminho da raiz.
 
     Aceita um caminho (qualquer pasta dentro do repositório), uma URL de remote ou uma
     chave já normalizada.
     """
-    project = project.strip()
-    if not project:
+    repo = repo.strip()
+    if not repo:
         raise ValidationError("project vazio")
-    if project.startswith("path:"):
-        return project
-    looks_remote = bool(_SCHEME.match(project)) or re.match(r"^[^/\\\s]+@[^:]+:", project)
-    path = Path(project).expanduser()
+    if repo.startswith("path:"):
+        return repo
+    looks_remote = bool(_SCHEME.match(repo)) or re.match(r"^[^/\\\s]+@[^:]+:", repo)
+    path = Path(repo).expanduser()
     if not looks_remote and path.exists():
         root = _git_root(path.resolve()) or path.resolve()
         remote = _git_remote(root)
         if remote:
             return normalize_remote(remote)
         return "path:" + root.as_posix().lower()
-    if looks_remote or "/" in project:
-        return normalize_remote(project)
-    raise ValidationError(f"Projeto não reconhecido (caminho inexistente?): {project}")
+    if looks_remote or "/" in repo:
+        return normalize_remote(repo)
+    raise ValidationError(f"Projeto não reconhecido (caminho inexistente?): {repo}")
 
 
-class ProjectService:
+class RepoService:
     """Ligações projeto → workspace/domain no banco da connection."""
 
     def __init__(self, engine: Engine | None = None, connection_id: str | None = None) -> None:
@@ -101,16 +101,16 @@ class ProjectService:
         return self._engine if self._engine is not None else get_engine(self._connection_id)
 
     def link(
-        self, project: str, workspace: str | None = None, domain: str | None = None
+        self, repo: str, workspace: str | None = None, domain: str | None = None
     ) -> dict[str, str]:
-        """Liga (ou religa) o projeto; workspace e domain são criados se não existirem.
+        """Liga (ou religa) o repositório; workspace e domain são criados se não existirem.
 
         Workspace = contexto de trabalho (empresa, cliente, pessoal); domain = o repositório.
         Sem workspace: o de outro repo do mesmo dono já ligado; senão o nome do dono no
         remote (sem remote, `Pessoal`). Sem domain: o nome do repositório. O domain `Geral`
         de cada workspace e o workspace `Global` guardam o que vale para mais de um repo.
         """
-        key = project_key(project)
+        key = repo_key(repo)
         workspace = workspace or self._sibling_workspace(key) or owner_name(key)
         domain = domain or repo_name(key)
         ws_id, dm_id = ItemService(self._engine, self._connection_id).ensure_location(
@@ -118,16 +118,16 @@ class ProjectService:
         )
         session = get_session(self._get_engine())
         try:
-            row = session.get(ProjectLink, key)
+            row = session.get(RepoLink, key)
             if row is None:
-                session.add(ProjectLink(project_key=key, workspace_id=ws_id, domain_id=dm_id))
+                session.add(RepoLink(repo_key=key, workspace_id=ws_id, domain_id=dm_id))
             else:
                 row.workspace_id, row.domain_id = ws_id, dm_id
                 row.updated_at = utcnow()
             session.commit()
         finally:
             session.close()
-        return {"project_key": key, "workspace": workspace, "domain": domain}
+        return {"repo_key": key, "workspace": workspace, "domain": domain}
 
     def _sibling_workspace(self, key: str) -> str | None:
         """Workspace de outro repositório do mesmo dono já ligado (o mais recente)."""
@@ -138,24 +138,24 @@ class ProjectService:
         try:
             return session.scalar(
                 select(Workspace.name)
-                .join(ProjectLink, ProjectLink.workspace_id == Workspace.id)
-                .where(ProjectLink.project_key.startswith(prefix), ProjectLink.project_key != key)
-                .order_by(ProjectLink.updated_at.desc())
+                .join(RepoLink, RepoLink.workspace_id == Workspace.id)
+                .where(RepoLink.repo_key.startswith(prefix), RepoLink.repo_key != key)
+                .order_by(RepoLink.updated_at.desc())
                 .limit(1)
             )
         finally:
             session.close()
 
-    def resolve(self, project: str) -> dict[str, str] | None:
-        """{project_key, workspace_id, workspace, domain_id, domain} ou None se não ligado."""
-        key = project_key(project)
+    def resolve(self, repo: str) -> dict[str, str] | None:
+        """{repo_key, workspace_id, workspace, domain_id, domain} ou None se não ligado."""
+        key = repo_key(repo)
         session = get_session(self._get_engine())
         try:
             row = session.execute(
-                select(ProjectLink, Workspace.name, Domain.name)
-                .join(Workspace, Workspace.id == ProjectLink.workspace_id)
-                .join(Domain, Domain.id == ProjectLink.domain_id)
-                .where(ProjectLink.project_key == key)
+                select(RepoLink, Workspace.name, Domain.name)
+                .join(Workspace, Workspace.id == RepoLink.workspace_id)
+                .join(Domain, Domain.id == RepoLink.domain_id)
+                .where(RepoLink.repo_key == key)
             ).first()
         finally:
             session.close()
@@ -163,15 +163,15 @@ class ProjectService:
             return None
         link, ws_name, dm_name = row
         return {
-            "project_key": key, "workspace_id": link.workspace_id, "workspace": ws_name,
+            "repo_key": key, "workspace_id": link.workspace_id, "workspace": ws_name,
             "domain_id": link.domain_id, "domain": dm_name,
         }
 
-    def require(self, project: str) -> dict[str, str]:
-        found = self.resolve(project)
+    def require(self, repo: str) -> dict[str, str]:
+        found = self.resolve(repo)
         if found is None:
             raise NotFoundError(
-                f"Projeto não ligado ao segundo cérebro: {project_key(project)}. "
-                "Ligue com project_link(project, workspace, domain) ou rode /plumb-setup."
+                f"Projeto não ligado ao segundo cérebro: {repo_key(repo)}. "
+                "Ligue com repo_link(repo, workspace, domain) ou rode /plumb-setup."
             )
         return found

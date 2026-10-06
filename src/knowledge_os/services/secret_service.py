@@ -115,16 +115,16 @@ class SecretService:
         finally:
             s.close()
 
-    def resolve(self, project: str, key: str) -> tuple[Item, str]:
+    def resolve(self, repo: str, key: str) -> tuple[Item, str]:
         """(item, valor) do segredo `key` no repo → `Geral` do workspace → `Global`.
 
         Conta o uso. Sem item ou sem valor: erro que diz o que fazer, sem rodar nada.
         """
         from knowledge_os.services.context_service import ContextService
         from knowledge_os.services.item_service import ItemService
-        from knowledge_os.services.project_service import ProjectService
+        from knowledge_os.services.repo_service import RepoService
 
-        link = ProjectService(self._engine, self._connection_id).require(project)
+        link = RepoService(self._engine, self._connection_id).require(repo)
         chain = ContextService(self._engine, self._connection_id).domain_chain(link)
         s = get_session(self._get_engine())
         try:

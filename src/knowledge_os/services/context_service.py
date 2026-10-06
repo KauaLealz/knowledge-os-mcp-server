@@ -18,7 +18,7 @@ from knowledge_os.db.session import get_engine, get_session, run_with_retry
 from knowledge_os.db.timeutil import utcnow
 from knowledge_os.schemas.item_schemas import decode_paths
 from knowledge_os.services.item_service import ItemService
-from knowledge_os.services.project_service import ProjectService, project_key
+from knowledge_os.services.repo_service import RepoService, repo_key
 from knowledge_os.services.secret_service import fill_url
 
 logger = logging.getLogger(__name__)
@@ -175,25 +175,25 @@ class ContextService:
 
     def build(
         self,
-        project: str,
+        repo: str,
         paths: list[str] | None = None,
         query: str | None = None,
         budget_tokens: int = 1500,
     ) -> dict[str, Any]:
         """Markdown do contexto do projeto dentro do orçamento + metadados.
 
-        Retorna {linked, project_key, workspace, domain, markdown, included, omitted, sensitive}.
+        Retorna {linked, repo_key, workspace, domain, markdown, included, omitted, sensitive}.
         Projeto não ligado → linked=False e um markdown curto dizendo como ligar.
         """
-        link = ProjectService(self._engine, self._connection_id).resolve(project)
+        link = RepoService(self._engine, self._connection_id).resolve(repo)
         if link is None:
-            key = project_key(project)
+            key = repo_key(repo)
             return {
-                "linked": False, "project_key": key, "workspace": None, "domain": None,
+                "linked": False, "repo_key": key, "workspace": None, "domain": None,
                 "included": 0, "omitted": 0, "sensitive": False,
                 "markdown": (
                     f"# Segundo cérebro\nProjeto `{key}` ainda não está ligado. "
-                    "Sugira ao usuário rodar /plumb-setup (ou ligue com project_link)."
+                    "Sugira ao usuário rodar /plumb-setup (ou ligue com repo_link)."
                 ),
             }
         paths = paths or []
@@ -293,9 +293,9 @@ class ContextService:
         if retro_due >= RETRO_EVERY:
             out.append(f"\n_{retro_due} mudanças concluídas desde a última retro: sugira "
                        "`/plumb-retro` ao usuário, uma vez._")
-        out.append('\n_Detalhe de um item: item_get(keys=[...], project=".")._')
+        out.append('\n_Detalhe de um item: item_get(keys=[...], repo=".")._')
         return {
-            "linked": True, "project_key": link["project_key"], "workspace": link["workspace"],
+            "linked": True, "repo_key": link["repo_key"], "workspace": link["workspace"],
             "domain": link["domain"], "markdown": "\n".join(out), "included": included,
             "omitted": omitted, "sensitive": sensitive, "retro_due": retro_due,
         }

@@ -9,7 +9,7 @@ import os
 
 TOOLSET_ENV = "KNOWLEDGE_OS_TOOLSET"
 AGENT_TOOLS = frozenset({
-    "context_get", "item_search", "item_get", "item_save", "project_link", "health_check",
+    "context_get", "item_search", "item_get", "item_save", "repo_link", "health_check",
 })
 
 

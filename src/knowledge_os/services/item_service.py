@@ -451,7 +451,7 @@ class ItemService:
                 elif default_location:
                     location = default_location
                 else:
-                    raise ValidationError(f"Entrada {i}: informe workspace e domain (ou project)")
+                    raise ValidationError(f"Entrada {i}: informe workspace e domain (ou repo)")
             fields = {k: v for k, v in e.items() if v is not None}
             plans.append((i, item_id, key, location, fields, relations))
 

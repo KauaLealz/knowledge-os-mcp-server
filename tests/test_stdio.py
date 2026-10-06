@@ -136,7 +136,7 @@ def test_perfil_agent_expoe_6_tools_e_instrucoes_curtas(server_env):
 
     init, tools, health = asyncio.run(asyncio.wait_for(scenario(), timeout=60))
     assert {t.name for t in tools.tools} == {
-        "context_get", "item_search", "item_get", "item_save", "project_link", "health_check"}
+        "context_get", "item_search", "item_get", "item_save", "repo_link", "health_check"}
     assert len(init.instructions.encode()) < 2000
     assert json.loads(health.content[0].text)["toolset"] == "agent"
 

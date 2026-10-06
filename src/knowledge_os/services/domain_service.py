@@ -85,11 +85,11 @@ class DomainService:
                 return False
             from sqlalchemy import delete, select
 
-            from knowledge_os.db.models import Item, ProjectLink
+            from knowledge_os.db.models import Item, RepoLink
             from knowledge_os.services._common import purge_item_links
 
             purge_item_links(s, list(s.scalars(select(Item.id).where(Item.domain_id == dm.id))))
-            s.execute(delete(ProjectLink).where(ProjectLink.domain_id == dm.id))
+            s.execute(delete(RepoLink).where(RepoLink.domain_id == dm.id))
             s.delete(dm)
             s.commit()
             logger.info("Domain removido: %s", name)

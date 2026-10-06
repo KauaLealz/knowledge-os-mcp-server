@@ -94,11 +94,11 @@ class WorkspaceService:
                 return False
             from sqlalchemy import delete, select
 
-            from knowledge_os.db.models import Item, ProjectLink
+            from knowledge_os.db.models import Item, RepoLink
             from knowledge_os.services._common import purge_item_links
 
             purge_item_links(s, list(s.scalars(select(Item.id).where(Item.workspace_id == ws.id))))
-            s.execute(delete(ProjectLink).where(ProjectLink.workspace_id == ws.id))
+            s.execute(delete(RepoLink).where(RepoLink.workspace_id == ws.id))
             s.delete(ws)
             s.commit()
             logger.info("Workspace removido: %s", name)

@@ -234,14 +234,14 @@ Item.has_value = column_property(
 )
 
 
-class ProjectLink(Base):
-    """Liga um projeto (remote do git ou caminho normalizado) a um workspace/domain."""
-    __tablename__ = "project_links"
+class RepoLink(Base):
+    """Liga um repositório (remote do git ou caminho normalizado) a um workspace/domain."""
+    __tablename__ = "repo_links"
 
-    project_key = Column(String(512), primary_key=True)
+    repo_key = Column(String(512), primary_key=True)
     workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=False)
     domain_id = Column(String(36), ForeignKey("domains.id"), nullable=False)
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
-    __table_args__ = (Index("idx_project_link_domain", "domain_id"),)
+    __table_args__ = (Index("idx_repo_link_domain", "domain_id"),)

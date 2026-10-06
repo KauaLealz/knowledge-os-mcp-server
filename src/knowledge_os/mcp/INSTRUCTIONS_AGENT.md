@@ -4,7 +4,7 @@ Memória durável: regras, decisões e o porquê, procedimentos, contexto e apre
 Workspace = contexto (empresa, cliente, Pessoal); domain = repositório; `Geral` do workspace =
 o que vale para os repos dele; workspace `Global` = o que vale para o usuário em qualquer lugar.
 
-**Ler:** o contexto vem injetado no início. Ao mexer numa área, `context_get(project=".",
+**Ler:** o contexto vem injetado no início. Ao mexer numa área, `context_get(repo=".",
 paths=[arquivos], query=tema)`. Dúvida: `item_search(query)`, `item_get(keys=[...])` se faltar.
 
 **Quando gravar** (`item_save`, em lote, `key` estável — regrava sem duplicar):
@@ -23,5 +23,5 @@ paths=[arquivos], query=tema)`. Dúvida: `item_search(query)`, `item_get(keys=[.
   `fill_url` da resposta (ele preenche na UI). Nunca peça o valor no chat. Usar:
   `knowledge-mcp run --env VAR=segredo/<nome> -- <comando>`. Dado pessoal: nunca.
 
-**Sem ligação:** `/plumb-setup` ou `project_link(project=".")`. **Fora do ar:** siga, avise e
-guarde em `~/.knowledge-os/pending.jsonl` (uma entrada por linha, com `project`).
+**Sem ligação:** `/plumb-setup` ou `repo_link(repo=".")`. **Fora do ar:** siga, avise e
+guarde em `~/.knowledge-os/pending.jsonl` (uma entrada por linha, com `repo`).

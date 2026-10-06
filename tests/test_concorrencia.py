@@ -14,7 +14,7 @@ from knowledge_os.db.session import create_db_engine, init_db
 from knowledge_os.exceptions import DatabaseError
 from knowledge_os.services.context_service import ContextService
 from knowledge_os.services.item_service import ItemService
-from knowledge_os.services.project_service import ProjectService
+from knowledge_os.services.repo_service import RepoService
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -93,7 +93,7 @@ def test_banco_travado_vira_database_error_legivel(banco):
 
 def test_contexto_nao_cai_quando_track_nao_consegue_gravar(banco):
     engine, db = banco
-    ProjectService(engine).link("github.com/org/app", "W", "D")
+    RepoService(engine).link("github.com/org/app", "W", "D")
     ws, dm = ItemService(engine).ensure_location("W", "D")
     ItemService(engine).save([{**ENTRY, "scope_paths": ["src/**"]}], default_location=(ws, dm))
     lock = sqlite3.connect(db, isolation_level=None)

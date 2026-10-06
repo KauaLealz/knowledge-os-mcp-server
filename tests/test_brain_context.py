@@ -7,7 +7,7 @@ from sqlalchemy import Engine
 
 from knowledge_os.services.context_service import ContextService
 from knowledge_os.services.item_service import ItemService
-from knowledge_os.services.project_service import ProjectService, normalize_remote, project_key
+from knowledge_os.services.repo_service import RepoService, normalize_remote, repo_key
 
 BASE = dict(memory_class="longterm", summary="resumo", content="corpo")
 
@@ -27,10 +27,10 @@ def test_chave_de_pasta_com_e_sem_remote(tmp_path):
     (repo / "src" / "deep").mkdir(parents=True)
     if subprocess.run(["git", "init", "-q", str(repo)], capture_output=True).returncode:
         pytest.skip("git init falhou na pasta temporária (ambiente sem permissão de escrita)")
-    assert project_key(str(repo / "src" / "deep")) == "path:" + repo.resolve().as_posix().lower()
+    assert repo_key(str(repo / "src" / "deep")) == "path:" + repo.resolve().as_posix().lower()
     subprocess.run(["git", "-C", str(repo), "remote", "add", "origin",
                     "git@github.com:Org/Repo.git"], check=True)
-    assert project_key(str(repo)) == "github.com/org/repo"
+    assert repo_key(str(repo)) == "github.com/org/repo"
 
 
 @pytest.fixture
@@ -40,7 +40,7 @@ def items(test_engine: Engine) -> ItemService:
 
 @pytest.fixture
 def linked(test_engine, items):
-    ProjectService(test_engine).link("github.com/org/app", "Polara", "app")
+    RepoService(test_engine).link("github.com/org/app", "Polara", "app")
     return lambda dm="app", ws="Polara", **kw: items.batch_upsert(
         [{"workspace": ws, "domain": dm, **BASE, **kw}])
 
@@ -55,29 +55,29 @@ def test_projeto_nao_ligado_explica_como_ligar(test_engine):
 
 
 def test_link_e_resolve(test_engine):
-    ProjectService(test_engine).link("git@github.com:Org/App.git", "Polara", "app")
-    found = ProjectService(test_engine).resolve("https://github.com/org/app")
+    RepoService(test_engine).link("git@github.com:Org/App.git", "Polara", "app")
+    found = RepoService(test_engine).resolve("https://github.com/org/app")
     assert (found["workspace"], found["domain"]) == ("Polara", "app")
 
 
 def test_link_sem_workspace_usa_o_dono_e_o_repo(test_engine):
-    out = ProjectService(test_engine).link("git@github.com:Polara-Innovations/projpro.git")
+    out = RepoService(test_engine).link("git@github.com:Polara-Innovations/projpro.git")
     assert (out["workspace"], out["domain"]) == ("polara-innovations", "projpro")
-    out = ProjectService(test_engine).link("path:c:/projects/meu-app")
+    out = RepoService(test_engine).link("path:c:/projects/meu-app")
     assert (out["workspace"], out["domain"]) == ("Pessoal", "meu-app")
 
 
 def test_segundo_repo_do_mesmo_dono_cai_no_mesmo_workspace(test_engine):
-    ProjectService(test_engine).link("github.com/polara-innovations/projpro", "Polara")
-    out = ProjectService(test_engine).link("github.com/polara-innovations/synapse")
+    RepoService(test_engine).link("github.com/polara-innovations/projpro", "Polara")
+    out = RepoService(test_engine).link("github.com/polara-innovations/synapse")
     assert (out["workspace"], out["domain"]) == ("Polara", "synapse")
-    outro = ProjectService(test_engine).link("github.com/kaualealz/plumb-harness")
+    outro = RepoService(test_engine).link("github.com/kaualealz/plumb-harness")
     assert outro["workspace"] == "kaualealz"  # outro dono: não herda
 
 
 def test_repos_do_mesmo_workspace_dividem_o_geral_mas_nao_o_resto(test_engine, items):
-    ProjectService(test_engine).link("github.com/org/a", "Org")
-    ProjectService(test_engine).link("github.com/org/b", "Org")
+    RepoService(test_engine).link("github.com/org/a", "Org")
+    RepoService(test_engine).link("github.com/org/b", "Org")
     items.batch_upsert([
         {"workspace": "Org", "domain": "a", "key": "r", "type": "rule", **BASE,
          "title": "Regra do A"},

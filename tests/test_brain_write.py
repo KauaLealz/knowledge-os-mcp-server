@@ -141,7 +141,7 @@ def test_domain_e_workspace_do_lote_reaproveitados(svc, test_session, sample_wor
 def test_apagar_workspace_e_domain_com_tags_relacoes_e_link(test_engine, test_session):
     """Regressão: com foreign_keys=ON, o delete falhava se os itens tinham tags ou relações."""
     from knowledge_os.services.domain_service import DomainService
-    from knowledge_os.services.project_service import ProjectService
+    from knowledge_os.services.repo_service import RepoService
     from knowledge_os.services.workspace_service import WorkspaceService
 
     svc = ItemService(test_engine)
@@ -149,7 +149,7 @@ def test_apagar_workspace_e_domain_com_tags_relacoes_e_link(test_engine, test_se
     svc.save([{"workspace": "W", "domain": "D2", "key": "b", **FIELDS,
                "relations": [{"type": "related_to", "target": "b2"}]},
               {"workspace": "W", "domain": "D2", "key": "b2", **FIELDS}])
-    ProjectService(test_engine).link("github.com/o/r", "W", "D")
+    RepoService(test_engine).link("github.com/o/r", "W", "D")
     ws_id = test_session.scalar(select(Workspace.id).where(Workspace.name == "W"))
     assert DomainService(session=test_session).delete(ws_id, "D2") is True
     assert WorkspaceService(session=test_session).delete("W") is True
