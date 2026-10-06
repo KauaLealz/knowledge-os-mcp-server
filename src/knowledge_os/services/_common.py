@@ -11,7 +11,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 import knowledge_os.config as config
-from knowledge_os.db.models import Connection, Item, Project, Workspace
+from knowledge_os.db.models import Connection, Item, Project, Subject, Workspace
 from knowledge_os.db.session import get_engine, get_session
 from knowledge_os.exceptions import ValidationError
 
@@ -126,6 +126,18 @@ def project_to_dict(dm: Project) -> dict[str, Any]:
         "description": dm.description,
         "created_at": _iso(dm.created_at),
         "updated_at": _iso(dm.updated_at),
+    }
+
+
+def subject_to_dict(sj: Subject) -> dict[str, Any]:
+    """Serializa um Subject."""
+    return {
+        "id": sj.id,
+        "project_id": sj.project_id,
+        "name": sj.name,
+        "description": sj.description,
+        "created_at": _iso(sj.created_at),
+        "updated_at": _iso(sj.updated_at),
     }
 
 

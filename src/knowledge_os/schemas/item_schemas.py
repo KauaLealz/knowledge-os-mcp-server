@@ -44,6 +44,7 @@ class ItemCreate(BaseModel):
 
     workspace_id: str
     project_id: str
+    subject_id: str | None = None
     type: str
     memory_class: str = "longterm"  # sem aprovação: já vale; ephemeral = temporário
     title: str = Field(min_length=1, max_length=255)
@@ -115,6 +116,7 @@ class ItemSearchRequest(BaseModel):
 
     workspace_id: str | None = None
     project_id: str | None = None
+    subject_id: str | None = None
     query: str
     types: list[str] | None = None
     memory_classes: list[str] | None = None
@@ -129,6 +131,7 @@ class ItemSearchResult(BaseModel):
     type: str | None = None
     memory_class: str | None = None
     project: str | None = None
+    subject: str | None = None
     title: str
     summary: str
     score: float
@@ -152,6 +155,7 @@ class ItemResponse(BaseModel):
     id: str
     workspace_id: str
     project_id: str
+    subject_id: str | None = None
     type: str
     memory_class: str
     title: str
@@ -181,6 +185,7 @@ class ItemResponse(BaseModel):
             id=item.id,
             workspace_id=item.workspace_id,
             project_id=item.project_id,
+            subject_id=item.subject_id,
             type=item.type,
             memory_class=item.memory_class,
             title=item.title,

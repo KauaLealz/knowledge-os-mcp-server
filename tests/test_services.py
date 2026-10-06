@@ -3,9 +3,10 @@
 import pytest
 from sqlalchemy.orm import Session
 
-from knowledge_os.db.models import Project, Workspace
+from knowledge_os.db.models import Item, Project, Workspace
 from knowledge_os.exceptions import NotFoundError, ValidationError
 from knowledge_os.services.project_service import ProjectService
+from knowledge_os.services.subject_service import SubjectService
 from knowledge_os.services.workspace_service import WorkspaceService
 
 
@@ -80,3 +81,39 @@ class TestProjectService:
         data = ProjectService(test_session).export(sample_item.workspace_id, "TestDomain")
         assert data["project_data"]["project"]["name"] == "TestDomain"
         assert data["project_data"]["items"][0]["title"] == "Test Item"
+
+
+class TestSubjectService:
+    def test_create_get_list(self, test_session: Session, sample_project: Project):
+        svc = SubjectService(test_session)
+        sj = svc.create(sample_project.id, "s1", None)
+        assert svc.get(sample_project.id, "s1").id == sj.id
+        assert [x.name for x in svc.list(sample_project.id)] == ["s1"]
+
+    def test_create_project_inexistente(self, test_session: Session):
+        with pytest.raises(NotFoundError):
+            SubjectService(test_session).create("x", "s1", None)
+
+    def test_create_duplicado(self, test_session: Session, sample_project: Project):
+        SubjectService(test_session).create(sample_project.id, "s1", None)
+        with pytest.raises(ValidationError):
+            SubjectService(test_session).create(sample_project.id, "s1", None)
+
+    def test_get_inexistente(self, test_session: Session, sample_project: Project):
+        with pytest.raises(NotFoundError):
+            SubjectService(test_session).get(sample_project.id, "nada")
+
+    def test_delete_desvincula_items_em_vez_de_apagar(
+        self, test_session: Session, sample_item: Item
+    ):
+        svc = SubjectService(test_session)
+        sj = svc.create(sample_item.project_id, "s1", None)
+        sample_item.subject_id = sj.id
+        test_session.commit()
+
+        assert svc.delete(sample_item.project_id, "s1") is True
+        assert svc.delete(sample_item.project_id, "s1") is False
+
+        item = test_session.get(Item, sample_item.id)
+        assert item is not None
+        assert item.subject_id is None

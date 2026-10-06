@@ -24,6 +24,7 @@ from knowledge_os.db.models import (
     Project,
     Relation,
     SecretValue,
+    Subject,
     Tag,
     Workspace,
 )
@@ -147,6 +148,46 @@ class ItemService:
             raise NotFoundError(f"Project não encontrado: {ref}")
         return dm_id
 
+    def resolve_subject_id(self, project_id: str, ref: str) -> str:
+        """Resolve um subject (nome ou id) dentro do project. Levanta NotFoundError."""
+        with self._session() as s:
+            sj_id = s.scalar(
+                select(Subject.id).where(
+                    Subject.project_id == project_id,
+                    (Subject.name == ref) | (Subject.id == ref),
+                )
+            )
+        if sj_id is None:
+            raise NotFoundError(f"Subject não encontrado: {ref}")
+        return sj_id
+
+    def ensure_subject(self, project_id: str, name: str) -> str:
+        """Resolve um subject por nome dentro do project, criando o que não existir."""
+        return run_with_retry(
+            lambda: self._ensure_subject_once(project_id, name), retry_conflict=True
+        )
+
+    def _ensure_subject_once(self, project_id: str, name: str) -> str:
+        with self._session() as s:
+            sj_id = self._ensure_subject_in(s, project_id, name)
+            s.commit()
+            return sj_id
+
+    @staticmethod
+    def _ensure_subject_in(s: Session, project_id: str, name: str) -> str:
+        """Resolve/cria o subject dentro de uma sessão já aberta (sem commit próprio)."""
+        sj = s.scalar(
+            select(Subject).where(
+                Subject.project_id == project_id,
+                (Subject.name == name) | (Subject.id == name),
+            )
+        )
+        if sj is None:
+            sj = Subject(id=str(uuid.uuid4()), project_id=project_id, name=name)
+            s.add(sj)
+            s.flush()
+        return sj.id
+
     def ensure_location(self, workspace: str, project: str) -> tuple[str, str]:
         """Resolve workspace e project por nome ou id, criando os que não existem."""
         return run_with_retry(
@@ -218,6 +259,10 @@ class ItemService:
         project = s.get(Project, data.project_id)
         if project is None or project.workspace_id != data.workspace_id:
             raise NotFoundError(f"Project não encontrado: {data.project_id}")
+        if data.subject_id is not None:
+            subject = s.get(Subject, data.subject_id)
+            if subject is None or subject.project_id != data.project_id:
+                raise NotFoundError(f"Subject não encontrado: {data.subject_id}")
         if data.key and self._by_key(s, data.project_id, data.key) is not None:
             raise ValidationError(f"Já existe item com key {data.key!r} neste project (use upsert)")
         now = utcnow()
@@ -225,6 +270,7 @@ class ItemService:
             id=str(uuid.uuid4()),
             workspace_id=data.workspace_id,
             project_id=data.project_id,
+            subject_id=data.subject_id,
             type=data.type,
             memory_class=data.memory_class,
             title=data.title,
@@ -321,6 +367,7 @@ class ItemService:
         title: str,
         summary: str,
         content: str,
+        subject_id: str | None = None,
         tags: list[str] | None = None,
         labels: list[str] | None = None,
         confidence: int | None = None,
@@ -334,7 +381,7 @@ class ItemService:
     ) -> Item:
         """Cria um item e associa tags e labels (criando as que não existirem)."""
         data = self._validate_create(
-            workspace_id=workspace_id, project_id=project_id, type=type,
+            workspace_id=workspace_id, project_id=project_id, subject_id=subject_id, type=type,
             memory_class=memory_class, title=title, summary=summary, content=content,
             tags=tags or [], labels=labels or [], confidence=confidence,
             importance=importance, ttl_days=ttl_days, key=key, keywords=keywords,
@@ -411,7 +458,14 @@ class ItemService:
         partir de agora, e `relations: [{type, target}]` liga ao alvo (id, ou key do mesmo
         project, inclusive itens criados no mesmo lote); `supersedes` marca o alvo como
         substituído. Workspace/project vêm da entrada ou de `default_location` e são criados se
-        não existirem. Qualquer erro desfaz o lote inteiro e aponta a entrada.
+        não existirem. `subject` (nome do assunto) é resolvido/criado dentro do project e vira
+        `subject_id` do item. Com `id`: se a entrada também trouxer `workspace`+`project`, o
+        item é *movido* para esse workspace/project (criados se não existirem) — o `subject`, se
+        vier, é resolvido/criado dentro do project novo; se não vier, o subject do item é zerado
+        (subject de outro project não se aproveita). Só `subject` (sem workspace/project) move o
+        item para esse subject dentro do project atual. Em todos os casos de `id`, id,
+        created_at, access_count, tags, labels, relations e artifacts do item não mudam — só as
+        FKs de localização. Qualquer erro desfaz o lote inteiro e aponta a entrada.
         """
         if not entries:
             return []
@@ -445,7 +499,9 @@ class ItemService:
             relations = e.pop("relations", None) or []
             item_id, key = e.pop("id", None), e.pop("key", None)
             ws, dm = e.pop("workspace", None), e.pop("project", None)
+            sj = e.pop("subject", None)
             location = None
+            move: dict[str, Any] | None = None
             if not item_id:
                 if ws and dm:
                     location = self.ensure_location(ws, dm)
@@ -453,8 +509,19 @@ class ItemService:
                     location = default_location
                 else:
                     raise ValidationError(f"Entrada {i}: informe workspace e project (ou repo)")
+                if sj:
+                    e["subject_id"] = self.ensure_subject(location[1], sj)
+            elif ws and dm:
+                new_location = self.ensure_location(ws, dm)
+                move = {
+                    "workspace_id": new_location[0],
+                    "project_id": new_location[1],
+                    "subject_id": self.ensure_subject(new_location[1], sj) if sj else None,
+                }
+            elif sj:
+                move = {"subject_name": sj}
             fields = {k: v for k, v in e.items() if v is not None}
-            plans.append((i, item_id, key, location, fields, relations))
+            plans.append((i, item_id, key, location, fields, relations, move))
 
         return run_with_retry(lambda: self._save_plans(plans), retry_conflict=True)
 
@@ -463,19 +530,30 @@ class ItemService:
         results: list[dict[str, Any]] = []
         links: list[tuple[int, Item, dict[str, Any]]] = []
         with self._session() as s:
-            for i, item_id, key, location, fields, relations in plans:
+            for i, item_id, key, location, fields, relations, move in plans:
                 fields = dict(fields)  # o ramo de id consome `memory_class` com pop
                 label = key or item_id or fields.get("title", "?")
                 similar: list[dict[str, Any]] = []
                 try:
                     if item_id:
                         item = self._load(s, item_id)
+                        moved = False
+                        if move is not None:
+                            if "workspace_id" in move:
+                                item.workspace_id = move["workspace_id"]
+                                item.project_id = move["project_id"]
+                                item.subject_id = move["subject_id"]
+                            else:
+                                item.subject_id = self._ensure_subject_in(
+                                    s, item.project_id, move["subject_name"]
+                                )
+                            moved = True
                         memory_class = fields.pop("memory_class", None)
                         self._check_update(fields)
                         changed = self._apply(s, item, fields)
                         if memory_class:
                             changed = self._raise_class(item, memory_class) or changed
-                        action = "updated" if changed else "unchanged"
+                        action = "updated" if (changed or moved) else "unchanged"
                     elif key:
                         item, action = self._upsert_in(s, location[0], location[1], key, fields)
                     else:
@@ -574,6 +652,7 @@ class ItemService:
         workspace_id: str | None,
         project_id: str | None,
         query: str,
+        subject_id: str | None = None,
         types: list[str] | None = None,
         memory_classes: list[str] | None = None,
         limit: int = 10,
@@ -609,6 +688,9 @@ class ItemService:
         if project_id:
             where.append("i.project_id = :dm")
             params["dm"] = project_id
+        if subject_id:
+            where.append("i.subject_id = :sj")
+            params["sj"] = subject_id
         if types:
             where.append("i.type IN :types")
             params["types"] = list(types)
@@ -628,11 +710,14 @@ class ItemService:
         )
         columns = (
             "i.id AS id, i.item_key AS item_key, i.type AS type, i.memory_class AS memory_class, "
-            "d.name AS project, i.title AS title, i.summary AS summary, "
+            "d.name AS project, sb.name AS subject, i.title AS title, i.summary AS summary, "
             "COALESCE(i.access_count, 0) AS uses"
         )
+        subject_join = " LEFT JOIN subjects sb ON sb.id = i.subject_id"
         if not query:
-            attempts = [("items i JOIN projects d ON d.id = i.project_id", None, "0.0", {})]
+            attempts = [
+                ("items i JOIN projects d ON d.id = i.project_id" + subject_join, None, "0.0", {})
+            ]
             order = tie
         else:
             dialect = get_dialect(dialect_name)
@@ -642,7 +727,7 @@ class ItemService:
             attempts = []
             for expression in raw:
                 source, match, score, mparams = dialect.search_parts(expression)
-                joined = f"{source} JOIN projects d ON d.id = i.project_id"
+                joined = f"{source} JOIN projects d ON d.id = i.project_id" + subject_join
                 attempts.append((joined, match, score, mparams))
             order = f"score DESC, {tie}"
 
@@ -667,6 +752,7 @@ class ItemService:
                 {
                     "id": r["id"], "key": r["item_key"], "type": r["type"],
                     "memory_class": r["memory_class"], "project": r["project"],
+                    "subject": r["subject"],
                     "title": r["title"], "summary": r["summary"], "score": float(r["score"]),
                     "uses": int(r["uses"] or 0),
                 }

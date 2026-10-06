@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 CHUNK = 500
 # Ordem de cópia: respeita as FKs.
 TABLES = (
-    "workspaces", "projects", "tags", "labels", "items",
+    "workspaces", "projects", "subjects", "tags", "labels", "items",
     "item_tags", "item_labels", "relations", "artifacts", "secret_values",
 )
 # Tabelas cujo registro é identificado pelo nome: se já existe no destino, reaproveita.

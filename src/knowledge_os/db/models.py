@@ -86,10 +86,31 @@ class Project(Base):
     # Relacionamentos
     workspace = relationship("Workspace", back_populates="projects")
     items = relationship("Item", back_populates="project", cascade="all, delete-orphan")
+    subjects = relationship("Subject", back_populates="project", cascade="all, delete-orphan")
 
     __table_args__ = (
         UniqueConstraint("workspace_id", "name", name="uq_project_workspace_name"),
         Index("idx_project_workspace", "workspace_id"),
+    )
+
+
+class Subject(Base):
+    """Subject: agrupador opcional de items dentro de um project."""
+    __tablename__ = "subjects"
+
+    id = Column(String(36), primary_key=True)
+    project_id = Column(String(36), ForeignKey("projects.id"), nullable=False)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+    project = relationship("Project", back_populates="subjects")
+    items = relationship("Item", back_populates="subject")
+
+    __table_args__ = (
+        UniqueConstraint("project_id", "name", name="uq_subject_project_name"),
+        Index("idx_subject_project", "project_id"),
     )
 
 
@@ -100,6 +121,7 @@ class Item(Base):
     id = Column(String(36), primary_key=True)
     workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=False)
     project_id = Column(String(36), ForeignKey("projects.id"), nullable=False)
+    subject_id = Column(String(36), ForeignKey("subjects.id"), nullable=True)
 
     # context, rule, pattern, procedure, knowledge, insight, artifact
     type = Column(String(50), nullable=False)
@@ -131,12 +153,14 @@ class Item(Base):
     # Relacionamentos
     workspace = relationship("Workspace", back_populates="items")
     project = relationship("Project", back_populates="items")
+    subject = relationship("Subject", back_populates="items")
     tags = relationship("Tag", secondary="item_tags", back_populates="items")
     labels = relationship("Label", secondary="item_labels", back_populates="items")
 
     __table_args__ = (
         Index("idx_item_workspace", "workspace_id"),
         Index("idx_item_project", "project_id"),
+        Index("idx_item_subject", "subject_id"),
         Index("idx_item_type", "type"),
         Index("idx_item_memory", "memory_class"),
         Index("idx_item_created", "created_at"),

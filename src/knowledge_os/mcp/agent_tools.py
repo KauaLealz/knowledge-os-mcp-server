@@ -48,6 +48,7 @@ def item_search(
     repo: str | None = None,
     workspace: str | None = None,
     project: str | None = None,
+    subject: str | None = None,
     types: list[str] | None = None,
     memory_classes: list[str] | None = None,
     limit: int = 10,
@@ -58,14 +59,15 @@ def item_search(
     """Busca por texto. Devolve resumos, nunca o conteúdo completo.
 
     **Use quando:** Procurar algo que pode já estar guardado (decisão, gotcha, procedimento).
-    **Retorna:** [{id, key, type, memory_class, project, title, summary, score, uses}].
+    **Retorna:** [{id, key, type, memory_class, project, subject, title, summary, score, uses}].
     **Exemplo:** item_search(query="migração flyway", limit=5)
     **Notas:** Sem repo/workspace, busca no projeto da pasta atual (se ligado) — não vaza para
         outros projetos; `everywhere=True` busca em todos. Relevância primeiro; acentos e plurais
         não atrapalham. include_inactive traz substituídos, obsoletos e ephemeral vencidos.
+        `subject` filtra pelo assunto (nome ou id) dentro do project; exige project resolvido.
     """
     svc = ItemService(connection_id=connection_id)
-    workspace_id = project_id = None
+    workspace_id = project_id = subject_id = None
     if not repo and not workspace and not everywhere:
         repo = "." if RepoService(connection_id=connection_id).resolve(".") else None
     if repo:
@@ -76,13 +78,17 @@ def item_search(
         if workspace_id is None:
             raise ValidationError("project exige repo ou workspace")
         project_id = svc.resolve_project_id(workspace_id, project)
+    if subject:
+        if project_id is None:
+            raise ValidationError("subject exige project")
+        subject_id = svc.resolve_subject_id(project_id, subject)
     req = ItemSearchRequest(
-        workspace_id=workspace_id, project_id=project_id, query=query, types=types,
-        memory_classes=memory_classes, limit=limit,
+        workspace_id=workspace_id, project_id=project_id, subject_id=subject_id, query=query,
+        types=types, memory_classes=memory_classes, limit=limit,
     )
     rows = svc.search(
-        req.workspace_id, req.project_id, req.query, req.types, req.memory_classes, req.limit,
-        include_inactive=include_inactive,
+        req.workspace_id, req.project_id, req.query, req.subject_id, req.types,
+        req.memory_classes, req.limit, include_inactive=include_inactive,
     )
     return [ItemSearchResult(**r).model_dump() for r in rows]
 
@@ -155,6 +161,12 @@ def item_save(
     **Retorna:** [{index, id, key, action: created|updated|unchanged, similar?, relations?}].
     **Modo, por entrada:** com `key` → upsert no project (não duplica; o preferido); com `id` →
         atualiza o item; sem os dois → cria e devolve `similar` (títulos parecidos já guardados).
+        Com `id` e também `workspace`+`project` na mesma entrada → *move* o item para esse
+        workspace/project (criados se não existirem); o `subject`, se vier, é resolvido/criado
+        no project novo, senão o subject do item é zerado. Com `id` e só `subject` (sem
+        workspace/project) → move o item para esse subject dentro do project atual. Em qualquer
+        caso de `id`, id, created_at, access_count, tags, labels, relations e artifacts do item
+        não mudam — só as FKs de localização.
     **Exemplo (upsert):** item_save(repo=".", items=[{"key": "regra/money", "type": "rule",
         "title": "Money em pagamentos", "summary": "Valores em Money, nunca double",
         "content": "...", "scope_paths": ["src/payments/**"], "source": "PAY-142"}])
@@ -167,7 +179,8 @@ def item_save(
         superseded, deprecated), memory_class "ephemeral" + ttl_days só para nota temporária
         (sem aprovação: o resto já vale), tags, labels, relations
         [{type: related_to|depends_on|implements|references|supersedes|derived_from, target: id
-        ou key}], workspace/project (sem eles vale o project ligado a `repo`).
+        ou key}], workspace/project (sem eles vale o project ligado a `repo`), subject (nome do
+        assunto dentro do project — agrupador opcional, criado se não existir).
     **Segredo:** {"key": "segredo/npm-token", "type": "secret", "title": "Token do npm",
         "summary": "publicar no npm"} — sem valor (é recusado); a resposta traz `fill_url`:
         passe ao usuário para ele preencher na UI local. Usar: `knowledge-mcp run --env

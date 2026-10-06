@@ -197,3 +197,63 @@ def test_item_get_conta_uso(server):
     call(server, "item_save", repo=PROJECT, items=[{"key": "r", "title": "R", **RULE}])
     assert call(server, "item_get", keys=["r"], repo=PROJECT)[0]["access_count"] == 0
     assert call(server, "item_get", keys=["r"], repo=PROJECT)[0]["access_count"] == 1
+
+
+def test_item_search_filtra_por_subject(server):
+    call(server, "repo_link", repo=PROJECT, workspace="Polara", project="app")
+    call(server, "item_save", repo=PROJECT, items=[
+        {"key": "a", **RULE, "title": "Item do assunto X", "subject": "assunto-x"},
+        {"key": "b", **RULE, "title": "Item do assunto Y", "subject": "assunto-y"},
+        {"key": "c", **RULE, "title": "Item sem assunto"},
+    ])
+    titles = {r["title"] for r in call(server, "item_search", query="Item", repo=PROJECT,
+                                        project="app", subject="assunto-x")}
+    assert titles == {"Item do assunto X"}
+    assert "subject" in fails(server, "item_search", query="Item", subject="assunto-x")
+
+
+def test_item_save_move_por_id_preserva_id_created_at_e_access_count(server):
+    call(server, "repo_link", repo=PROJECT, workspace="Polara", project="app")
+    saved = call(server, "item_save", repo=PROJECT,
+                 items=[{"key": "a", **RULE, "title": "Vai mudar de lugar"}])
+    item_id = saved[0]["id"]
+    # item_get conta uso: a leitura "antes" já bumpa o access_count em 1.
+    (before,) = call(server, "item_get", ids=[item_id])
+
+    moved = call(server, "item_save", items=[
+        {"id": item_id, "workspace": "OutroWorkspace", "project": "outro-project"}])
+    assert moved[0]["action"] == "updated"
+
+    (after,) = call(server, "item_get", ids=[item_id])
+    assert after["id"] == before["id"]
+    assert after["created_at"] == before["created_at"]
+    # Só o item_get seguinte bumpou de novo: o move em si não mexeu no access_count.
+    assert after["access_count"] == before["access_count"] + 1
+    assert after["workspace_id"] != before["workspace_id"]
+    assert after["project_id"] != before["project_id"]
+    assert after["subject_id"] is None  # mudou de project sem informar subject: zera
+
+    found = call(server, "item_search", query="mudar", workspace="OutroWorkspace")
+    assert found and found[0]["id"] == item_id
+
+
+def test_item_save_move_so_o_subject(server):
+    call(server, "repo_link", repo=PROJECT, workspace="Polara", project="app")
+    saved = call(server, "item_save", repo=PROJECT,
+                 items=[{"key": "a", **RULE, "title": "Vai ganhar assunto"}])
+    item_id = saved[0]["id"]
+    (before,) = call(server, "item_get", ids=[item_id])
+
+    moved = call(server, "item_save", items=[{"id": item_id, "subject": "novo-assunto"}])
+    assert moved[0]["action"] == "updated"
+
+    (after,) = call(server, "item_get", ids=[item_id])
+    assert after["id"] == before["id"]
+    assert after["created_at"] == before["created_at"]
+    assert after["workspace_id"] == before["workspace_id"]
+    assert after["project_id"] == before["project_id"]
+    assert after["subject_id"] is not None
+
+    found = call(server, "item_search", query="assunto", repo=PROJECT, project="app",
+                 subject="novo-assunto")
+    assert found and found[0]["id"] == item_id
