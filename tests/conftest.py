@@ -17,7 +17,7 @@ from sqlalchemy.pool import StaticPool
 import knowledge_os.config as config  # noqa: E402
 from knowledge_os.config import ConfigManager  # noqa: E402
 from knowledge_os.db.dialects.sqlite import SQLiteDialect  # noqa: E402
-from knowledge_os.db.models import Base, Domain, Item, Label, Tag, Workspace  # noqa: E402
+from knowledge_os.db.models import Base, Item, Label, Project, Tag, Workspace  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -77,13 +77,13 @@ def sample_workspace(test_session: Session) -> Workspace:
 
 
 @pytest.fixture
-def sample_domain(test_session: Session, sample_workspace: Workspace) -> Domain:
-    """Cria um domain para testes."""
-    dm = Domain(
+def sample_project(test_session: Session, sample_workspace: Workspace) -> Project:
+    """Cria um project para testes."""
+    dm = Project(
         id=str(uuid.uuid4()),
         workspace_id=sample_workspace.id,
         name="TestDomain",
-        description="Domain para testes"
+        description="Project para testes"
     )
     test_session.add(dm)
     test_session.commit()
@@ -91,12 +91,14 @@ def sample_domain(test_session: Session, sample_workspace: Workspace) -> Domain:
 
 
 @pytest.fixture
-def sample_item(test_session: Session, sample_workspace: Workspace, sample_domain: Domain) -> Item:
+def sample_item(
+    test_session: Session, sample_workspace: Workspace, sample_project: Project
+) -> Item:
     """Cria um item para testes."""
     item = Item(
         id=str(uuid.uuid4()),
         workspace_id=sample_workspace.id,
-        domain_id=sample_domain.id,
+        project_id=sample_project.id,
         type="knowledge",
         memory_class="longterm",
         title="Test Item",

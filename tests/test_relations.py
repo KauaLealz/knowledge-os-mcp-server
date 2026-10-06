@@ -21,7 +21,7 @@ def use_test_engine(monkeypatch, test_engine):
 def other_item(test_session, sample_item) -> Item:
     item = Item(
         id=str(uuid.uuid4()), workspace_id=sample_item.workspace_id,
-        domain_id=sample_item.domain_id, type="rule", memory_class="working",
+        project_id=sample_item.project_id, type="rule", memory_class="working",
         title="Other", summary="s", content="c",
     )
     test_session.add(item)

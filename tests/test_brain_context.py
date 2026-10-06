@@ -42,7 +42,7 @@ def items(test_engine: Engine) -> ItemService:
 def linked(test_engine, items):
     RepoService(test_engine).link("github.com/org/app", "Polara", "app")
     return lambda dm="app", ws="Polara", **kw: items.batch_upsert(
-        [{"workspace": ws, "domain": dm, **BASE, **kw}])
+        [{"workspace": ws, "project": dm, **BASE, **kw}])
 
 
 def _ctx(test_engine, **kw):
@@ -57,20 +57,20 @@ def test_projeto_nao_ligado_explica_como_ligar(test_engine):
 def test_link_e_resolve(test_engine):
     RepoService(test_engine).link("git@github.com:Org/App.git", "Polara", "app")
     found = RepoService(test_engine).resolve("https://github.com/org/app")
-    assert (found["workspace"], found["domain"]) == ("Polara", "app")
+    assert (found["workspace"], found["project"]) == ("Polara", "app")
 
 
 def test_link_sem_workspace_usa_o_dono_e_o_repo(test_engine):
     out = RepoService(test_engine).link("git@github.com:Polara-Innovations/projpro.git")
-    assert (out["workspace"], out["domain"]) == ("polara-innovations", "projpro")
+    assert (out["workspace"], out["project"]) == ("polara-innovations", "projpro")
     out = RepoService(test_engine).link("path:c:/projects/meu-app")
-    assert (out["workspace"], out["domain"]) == ("Pessoal", "meu-app")
+    assert (out["workspace"], out["project"]) == ("Pessoal", "meu-app")
 
 
 def test_segundo_repo_do_mesmo_dono_cai_no_mesmo_workspace(test_engine):
     RepoService(test_engine).link("github.com/polara-innovations/projpro", "Polara")
     out = RepoService(test_engine).link("github.com/polara-innovations/synapse")
-    assert (out["workspace"], out["domain"]) == ("Polara", "synapse")
+    assert (out["workspace"], out["project"]) == ("Polara", "synapse")
     outro = RepoService(test_engine).link("github.com/kaualealz/plumb-harness")
     assert outro["workspace"] == "kaualealz"  # outro dono: não herda
 
@@ -79,11 +79,11 @@ def test_repos_do_mesmo_workspace_dividem_o_geral_mas_nao_o_resto(test_engine, i
     RepoService(test_engine).link("github.com/org/a", "Org")
     RepoService(test_engine).link("github.com/org/b", "Org")
     items.batch_upsert([
-        {"workspace": "Org", "domain": "a", "key": "r", "type": "rule", **BASE,
+        {"workspace": "Org", "project": "a", "key": "r", "type": "rule", **BASE,
          "title": "Regra do A"},
-        {"workspace": "Org", "domain": "Geral", "key": "c", "type": "rule", **BASE,
+        {"workspace": "Org", "project": "Geral", "key": "c", "type": "rule", **BASE,
          "title": "Convenção da empresa"},
-        {"workspace": "Global", "domain": "Geral", "key": "g", "type": "rule", **BASE,
+        {"workspace": "Global", "project": "Geral", "key": "g", "type": "rule", **BASE,
          "title": "Responder em PT-BR"},
     ])
     md_b = ContextService(test_engine).build("github.com/org/b")["markdown"]

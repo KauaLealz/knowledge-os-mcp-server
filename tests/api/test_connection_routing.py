@@ -48,10 +48,10 @@ def test_header_isolates_connections(api):
 def test_data_routes_follow_header(api):
     a, b = _conn(api, "A"), _conn(api, "B")
     ws = api.post("/api/workspaces", headers=_hdr(a), json={"name": "W"}).json()
-    dm = api.post("/api/domains", headers=_hdr(a),
+    dm = api.post("/api/projects", headers=_hdr(a),
                   json={"workspace_id": ws["id"], "name": "D"}).json()
     item = api.post("/api/items", headers=_hdr(a), json={
-        "workspace_id": ws["id"], "domain_id": dm["id"], "type": "knowledge",
+        "workspace_id": ws["id"], "project_id": dm["id"], "type": "knowledge",
         "memory_class": "longterm", "title": "T", "summary": "s", "content": "c"})
     assert item.status_code == 201, item.text
     assert api.get(f"/api/items/{item.json()['id']}", headers=_hdr(a)).status_code == 200

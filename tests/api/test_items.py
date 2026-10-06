@@ -4,9 +4,9 @@ def test_list_empty(client):
 
 def test_create_returns_full_item(client, mk):
     ws = mk.ws()
-    dm = mk.domain(ws["id"])
+    dm = mk.project(ws["id"])
     r = client.post("/api/items", json={
-        "workspace_id": ws["id"], "domain_id": dm["id"], "type": "knowledge",
+        "workspace_id": ws["id"], "project_id": dm["id"], "type": "knowledge",
         "memory_class": "longterm", "title": "T", "summary": "S", "content": "C",
         "confidence": 90, "importance": 8, "tags": ["spring"], "labels": ["official"],
     })
@@ -18,25 +18,25 @@ def test_create_returns_full_item(client, mk):
 
 def test_create_invalid_type_is_422(client, mk):
     ws = mk.ws()
-    dm = mk.domain(ws["id"])
+    dm = mk.project(ws["id"])
     r = client.post("/api/items", json={
-        "workspace_id": ws["id"], "domain_id": dm["id"], "type": "bogus",
+        "workspace_id": ws["id"], "project_id": dm["id"], "type": "bogus",
         "memory_class": "longterm", "title": "T", "summary": "S", "content": "C"})
     assert r.status_code == 422
 
 
 def test_create_ephemeral_without_ttl_is_422(client, mk):
     ws = mk.ws()
-    dm = mk.domain(ws["id"])
+    dm = mk.project(ws["id"])
     r = client.post("/api/items", json={
-        "workspace_id": ws["id"], "domain_id": dm["id"], "type": "context",
+        "workspace_id": ws["id"], "project_id": dm["id"], "type": "context",
         "memory_class": "ephemeral", "title": "T", "summary": "S", "content": "C"})
     assert r.status_code == 422
 
 
 def test_create_unknown_workspace_is_404(client):
     r = client.post("/api/items", json={
-        "workspace_id": "x", "domain_id": "y", "type": "context", "memory_class": "working",
+        "workspace_id": "x", "project_id": "y", "type": "context", "memory_class": "working",
         "title": "T", "summary": "S", "content": "C"})
     assert r.status_code == 404
 
@@ -54,10 +54,10 @@ def test_get_missing_is_404(client):
 
 def test_list_filters(client, mk):
     ws, dm, _ = mk.tree()
-    dm2 = mk.domain(ws["id"], "Dom2")
+    dm2 = mk.project(ws["id"], "Dom2")
     mk.item(ws["id"], dm2["id"], "Other", type="rule")
     assert len(client.get("/api/items").json()) == 2
-    r = client.get("/api/items", params={"domain_id": dm2["id"]})
+    r = client.get("/api/items", params={"project_id": dm2["id"]})
     assert [i["title"] for i in r.json()] == ["Other"]
     r = client.get("/api/items", params={"workspace_id": ws["id"], "type": "rule"})
     assert len(r.json()) == 1

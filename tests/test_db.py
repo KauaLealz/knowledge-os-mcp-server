@@ -2,7 +2,7 @@
 
 from sqlalchemy.orm import Session
 
-from knowledge_os.db.models import Domain, Item, Workspace
+from knowledge_os.db.models import Item, Project, Workspace
 
 
 class TestWorkspace:
@@ -18,9 +18,9 @@ class TestWorkspace:
         assert ws.name == "Test"
         # TODO: Implementar mais assertions
 
-    def test_criar_domain(self, test_session: Session, sample_workspace: Workspace):
-        """Testa criação de domain com workspace."""
-        dm = Domain(
+    def test_criar_project(self, test_session: Session, sample_workspace: Workspace):
+        """Testa criação de project com workspace."""
+        dm = Project(
             id="dm_1",
             workspace_id=sample_workspace.id,
             name="TestDomain"
@@ -36,13 +36,13 @@ class TestItem:
     """Testes para modelo Item."""
 
     def test_criar_item(
-        self, test_session: Session, sample_workspace: Workspace, sample_domain: Domain
+        self, test_session: Session, sample_workspace: Workspace, sample_project: Project
     ):
         """Testa criação de item."""
         item = Item(
             id="it_1",
             workspace_id=sample_workspace.id,
-            domain_id=sample_domain.id,
+            project_id=sample_project.id,
             type="knowledge",
             memory_class="longterm",
             title="Test",

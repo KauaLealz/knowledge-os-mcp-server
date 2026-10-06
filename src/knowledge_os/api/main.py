@@ -12,9 +12,9 @@ from knowledge_os import __version__
 from knowledge_os.api.routes import (
     artifact,
     connection,
-    domain,
     item,
     label,
+    project,
     relation,
     tag,
     workspace,
@@ -99,7 +99,7 @@ def health() -> dict[str, str]:
 
 for _module, _tag in (
     (workspace, "workspaces"),
-    (domain, "domains"),
+    (project, "projects"),
     (item, "items"),
     (relation, "relations"),
     (tag, "tags"),

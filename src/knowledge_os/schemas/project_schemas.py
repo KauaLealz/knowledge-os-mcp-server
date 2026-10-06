@@ -1,20 +1,20 @@
-"""Schemas Pydantic de Domain."""
+"""Schemas Pydantic de Project."""
 
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 
-class DomainCreate(BaseModel):
-    """Entrada para criação de domain."""
+class ProjectCreate(BaseModel):
+    """Entrada para criação de project."""
 
     workspace_id: str = Field(min_length=1)
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
 
 
-class DomainResponse(BaseModel):
-    """Domain retornado pelas tools."""
+class ProjectResponse(BaseModel):
+    """Project retornado pelas tools."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -26,7 +26,7 @@ class DomainResponse(BaseModel):
     updated_at: datetime | None
 
 
-class DomainListResponse(RootModel[list[DomainResponse]]):
-    """Lista de domains."""
+class ProjectListResponse(RootModel[list[ProjectResponse]]):
+    """Lista de projects."""
 
-    root: list[DomainResponse]
+    root: list[ProjectResponse]

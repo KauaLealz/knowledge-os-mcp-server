@@ -11,11 +11,11 @@ import knowledge_os.services.migration_service as migration_mod
 from knowledge_os.db.migrations import bootstrap_labels
 from knowledge_os.db.models import (
     Artifact,
-    Domain,
     Item,
     ItemLabel,
     ItemTag,
     Label,
+    Project,
     Relation,
     Tag,
     Workspace,
@@ -38,11 +38,11 @@ def source(tmp_path):
     init_db(engine)
     with Session(engine) as s:
         ws = Workspace(id=_uid(), name="W", description="d")
-        dm = Domain(id=_uid(), workspace_id=ws.id, name="D")
+        dm = Project(id=_uid(), workspace_id=ws.id, name="D")
         tag, lab = Tag(id=_uid(), name="k8s"), Label(id=_uid(), name="official")
-        i1 = Item(id=_uid(), workspace_id=ws.id, domain_id=dm.id, type="rule",
+        i1 = Item(id=_uid(), workspace_id=ws.id, project_id=dm.id, type="rule",
                   memory_class="longterm", title="Kubernetes", summary="s1", content="c1")
-        i2 = Item(id=_uid(), workspace_id=ws.id, domain_id=dm.id, type="rule",
+        i2 = Item(id=_uid(), workspace_id=ws.id, project_id=dm.id, type="rule",
                   memory_class="working", title="Outro", summary="s2", content="c2")
         s.add_all([ws, dm, tag, lab, i1, i2])
         s.flush()
@@ -71,7 +71,7 @@ def test_migrate_preserves_data(source, tmp_path):
     target = sqlite_url(tmp_path / "target.db")
     result = MigrationService().migrate(sqlite_url(source), target)
     assert result["errors"] == []
-    assert (result["workspaces"], result["domains"], result["items"]) == (1, 1, 2)
+    assert (result["workspaces"], result["projects"], result["items"]) == (1, 1, 2)
     engine = create_engine(target)
     with engine.connect() as c:
         row = c.execute(
@@ -91,7 +91,7 @@ def test_migrate_preserves_data(source, tmp_path):
 def test_migrate_validates_counts(source, tmp_path):
     target = sqlite_url(tmp_path / "target.db")
     result = MigrationService().migrate(sqlite_url(source), target)
-    for table in ("workspaces", "domains", "items", "tags", "relations", "artifacts"):
+    for table in ("workspaces", "projects", "items", "tags", "relations", "artifacts"):
         assert _count(sqlite_url(source), table) == _count(target, table)
     assert result["relations"] == 1 and result["tags"] == 1
 

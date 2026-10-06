@@ -12,8 +12,8 @@ from knowledge_os.db.session import get_engine
 from knowledge_os.exceptions import NotFoundError, ValidationError
 from knowledge_os.services._common import session_scope
 from knowledge_os.services.connection_service import ConnectionService
-from knowledge_os.services.domain_service import DomainService
 from knowledge_os.services.item_service import ItemService
+from knowledge_os.services.project_service import ProjectService
 from knowledge_os.services.workspace_service import WorkspaceService
 from tests.helpers_multidb import catalog, sqlite_url  # noqa: F401
 
@@ -94,9 +94,9 @@ def test_conexao_inativa_ou_inexistente_recusada(two):
 def test_fluxo_completo_e_busca_fts_na_conexao(two):
     a, b = two
     ws = WorkspaceService(connection_id=a.id).create("W")
-    dm = DomainService(connection_id=a.id).create(ws.id, "D")
+    dm = ProjectService(connection_id=a.id).create(ws.id, "D")
     items = ItemService(connection_id=a.id)
-    items.create(workspace_id=ws.id, domain_id=dm.id, type="rule", memory_class="longterm",
+    items.create(workspace_id=ws.id, project_id=dm.id, type="rule", memory_class="longterm",
                  title="Kubernetes", summary="cluster", content="pods e deployments")
     hits = items.search(ws.id, None, "kubernetes")
     assert [h["title"] for h in hits] == ["Kubernetes"]

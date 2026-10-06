@@ -65,7 +65,7 @@ def test_import_zip_em_outro_lugar_do_home_e_recusado(test_session, home_file, m
     with pytest.raises(ValidationError, match="dentro do home de dados"):
         ImportExportService(test_session).import_workspace(str(home_file))
     with pytest.raises(ValidationError, match="dentro do home de dados"):
-        ImportExportService(test_session).import_domain("ws", str(home_file))
+        ImportExportService(test_session).import_project("ws", str(home_file))
 
 
 def test_import_zip_fora_do_home_passa_da_guarda(test_session, tmp_path):

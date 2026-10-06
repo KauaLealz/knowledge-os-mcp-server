@@ -44,11 +44,11 @@ def _parser() -> argparse.ArgumentParser:
 
     sub.add_parser("backup", help="copia consistente do banco SQLite em <home>/backups")
 
-    lnk = sub.add_parser("link", help="liga o projeto a um workspace/domain")
+    lnk = sub.add_parser("link", help="liga o projeto a um workspace/project")
     lnk.add_argument("--repo", default=".")
     lnk.add_argument("--workspace",
                      help="padrão: o de outro repo do mesmo dono já ligado, ou o nome do dono")
-    lnk.add_argument("--domain", help="padrão: o nome do repositório")
+    lnk.add_argument("--project", help="padrão: o nome do repositório")
 
     run = sub.add_parser(
         "run", help="roda um comando com segredos do cérebro, sem shell, com a saída redigida",
@@ -192,7 +192,7 @@ def _flush_claimed(claimed: Path, queue: Path, repo: Path) -> tuple[int, str | N
         entries = [e for e, _ in items]
         try:
             link = RepoService().resolve(proj)
-            default = (link["workspace_id"], link["domain_id"]) if link else None
+            default = (link["workspace_id"], link["project_id"]) if link else None
             ItemService().save(entries, default_location=default)
             saved += len(entries)
         except Exception as exc:  # noqa: BLE001 - a fila fica para a próxima tentativa
@@ -279,7 +279,7 @@ def _recent(args: argparse.Namespace) -> int:
     _init()
     from sqlalchemy import select
 
-    from knowledge_os.db.models import Domain, Item, Workspace
+    from knowledge_os.db.models import Item, Project, Workspace
     from knowledge_os.db.session import get_engine, get_session
 
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -291,9 +291,9 @@ def _recent(args: argparse.Namespace) -> int:
     session = get_session(get_engine())
     try:
         rows = session.execute(
-            select(Item, Workspace.name, Domain.name)
+            select(Item, Workspace.name, Project.name)
             .join(Workspace, Workspace.id == Item.workspace_id)
-            .join(Domain, Domain.id == Item.domain_id)
+            .join(Project, Project.id == Item.project_id)
             .where(Item.updated_at >= since_utc, Item.updated_at < until_utc)
             .order_by(Item.updated_at)
         ).all()
@@ -302,7 +302,7 @@ def _recent(args: argparse.Namespace) -> int:
     data = [
         {
             "action": "created" if item.created_at and item.created_at >= since_utc else "updated",
-            "workspace": ws, "domain": dm, "key": item.key, "type": item.type,
+            "workspace": ws, "project": dm, "key": item.key, "type": item.type,
             "memory_class": item.memory_class, "title": item.title, "summary": item.summary,
             "source": item.source, "status": item.status,
         }
@@ -315,7 +315,7 @@ def _recent(args: argparse.Namespace) -> int:
     else:
         for d in data:
             src = f" [{d['source']}]" if d["source"] else ""
-            print(f"- {d['action']} · {d['workspace']}/{d['domain']} · {d['type']} · "
+            print(f"- {d['action']} · {d['workspace']}/{d['project']} · {d['type']} · "
                   f"{d['title']} — {d['summary']}{src}")
     return 0
 
@@ -334,7 +334,7 @@ def _link(args: argparse.Namespace) -> int:
     _init()
     from knowledge_os.services.repo_service import RepoService
 
-    print(json.dumps(RepoService().link(args.repo, args.workspace, args.domain)))
+    print(json.dumps(RepoService().link(args.repo, args.workspace, args.project)))
     return 0
 
 

@@ -8,12 +8,12 @@ def test_search_finds_item(client, mk):
     assert "content" not in d["results"][0]
 
 
-def test_search_domain_filter(client, mk):
+def test_search_project_filter(client, mk):
     ws, _, _ = mk.tree()
-    dm2 = mk.domain(ws["id"], "D2")
+    dm2 = mk.project(ws["id"], "D2")
     r = client.get("/api/items/search",
                    params={"query": "conditional", "workspace_id": ws["id"],
-                           "domain_id": dm2["id"]})
+                           "project_id": dm2["id"]})
     assert r.json()["total"] == 0
 
 
@@ -26,7 +26,7 @@ def test_search_no_match(client, mk):
 def test_search_without_workspace_searches_everywhere(client, mk):
     ws, _, it = mk.tree()
     ws2 = mk.ws("Outro")
-    dm2 = mk.domain(ws2["id"], "D2")
+    dm2 = mk.project(ws2["id"], "D2")
     it2 = mk.item(ws2["id"], dm2["id"], "Segundo")
     r = client.get("/api/items/search", params={"query": "conditional"})
     assert r.status_code == 200
@@ -36,7 +36,7 @@ def test_search_without_workspace_searches_everywhere(client, mk):
 def test_search_results_have_link_fields(client, mk):
     ws, dm, it = mk.tree()
     hit = client.get("/api/items/search", params={"query": "conditional"}).json()["results"][0]
-    assert hit["workspace_id"] == ws["id"] and hit["domain_id"] == dm["id"]
+    assert hit["workspace_id"] == ws["id"] and hit["project_id"] == dm["id"]
     assert hit["type"] == "knowledge"
 
 

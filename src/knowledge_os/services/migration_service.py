@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 CHUNK = 500
 # Ordem de cópia: respeita as FKs.
 TABLES = (
-    "workspaces", "domains", "tags", "labels", "items",
+    "workspaces", "projects", "tags", "labels", "items",
     "item_tags", "item_labels", "relations", "artifacts", "secret_values",
 )
 # Tabelas cujo registro é identificado pelo nome: se já existe no destino, reaproveita.
@@ -28,7 +28,7 @@ MERGE_FK = {"item_tags": ("tag_id", "tags"), "item_labels": ("label_id", "labels
 
 
 class MigrationService:
-    """Copia workspaces, domains, items, tags, labels, relations e artifacts entre bancos."""
+    """Copia workspaces, projects, items, tags, labels, relations e artifacts entre bancos."""
 
     def migrate_sqlite_to_postgresql(
         self,
@@ -39,7 +39,7 @@ class MigrationService:
     ) -> dict[str, Any]:
         """Migra os dados de um arquivo SQLite para um PostgreSQL.
 
-        Retorna {workspaces, domains, items, artifacts, relations, tags, labels,
+        Retorna {workspaces, projects, items, artifacts, relations, tags, labels,
         errors, warnings}. A migração é atômica: se algo falha, nada é gravado no
         destino e `errors` explica o motivo.
         """

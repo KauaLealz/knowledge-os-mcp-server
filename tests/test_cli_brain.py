@@ -42,7 +42,7 @@ def _save(env, project, entries):
         "from knowledge_os.services.repo_service import RepoService\n"
         f"link = RepoService().resolve({str(project)!r})\n"
         "ItemService().save(json.loads(sys.argv[1]), "
-        "default_location=(link['workspace_id'], link['domain_id']))\n"
+        "default_location=(link['workspace_id'], link['project_id']))\n"
     )
     subprocess.run([sys.executable, "-c", code, json.dumps(entries)], env=env, cwd=ROOT,
                    check=True, capture_output=True, timeout=120)
@@ -55,7 +55,7 @@ def test_version(env):
 
 def test_link_e_context_markdown(env, project):
     assert cli(env, "link", "--repo", str(project), "--workspace", "Polara",
-               "--domain", "app").returncode == 0
+               "--project", "app").returncode == 0
     _save(env, project, [{"key": "regra/x", "type": "rule", "memory_class": "longterm",
                           "title": "Regra X", "summary": "Sempre X", "content": "..."}])
     out = cli(env, "context", "--repo", str(project))
@@ -64,7 +64,7 @@ def test_link_e_context_markdown(env, project):
 
 
 def test_hook_claude_e_cursor(env, project):
-    cli(env, "link", "--repo", str(project), "--workspace", "W", "--domain", "D")
+    cli(env, "link", "--repo", str(project), "--workspace", "W", "--project", "D")
     claude = cli(env, "context", "--hook", "claude",
                  stdin=json.dumps({"cwd": str(project), "hook_event_name": "SessionStart"}))
     assert claude.stdout.isascii(), "acentos escapados: imune à codepage do Windows"
@@ -105,10 +105,10 @@ def _entry(key: str, title: str, **extra) -> str:
 
 
 def test_fila_offline_no_home_e_gravada_no_inicio_da_sessao(env, project, tmp_path):
-    cli(env, "link", "--repo", str(project), "--workspace", "W", "--domain", "D")
+    cli(env, "link", "--repo", str(project), "--workspace", "W", "--project", "D")
     other = tmp_path / "outro"
     (other / ".git").mkdir(parents=True)
-    cli(env, "link", "--repo", str(other), "--workspace", "W", "--domain", "Outro")
+    cli(env, "link", "--repo", str(other), "--workspace", "W", "--project", "Outro")
     queue = Path(env["KNOWLEDGE_OS_HOME"]) / "pending.jsonl"
     queue.write_text(_entry("gotcha/a", "Gravado depois") + "\n"
                      + _entry("gotcha/b", "Do outro projeto", repo=str(other)) + "\n",
@@ -121,7 +121,7 @@ def test_fila_offline_no_home_e_gravada_no_inicio_da_sessao(env, project, tmp_pa
 
 
 def test_fila_antiga_do_projeto_ainda_e_lida(env, project):
-    cli(env, "link", "--repo", str(project), "--workspace", "W", "--domain", "D")
+    cli(env, "link", "--repo", str(project), "--workspace", "W", "--project", "D")
     legacy = project / ".plumb" / "pending-brain.jsonl"
     legacy.parent.mkdir()
     legacy.write_text(_entry("gotcha/velha", "Fila antiga") + "\n", encoding="utf-8")
@@ -130,7 +130,7 @@ def test_fila_antiga_do_projeto_ainda_e_lida(env, project):
 
 
 def test_mudanca_em_andamento_aparece_e_concluida_some(env, project):
-    cli(env, "link", "--repo", str(project), "--workspace", "W", "--domain", "D")
+    cli(env, "link", "--repo", str(project), "--workspace", "W", "--project", "D")
     _save(env, project, [{"key": "mudanca/pay-142", "type": "task", "memory_class": "working",
                           "title": "PAY-142 — Pix no checkout",
                           "summary": "Construindo: falta recusar método inválido",
@@ -143,7 +143,7 @@ def test_mudanca_em_andamento_aparece_e_concluida_some(env, project):
 
 
 def test_recent_json(env, project):
-    cli(env, "link", "--repo", str(project), "--workspace", "W", "--domain", "D")
+    cli(env, "link", "--repo", str(project), "--workspace", "W", "--project", "D")
     _save(env, project, [{"key": "decisao/y", "type": "insight", "memory_class": "working",
                           "title": "Decisão Y", "summary": "porque sim", "content": "...",
                           "source": "PAY-1"}])
@@ -153,7 +153,7 @@ def test_recent_json(env, project):
 
 
 def test_dois_processos_esvaziando_a_mesma_fila_gravam_cada_key_uma_vez(env, project):
-    cli(env, "link", "--repo", str(project), "--workspace", "W", "--domain", "D")
+    cli(env, "link", "--repo", str(project), "--workspace", "W", "--project", "D")
     queue = Path(env["KNOWLEDGE_OS_HOME"]) / "pending.jsonl"
     queue.write_text("".join(_entry(f"gotcha/k{i}", f"Item {i}") + "\n" for i in range(50)),
                      encoding="utf-8")
@@ -187,7 +187,7 @@ def test_linha_acrescentada_durante_a_gravacao_nao_se_perde(env, project, monkey
     from knowledge_os.services.item_service import ItemService
 
     cli_env_home = Path(env["KNOWLEDGE_OS_HOME"])
-    cli.main(["link", "--repo", str(project), "--workspace", "W", "--domain", "D"])
+    cli.main(["link", "--repo", str(project), "--workspace", "W", "--project", "D"])
     queue = cli._pending_file()
     queue.write_text(_entry("gotcha/a", "A") + "\n", encoding="utf-8")
     real_save = ItemService.save
@@ -206,7 +206,7 @@ def test_linha_acrescentada_durante_a_gravacao_nao_se_perde(env, project, monkey
 def _link_inprocess(project):
     from knowledge_os import cli
 
-    cli.main(["link", "--repo", str(project), "--workspace", "W", "--domain", "D"])
+    cli.main(["link", "--repo", str(project), "--workspace", "W", "--project", "D"])
     return cli
 
 
@@ -278,7 +278,7 @@ def test_crash_depois_de_gravar_um_grupo_nao_reprocessa_o_grupo(env, project, tm
     cli = _link_inprocess(project)
     other = tmp_path / "outro"
     (other / ".git").mkdir(parents=True)
-    cli.main(["link", "--repo", str(other), "--workspace", "W", "--domain", "Outro"])
+    cli.main(["link", "--repo", str(other), "--workspace", "W", "--project", "Outro"])
     queue = cli._pending_file()
     queue.write_text(_entry("gotcha/a", "A") + "\n"
                      + _entry("gotcha/b", "B", repo=str(other)) + "\n", encoding="utf-8")
@@ -301,7 +301,7 @@ def test_crash_depois_de_gravar_um_grupo_nao_reprocessa_o_grupo(env, project, tm
 def test_backup_pela_cli_gera_arquivo_que_abre(env, project):
     import sqlite3
 
-    cli(env, "link", "--repo", str(project), "--workspace", "W", "--domain", "D")
+    cli(env, "link", "--repo", str(project), "--workspace", "W", "--project", "D")
     out = cli(env, "backup")
     assert out.returncode == 0, out.stderr
     files = list((Path(env["KNOWLEDGE_OS_HOME"]) / "backups").glob("knowledge-*.db"))
@@ -315,6 +315,6 @@ def test_backup_pela_cli_gera_arquivo_que_abre(env, project):
 
 def test_context_aceita_a_chave_remota_como_project(env, project):
     subprocess.run(["git", "-C", str(project), "init", "-q"], capture_output=True)
-    cli(env, "link", "--repo", "github.com/org/app", "--workspace", "Org", "--domain", "app")
+    cli(env, "link", "--repo", "github.com/org/app", "--workspace", "Org", "--project", "app")
     out = cli(env, "context", "--repo", "github.com/org/app")
     assert out.returncode == 0 and "Org / app" in out.stdout

@@ -5,7 +5,7 @@ VALUE = "npm_Zx81kQ2pL0aVb7Yt3Rw9Mn4C"
 
 def test_api_define_e_apaga_o_valor_sem_nunca_devolver(client, mk):
     ws = mk.ws()
-    dm = mk.domain(ws["id"])
+    dm = mk.project(ws["id"])
     it = mk.item(ws["id"], dm["id"], type="secret", title="Token")
     assert it["has_value"] is False
     r = client.put(f"/api/items/{it['id']}/secret", json={"value": VALUE})
@@ -21,7 +21,7 @@ def test_api_define_e_apaga_o_valor_sem_nunca_devolver(client, mk):
 
 def test_api_erro_de_validacao_nao_ecoa_o_valor(client, mk):
     ws = mk.ws()
-    dm = mk.domain(ws["id"])
+    dm = mk.project(ws["id"])
     it = mk.item(ws["id"], dm["id"], type="secret", title="Token")
     big = VALUE * 5000
     r = client.put(f"/api/items/{it['id']}/secret", json={"value": big})
@@ -35,7 +35,7 @@ def test_api_erro_de_validacao_nao_ecoa_o_valor(client, mk):
 
 def test_api_escrita_de_outra_origem_e_recusada(client, mk):
     ws = mk.ws()
-    dm = mk.domain(ws["id"])
+    dm = mk.project(ws["id"])
     it = mk.item(ws["id"], dm["id"], type="secret", title="Token")
     r = client.put(f"/api/items/{it['id']}/secret", json={"value": VALUE},
                    headers={"Origin": "http://evil.test"})

@@ -11,7 +11,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 import knowledge_os.config as config
-from knowledge_os.db.models import Connection, Domain, Item, Workspace
+from knowledge_os.db.models import Connection, Item, Project, Workspace
 from knowledge_os.db.session import get_engine, get_session
 from knowledge_os.exceptions import ValidationError
 
@@ -21,7 +21,7 @@ EXPORT_VERSION = "1.0"
 def purge_item_links(s: Session, item_ids: list[str]) -> None:
     """Apaga o que referencia os itens (tags, labels, relações, anexos) antes de removê-los.
 
-    Com foreign_keys=ON no SQLite, remover workspace ou domain com itens que têm tags, anexos
+    Com foreign_keys=ON no SQLite, remover workspace ou project com itens que têm tags, anexos
     ou relações falhava por chave estrangeira: o cascade do ORM só cobre a tabela items.
     """
     from sqlalchemy import delete
@@ -117,8 +117,8 @@ def workspace_to_dict(ws: Workspace) -> dict[str, Any]:
     }
 
 
-def domain_to_dict(dm: Domain) -> dict[str, Any]:
-    """Serializa um Domain."""
+def project_to_dict(dm: Project) -> dict[str, Any]:
+    """Serializa um Project."""
     return {
         "id": dm.id,
         "workspace_id": dm.workspace_id,
@@ -134,7 +134,7 @@ def item_to_dict(item: Item) -> dict[str, Any]:
     return {
         "id": item.id,
         "workspace_id": item.workspace_id,
-        "domain_id": item.domain_id,
+        "project_id": item.project_id,
         "type": item.type,
         "memory_class": item.memory_class,
         "title": item.title,

@@ -12,17 +12,17 @@ from fastmcp import FastMCP
 from sqlalchemy import func, select
 
 from knowledge_os.config import EXPORTS_DIR
-from knowledge_os.db.models import Domain, Item, Workspace
+from knowledge_os.db.models import Item, Project, Workspace
 from knowledge_os.db.session import connection_id_of, get_engine, get_session
 from knowledge_os.exceptions import NotFoundError, ValidationError
 from knowledge_os.schemas.artifact_schemas import ArtifactCreate, ArtifactResponse
-from knowledge_os.schemas.domain_schemas import DomainResponse
+from knowledge_os.schemas.project_schemas import ProjectResponse
 from knowledge_os.schemas.workspace_schemas import WorkspaceResponse
 from knowledge_os.services.artifact_service import ArtifactService
-from knowledge_os.services.domain_service import DomainService
 from knowledge_os.services.import_export_service import ImportExportService
 from knowledge_os.services.item_service import ItemService
 from knowledge_os.services.label_service import LabelService
+from knowledge_os.services.project_service import ProjectService
 from knowledge_os.services.relation_service import RelationService
 from knowledge_os.services.tag_service import TagService
 from knowledge_os.services.workspace_service import WorkspaceService
@@ -31,12 +31,12 @@ from knowledge_os.services.workspace_service import WorkspaceService
 def structure_list(
     workspace: str | None = None, connection_id: str | None = None
 ) -> list[dict[str, Any]]:
-    """Árvore workspaces → domains com a contagem de itens.
+    """Árvore workspaces → projects com a contagem de itens.
 
     **Use quando:** Ver o que existe antes de organizar, ligar um projeto ou fazer backup.
-    **Retorna:** [{workspace, description, items, domains: [{name, items}]}].
+    **Retorna:** [{workspace, description, items, projects: [{name, items}]}].
     **Exemplo:** structure_list() · structure_list(workspace="agenda-api")
-    **Notas:** Criar workspace/domain é implícito em item_save e repo_link.
+    **Notas:** Criar workspace/project é implícito em item_save e repo_link.
     """
     engine = get_engine(connection_id) if connection_id else get_engine()
     cid = connection_id or connection_id_of(engine) or "default"
@@ -47,15 +47,15 @@ def structure_list(
             query = query.where((Workspace.name == workspace) | (Workspace.id == workspace))
         workspaces = list(session.scalars(query))
         counts = dict(
-            session.execute(select(Item.domain_id, func.count()).group_by(Item.domain_id)).all()
+            session.execute(select(Item.project_id, func.count()).group_by(Item.project_id)).all()
         )
         out = []
         for ws in workspaces:
-            domains = list(session.scalars(
-                select(Domain).where(Domain.workspace_id == ws.id).order_by(Domain.name)))
-            rows = [{"name": d.name, "items": counts.get(d.id, 0)} for d in domains]
+            projects = list(session.scalars(
+                select(Project).where(Project.workspace_id == ws.id).order_by(Project.name)))
+            rows = [{"name": d.name, "items": counts.get(d.id, 0)} for d in projects]
             out.append({"workspace": ws.name, "description": ws.description,
-                        "items": sum(r["items"] for r in rows), "domains": rows})
+                        "items": sum(r["items"] for r in rows), "projects": rows})
     finally:
         session.close()
     if workspace and not out:
@@ -65,11 +65,11 @@ def structure_list(
 
 def structure_delete(
     workspace: str,
-    domain: str | None = None,
+    project: str | None = None,
     confirm: bool = False,
     connection_id: str | None = None,
 ) -> dict[str, Any]:
-    """Remove um domain (ou o workspace inteiro) com todos os itens. Destrutivo.
+    """Remove um project (ou o workspace inteiro) com todos os itens. Destrutivo.
 
     **Use quando:** O usuário pediu explicitamente para apagar.
     **Retorna:** Sem confirm: {status: preview, would_delete}. Com confirm: {status: deleted}.
@@ -78,19 +78,19 @@ def structure_delete(
         antes, e status=deprecated (item_save) quando o histórico importar.
     """
     preview = structure_list(workspace, connection_id)[0]
-    if domain:
-        match = [d for d in preview["domains"] if d["name"] == domain]
+    if project:
+        match = [d for d in preview["projects"] if d["name"] == project]
         if not match:
-            raise NotFoundError(f"Domain não encontrado: {domain}")
-        would = {"domain": domain, "items": match[0]["items"]}
+            raise NotFoundError(f"Project não encontrado: {project}")
+        would = {"project": project, "items": match[0]["items"]}
     else:
-        would = {"workspace": workspace, "domains": len(preview["domains"]),
+        would = {"workspace": workspace, "projects": len(preview["projects"]),
                  "items": preview["items"]}
     if not confirm:
         return {"status": "preview", "would_delete": would}
-    if domain:
+    if project:
         ws_id = WorkspaceService(connection_id=connection_id).get(workspace).id
-        DomainService(connection_id=connection_id).delete(ws_id, domain)
+        ProjectService(connection_id=connection_id).delete(ws_id, project)
     else:
         WorkspaceService(connection_id=connection_id).delete(workspace)
     return {"status": "deleted", **would}
@@ -156,21 +156,21 @@ def vocabulary(
 
 
 def backup_export(
-    workspace: str, domain: str | None = None, connection_id: str | None = None
+    workspace: str, project: str | None = None, connection_id: str | None = None
 ) -> dict[str, Any]:
-    """Exporta um workspace (ou só um domain) para um ZIP em <home>/exports.
+    """Exporta um workspace (ou só um project) para um ZIP em <home>/exports.
 
     **Use quando:** Antes de mudanças grandes ou para levar conhecimento a outra máquina.
     **Retorna:** {status: ok, file_path, size_mb}.
     **Exemplo:** backup_export(workspace="agenda-api") · backup_export(workspace="agenda-api",
-        domain="projpro")
+        project="projpro")
     **Notas:** backup_import restaura (o workspace importado ganha ids novos).
     """
     ws_id = WorkspaceService(connection_id=connection_id).get(workspace).id
     svc = ImportExportService(connection_id=connection_id)
-    if domain:
-        dm_id = DomainService(connection_id=connection_id).get(ws_id, domain).id
-        data, prefix = svc.export_domain(ws_id, dm_id), f"domain_{dm_id}"
+    if project:
+        pj_id = ProjectService(connection_id=connection_id).get(ws_id, project).id
+        data, prefix = svc.export_project(ws_id, pj_id), f"project_{pj_id}"
     else:
         data, prefix = svc.export_workspace(ws_id), f"workspace_{ws_id}"
     EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -182,18 +182,18 @@ def backup_export(
 def backup_import(
     file_path: str, workspace: str | None = None, connection_id: str | None = None
 ) -> dict[str, Any]:
-    """Importa um ZIP de backup_export: workspace inteiro, ou um domain dentro de `workspace`.
+    """Importa um ZIP de backup_export: workspace inteiro, ou um project dentro de `workspace`.
 
     **Use quando:** Restaurar um backup ou trazer conhecimento de outra máquina.
-    **Retorna:** {status: ok, ...workspace ou domain criado}.
+    **Retorna:** {status: ok, ...workspace ou project criado}.
     **Exemplo:** backup_import(file_path="C:/x/workspace_....zip")
     **Notas:** Use só caminhos que o usuário indicou. Nome de workspace já existente é recusado.
     """
     svc = ImportExportService(connection_id=connection_id)
     if workspace:
         ws_id = WorkspaceService(connection_id=connection_id).get(workspace).id
-        dm = svc.import_domain(ws_id, file_path)
-        return {"status": "ok", **DomainResponse.model_validate(dm).model_dump(mode="json")}
+        dm = svc.import_project(ws_id, file_path)
+        return {"status": "ok", **ProjectResponse.model_validate(dm).model_dump(mode="json")}
     ws = svc.import_workspace(file_path)
     return {"status": "ok", **WorkspaceResponse.model_validate(ws).model_dump(mode="json")}
 

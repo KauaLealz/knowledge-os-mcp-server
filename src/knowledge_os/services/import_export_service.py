@@ -1,7 +1,7 @@
-"""Import/Export service: pacotes ZIP de workspace e domain.
+"""Import/Export service: pacotes ZIP de workspace e project.
 
 Layout do ZIP de workspace: manifest.json, workspace.json, relations.json e
-artifacts/<id-original>. O de domain troca workspace.json por domain.json. Na importação
+artifacts/<id-original>. O de project troca workspace.json por project.json. Na importação
 todos os ids são regenerados; o vínculo entre registros é preservado por um mapa
 id-antigo -> id-novo.
 """
@@ -24,9 +24,9 @@ from knowledge_os import config
 from knowledge_os.config import ARTIFACTS_DIR
 from knowledge_os.db.models import (
     Artifact,
-    Domain,
     Item,
     Label,
+    Project,
     Relation,
     Tag,
     Workspace,
@@ -36,8 +36,8 @@ from knowledge_os.exceptions import NotFoundError, ValidationError
 from knowledge_os.schemas.item_schemas import ItemCreate
 from knowledge_os.services._common import (
     EXPORT_VERSION,
-    domain_to_dict,
     item_to_dict,
+    project_to_dict,
     refuse_home_source,
     session_scope,
     utc_now_iso,
@@ -56,7 +56,7 @@ def _parse_dt(value: Any) -> datetime | None:
 
 
 class ImportExportService:
-    """Exporta/importa workspaces e domains como arquivos ZIP.
+    """Exporta/importa workspaces e projects como arquivos ZIP.
 
     Se `session` não for informada, cada operação abre uma sessão própria via
     get_session(get_engine()). As importações são atômicas: em caso de erro nada é
@@ -82,18 +82,18 @@ class ImportExportService:
             if ws is None:
                 logger.error("Export de workspace inexistente: %s", workspace_id)
                 raise NotFoundError(f"Workspace não encontrado: {workspace_id}")
-            domains = sorted(ws.domains, key=lambda d: d.name)
+            projects = sorted(ws.projects, key=lambda d: d.name)
             items = sorted(ws.items, key=lambda i: (i.created_at or datetime.min, i.id))
             relations, artifacts, files = self._collect(s, items)
             counts = {
-                "domains": len(domains),
+                "projects": len(projects),
                 "items": len(items),
                 "relations": len(relations),
                 "artifacts": len(artifacts),
             }
             payload = {
                 "workspace": workspace_to_dict(ws),
-                "domains": [domain_to_dict(d) for d in domains],
+                "projects": [project_to_dict(d) for d in projects],
                 "items": [item_to_dict(i) for i in items],
                 "relations": relations,
                 "artifacts": artifacts,
@@ -101,13 +101,13 @@ class ImportExportService:
             logger.info("Workspace exportado: %s", ws.name)
             return self._pack("workspace", ws.name, "workspace.json", payload, files, counts)
 
-    def export_domain(self, workspace_id: str, domain_id: str) -> bytes:
-        """Gera o ZIP (bytes) de um domain e seus items. NotFoundError se não existe."""
+    def export_project(self, workspace_id: str, project_id: str) -> bytes:
+        """Gera o ZIP (bytes) de um project e seus items. NotFoundError se não existe."""
         with session_scope(self._session, self._connection_id) as s:
-            dm = s.get(Domain, domain_id)
+            dm = s.get(Project, project_id)
             if dm is None or dm.workspace_id != workspace_id:
-                logger.error("Export de domain inexistente: %s", domain_id)
-                raise NotFoundError(f"Domain não encontrado: {domain_id}")
+                logger.error("Export de project inexistente: %s", project_id)
+                raise NotFoundError(f"Project não encontrado: {project_id}")
             items = sorted(dm.items, key=lambda i: (i.created_at or datetime.min, i.id))
             relations, artifacts, files = self._collect(s, items)
             counts = {
@@ -116,13 +116,13 @@ class ImportExportService:
                 "artifacts": len(artifacts),
             }
             payload = {
-                "domain": domain_to_dict(dm),
+                "project": project_to_dict(dm),
                 "items": [item_to_dict(i) for i in items],
                 "relations": relations,
                 "artifacts": artifacts,
             }
-            logger.info("Domain exportado: %s", dm.name)
-            return self._pack("domain", dm.name, "domain.json", payload, files, counts)
+            logger.info("Project exportado: %s", dm.name)
+            return self._pack("project", dm.name, "project.json", payload, files, counts)
 
     def _collect(
         self, s: Session, items: list[Item]
@@ -221,11 +221,11 @@ class ImportExportService:
                     )
                     s.add(ws)
                     s.flush()
-                    domain_ids: dict[str, str] = {}
-                    for d in payload["domains"]:
-                        domain_ids[d["id"]] = self._add_domain(s, ws.id, d)
+                    project_ids: dict[str, str] = {}
+                    for d in payload["projects"]:
+                        project_ids[d["id"]] = self._add_project(s, ws.id, d)
                     s.flush()
-                    self._restore_items(s, z, ws.id, domain_ids, payload, written, None)
+                    self._restore_items(s, z, ws.id, project_ids, payload, written, None)
                     s.commit()
                 except Exception as exc:
                     self._abort(s, written, exc)
@@ -233,28 +233,28 @@ class ImportExportService:
                 logger.info("Workspace importado: %s (%s)", ws.name, ws.id)
                 return ws
 
-    def import_domain(self, workspace_id: str, zip_path: str) -> Domain:
-        """Cria um domain novo (ids novos) no workspace a partir do ZIP.
+    def import_project(self, workspace_id: str, zip_path: str) -> Project:
+        """Cria um project novo (ids novos) no workspace a partir do ZIP.
 
         NotFoundError se workspace ou arquivo não existem; ValidationError se o ZIP é
-        inválido/malformado ou o domain já existe no workspace.
+        inválido/malformado ou o project já existe no workspace.
         """
-        with self._open(zip_path, "domain") as z:
-            payload = self._read_json(z, "domain.json")
+        with self._open(zip_path, "project") as z:
+            payload = self._read_json(z, "project.json")
             written: list[Path] = []
             with session_scope(self._session, self._connection_id) as s:
                 try:
                     if s.get(Workspace, workspace_id) is None:
                         raise NotFoundError(f"Workspace não encontrado: {workspace_id}")
-                    dd = payload["domain"]
+                    dd = payload["project"]
                     exists = s.scalar(
-                        select(Domain.id).where(
-                            Domain.workspace_id == workspace_id, Domain.name == dd["name"]
+                        select(Project.id).where(
+                            Project.workspace_id == workspace_id, Project.name == dd["name"]
                         )
                     )
                     if exists:
-                        raise ValidationError(f"Domain já existe: {dd['name']}")
-                    new_id = self._add_domain(s, workspace_id, dd)
+                        raise ValidationError(f"Project já existe: {dd['name']}")
+                    new_id = self._add_project(s, workspace_id, dd)
                     s.flush()
                     self._restore_items(
                         s, z, workspace_id, {dd["id"]: new_id}, payload, written, new_id
@@ -262,10 +262,10 @@ class ImportExportService:
                     s.commit()
                 except Exception as exc:
                     self._abort(s, written, exc)
-                dm = s.get(Domain, new_id)
+                dm = s.get(Project, new_id)
                 assert dm is not None
                 s.refresh(dm)
-                logger.info("Domain importado: %s (%s)", dm.name, dm.id)
+                logger.info("Project importado: %s (%s)", dm.name, dm.id)
                 return dm
 
     @staticmethod
@@ -282,10 +282,10 @@ class ImportExportService:
         raise exc
 
     @staticmethod
-    def _add_domain(s: Session, workspace_id: str, d: dict[str, Any]) -> str:
+    def _add_project(s: Session, workspace_id: str, d: dict[str, Any]) -> str:
         new_id = str(uuid.uuid4())
         s.add(
-            Domain(
+            Project(
                 id=new_id,
                 workspace_id=workspace_id,
                 name=d["name"],
@@ -301,10 +301,10 @@ class ImportExportService:
         s: Session,
         z: zipfile.ZipFile,
         workspace_id: str,
-        domain_ids: dict[str, str],
+        project_ids: dict[str, str],
         payload: dict[str, Any],
         written: list[Path],
-        default_domain: str | None,
+        default_project: str | None,
     ) -> None:
         """Recria items (com tags/labels), relações e artifacts com ids novos."""
         item_ids: dict[str, str] = {}
@@ -322,12 +322,14 @@ class ImportExportService:
             return cache[key]
 
         for it in payload["items"]:
-            domain_id = domain_ids.get(it.get("domain_id"), default_domain)
-            if domain_id is None:
-                raise ValidationError(f"Item referencia domain desconhecido: {it.get('domain_id')}")
+            project_id = project_ids.get(it.get("project_id"), default_project)
+            if project_id is None:
+                raise ValidationError(
+                    f"Item referencia project desconhecido: {it.get('project_id')}"
+                )
             try:
                 ItemCreate(
-                    workspace_id=workspace_id, domain_id=domain_id,
+                    workspace_id=workspace_id, project_id=project_id,
                     **{
                         k: it[k]
                         for k in ("type", "memory_class", "title", "summary", "content")
@@ -342,7 +344,7 @@ class ImportExportService:
             item = Item(
                 id=new_id,
                 workspace_id=workspace_id,
-                domain_id=domain_id,
+                project_id=project_id,
                 type=it["type"],
                 memory_class=it["memory_class"],
                 title=it["title"],

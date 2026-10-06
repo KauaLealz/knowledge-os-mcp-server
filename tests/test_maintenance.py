@@ -32,7 +32,7 @@ def db(tmp_path, monkeypatch):
 
 def _item(s, ws, dm, key, memory_class="longterm", expires_at=None, *, type="knowledge",
           updated_at=None, access_count=0):
-    item = Item(id=str(uuid.uuid4()), workspace_id=ws, domain_id=dm, key=key, type=type,
+    item = Item(id=str(uuid.uuid4()), workspace_id=ws, project_id=dm, key=key, type=type,
                 memory_class=memory_class, title=key, summary="s", content="c",
                 expires_at=expires_at, access_count=access_count)
     if updated_at:
@@ -42,7 +42,7 @@ def _item(s, ws, dm, key, memory_class="longterm", expires_at=None, *, type="kno
 
 
 def _seed(engine):
-    from knowledge_os.db.models import Domain, Workspace
+    from knowledge_os.db.models import Project, Workspace
     from knowledge_os.db.session import ensure_connection_row
 
     ensure_connection_row(engine)
@@ -50,7 +50,7 @@ def _seed(engine):
     ws, dm = Workspace(id="w", name="W", connection_id="default"), None
     s.add(ws)
     s.flush()
-    dm = Domain(id="d", workspace_id="w", name="D")
+    dm = Project(id="d", workspace_id="w", name="D")
     s.add(dm)
     s.commit()
     s.close()
@@ -116,8 +116,8 @@ def test_run_daily_apaga_ephemeral_com_ttl_vencido(db, monkeypatch):
 
 def test_schema_sync_com_mudanca_cria_backup_pre_schema(db):
     with db.begin() as conn:
-        conn.execute(text("ALTER TABLE domains DROP COLUMN description"))
-    assert schema_sync(db)["columns_added"] == ["domains.description"]
+        conn.execute(text("ALTER TABLE projects DROP COLUMN description"))
+    assert schema_sync(db)["columns_added"] == ["projects.description"]
     assert len(list(config.BACKUPS_DIR.glob("*-pre-schema.db"))) == 1
     schema_sync(db)  # sem mudança: sem novo backup
     assert len(list(config.BACKUPS_DIR.glob("*-pre-schema.db"))) == 1
@@ -126,13 +126,13 @@ def test_schema_sync_com_mudanca_cria_backup_pre_schema(db):
 def test_add_column_tolera_coluna_que_outro_processo_criou(db):
     table = Item.__table__
     with db.begin() as conn:
-        conn.execute(text("ALTER TABLE domains DROP COLUMN description"))
-    from knowledge_os.db.models import Domain
+        conn.execute(text("ALTER TABLE projects DROP COLUMN description"))
+    from knowledge_os.db.models import Project
 
-    col = Domain.__table__.c.description
-    _add_column(db, Domain.__table__, col)
-    _add_column(db, Domain.__table__, col)  # "duplicate column": é sucesso
-    assert "description" in {c["name"] for c in inspect(db).get_columns("domains")}
+    col = Project.__table__.c.description
+    _add_column(db, Project.__table__, col)
+    _add_column(db, Project.__table__, col)  # "duplicate column": é sucesso
+    assert "description" in {c["name"] for c in inspect(db).get_columns("projects")}
     assert table is not None
 
 

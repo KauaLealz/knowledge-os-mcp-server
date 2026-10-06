@@ -12,13 +12,13 @@ from knowledge_os.api.deps import get_artifacts_dir, get_connection_id, get_sess
 from knowledge_os.api.routes._helpers import get_or_404
 from knowledge_os.api.schemas.requests import WorkspaceCreate, WorkspaceUpdate
 from knowledge_os.api.schemas.responses import (
-    TreeDomain,
     TreeItem,
+    TreeProject,
     WorkspaceResponse,
     WorkspaceStats,
     WorkspaceTree,
 )
-from knowledge_os.db.models import Domain, Item, Workspace
+from knowledge_os.db.models import Item, Project, Workspace
 from knowledge_os.exceptions import ValidationError
 from knowledge_os.services.import_export_service import ImportExportService
 from knowledge_os.services.workspace_service import WorkspaceService
@@ -102,44 +102,44 @@ def delete_workspace(
 @router.get("/workspaces/{id}/stats", response_model=WorkspaceStats)
 def workspace_stats(id: str, session: Session = Depends(get_session_dep)):
     get_or_404(session, Workspace, id, "Workspace")
-    domains = session.scalar(
-        select(func.count()).select_from(Domain).where(Domain.workspace_id == id)
+    projects = session.scalar(
+        select(func.count()).select_from(Project).where(Project.workspace_id == id)
     )
     items = session.scalar(select(func.count()).select_from(Item).where(Item.workspace_id == id))
-    return WorkspaceStats(domains=domains or 0, items=items or 0)
+    return WorkspaceStats(projects=projects or 0, items=items or 0)
 
 
 @router.get("/workspaces/{id}/tree", response_model=WorkspaceTree)
 def workspace_tree(id: str, session: Session = Depends(get_session_dep)):
-    """Domains (por nome) com seus items (por título), em duas queries."""
+    """Projects (por nome) com seus items (por título), em duas queries."""
     get_or_404(session, Workspace, id, "Workspace")
-    domains = session.scalars(
-        select(Domain).where(Domain.workspace_id == id).order_by(Domain.name)
+    projects = session.scalars(
+        select(Project).where(Project.workspace_id == id).order_by(Project.name)
     ).all()
     rows = session.execute(
         select(
-            Item.id, Item.domain_id, Item.title, Item.type, Item.memory_class,
+            Item.id, Item.project_id, Item.title, Item.type, Item.memory_class,
             Item.confidence, Item.updated_at,
         )
         .where(Item.workspace_id == id)
         .order_by(Item.title, Item.id)
     ).all()
-    by_domain: dict[str, list[TreeItem]] = {d.id: [] for d in domains}
+    by_project: dict[str, list[TreeItem]] = {d.id: [] for d in projects}
     for row in rows:
-        if row.domain_id in by_domain:
-            by_domain[row.domain_id].append(
+        if row.project_id in by_project:
+            by_project[row.project_id].append(
                 TreeItem(
                     id=row.id, title=row.title, type=row.type, memory_class=row.memory_class,
                     confidence=row.confidence, updated_at=row.updated_at,
                 )
             )
     return WorkspaceTree(
-        domains=[
-            TreeDomain(
+        projects=[
+            TreeProject(
                 id=d.id, name=d.name, description=d.description,
-                item_count=len(by_domain[d.id]), items=by_domain[d.id],
+                item_count=len(by_project[d.id]), items=by_project[d.id],
             )
-            for d in domains
+            for d in projects
         ]
     )
 

@@ -33,11 +33,11 @@ def context_get(
 
     **Use quando:** Começar num projeto (se o hook não injetou) ou ao passar a mexer em outra
         área: `paths` traz as regras com escopo daqueles arquivos; `query`, itens relacionados.
-    **Retorna:** {linked, repo_key, workspace, domain, markdown, included, omitted, sensitive}.
+    **Retorna:** {linked, repo_key, workspace, project, markdown, included, omitted, sensitive}.
     **Exemplo:** context_get(repo=".", paths=["src/payments/Charge.java"], query="estorno")
     **Notas:** Dentro de `budget_tokens`. Itens que casam com `paths` ou `query` vêm em foco, com o
         começo do content (dispensa item_get); o resto, só título, resumo e key. `sensitive` é true
-        se `paths` toca uma área marcada com a keyword "sensivel". Inclui o domain do projeto,
+        se `paths` toca uma área marcada com a keyword "sensivel". Inclui o project do projeto,
         `Geral` do workspace e `Global/Geral`. Sem substituídos, obsoletos nem ephemeral.
     """
     return ContextService(connection_id=connection_id).build(repo, paths, query, budget_tokens)
@@ -47,7 +47,7 @@ def item_search(
     query: str = "",
     repo: str | None = None,
     workspace: str | None = None,
-    domain: str | None = None,
+    project: str | None = None,
     types: list[str] | None = None,
     memory_classes: list[str] | None = None,
     limit: int = 10,
@@ -58,30 +58,30 @@ def item_search(
     """Busca por texto. Devolve resumos, nunca o conteúdo completo.
 
     **Use quando:** Procurar algo que pode já estar guardado (decisão, gotcha, procedimento).
-    **Retorna:** [{id, key, type, memory_class, domain, title, summary, score, uses}].
+    **Retorna:** [{id, key, type, memory_class, project, title, summary, score, uses}].
     **Exemplo:** item_search(query="migração flyway", limit=5)
     **Notas:** Sem repo/workspace, busca no projeto da pasta atual (se ligado) — não vaza para
         outros projetos; `everywhere=True` busca em todos. Relevância primeiro; acentos e plurais
         não atrapalham. include_inactive traz substituídos, obsoletos e ephemeral vencidos.
     """
     svc = ItemService(connection_id=connection_id)
-    workspace_id = domain_id = None
+    workspace_id = project_id = None
     if not repo and not workspace and not everywhere:
         repo = "." if RepoService(connection_id=connection_id).resolve(".") else None
     if repo:
         workspace_id = RepoService(connection_id=connection_id).require(repo)["workspace_id"]
     elif workspace:
         workspace_id = svc.resolve_workspace_id(workspace)
-    if domain:
+    if project:
         if workspace_id is None:
-            raise ValidationError("domain exige repo ou workspace")
-        domain_id = svc.resolve_domain_id(workspace_id, domain)
+            raise ValidationError("project exige repo ou workspace")
+        project_id = svc.resolve_project_id(workspace_id, project)
     req = ItemSearchRequest(
-        workspace_id=workspace_id, domain_id=domain_id, query=query, types=types,
+        workspace_id=workspace_id, project_id=project_id, query=query, types=types,
         memory_classes=memory_classes, limit=limit,
     )
     rows = svc.search(
-        req.workspace_id, req.domain_id, req.query, req.types, req.memory_classes, req.limit,
+        req.workspace_id, req.project_id, req.query, req.types, req.memory_classes, req.limit,
         include_inactive=include_inactive,
     )
     return [ItemSearchResult(**r).model_dump() for r in rows]
@@ -92,7 +92,7 @@ def item_get(
     keys: list[str] | None = None,
     repo: str | None = None,
     workspace: str | None = None,
-    domain: str | None = None,
+    project: str | None = None,
     connection_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Lê itens completos (content, tags, relações, anexos) por id e/ou key, vários de uma vez.
@@ -101,7 +101,7 @@ def item_get(
     **Retorna:** Lista de itens completos, na ordem pedida; o que não existe vem como
         {key|id, missing: true}, sem derrubar os outros.
     **Exemplo:** item_get(keys=["regra/money", "proc/deploy"], repo=".")
-    **Notas:** keys exigem repo (o domain ligado) ou workspace e domain. Até 20 por chamada.
+    **Notas:** keys exigem repo (o project ligado) ou workspace e project. Até 20 por chamada.
     """
     ids, keys = ids or [], keys or []
     if not ids and not keys:
@@ -119,12 +119,12 @@ def item_get(
     items = [fetch(lambda i=i: svc.get(i), {"id": i}) for i in ids]
     if keys:
         if repo:
-            domain_id = RepoService(connection_id=connection_id).require(repo)["domain_id"]
-        elif workspace and domain:
-            domain_id = svc.resolve_domain_id(svc.resolve_workspace_id(workspace), domain)
+            project_id = RepoService(connection_id=connection_id).require(repo)["project_id"]
+        elif workspace and project:
+            project_id = svc.resolve_project_id(svc.resolve_workspace_id(workspace), project)
         else:
-            raise ValidationError("keys exigem repo ou workspace e domain")
-        items += [fetch(lambda k=k: svc.get_by_key(domain_id, k), {"key": k}) for k in keys]
+            raise ValidationError("keys exigem repo ou workspace e project")
+        items += [fetch(lambda k=k: svc.get_by_key(project_id, k), {"key": k}) for k in keys]
     svc.track_use([i.id for i in items if not isinstance(i, dict)])
     out: list[dict[str, Any]] = []
     relations = RelationService(connection_id=connection_id)
@@ -153,7 +153,7 @@ def item_save(
     **Use quando:** Guardar o que vale para depois — uma regra que o usuário enunciou, as
         decisões e aprendizados ao fechar uma mudança, uma correção de um item.
     **Retorna:** [{index, id, key, action: created|updated|unchanged, similar?, relations?}].
-    **Modo, por entrada:** com `key` → upsert no domain (não duplica; o preferido); com `id` →
+    **Modo, por entrada:** com `key` → upsert no project (não duplica; o preferido); com `id` →
         atualiza o item; sem os dois → cria e devolve `similar` (títulos parecidos já guardados).
     **Exemplo (upsert):** item_save(repo=".", items=[{"key": "regra/money", "type": "rule",
         "title": "Money em pagamentos", "summary": "Valores em Money, nunca double",
@@ -167,7 +167,7 @@ def item_save(
         superseded, deprecated), memory_class "ephemeral" + ttl_days só para nota temporária
         (sem aprovação: o resto já vale), tags, labels, relations
         [{type: related_to|depends_on|implements|references|supersedes|derived_from, target: id
-        ou key}], workspace/domain (sem eles vale o domain ligado a `repo`).
+        ou key}], workspace/project (sem eles vale o project ligado a `repo`).
     **Segredo:** {"key": "segredo/npm-token", "type": "secret", "title": "Token do npm",
         "summary": "publicar no npm"} — sem valor (é recusado); a resposta traz `fill_url`:
         passe ao usuário para ele preencher na UI local. Usar: `knowledge-mcp run --env
@@ -177,29 +177,29 @@ def item_save(
     default = None
     if repo:
         link = RepoService(connection_id=connection_id).require(repo)
-        default = (link["workspace_id"], link["domain_id"])
+        default = (link["workspace_id"], link["project_id"])
     results = ItemService(connection_id=connection_id).save(items, default_location=default)
     secrets = SecretService(connection_id=connection_id).describe([r["id"] for r in results])
     return [{**r, **secrets.get(r["id"], {})} for r in results]
 
 
 def repo_link(
-    repo: str, workspace: str | None = None, domain: str | None = None,
+    repo: str, workspace: str | None = None, project: str | None = None,
     connection_id: str | None = None,
 ) -> dict[str, str]:
-    """Liga um repositório a um workspace/domain do segundo cérebro.
+    """Liga um repositório a um workspace/project do segundo cérebro.
 
     **Use quando:** Configurar um projeto pela primeira vez (o /plumb-setup faz isso).
-    **Retorna:** {repo_key, workspace, domain}.
-    **Exemplo:** repo_link(repo=".")  → domain = repo; workspace = o de outro repo do
+    **Retorna:** {repo_key, workspace, project}.
+    **Exemplo:** repo_link(repo=".")  → project = repo; workspace = o de outro repo do
         mesmo dono já ligado (no primeiro, o nome do dono; sem remote, `Pessoal`).
     **Organização:** workspace = contexto (empresa, cliente, Pessoal); `Geral` do workspace = o
         que vale para os repos dele; `Global` = o que vale em qualquer lugar.
     **Notas:** repo aceita caminho (qualquer pasta do repo), URL do remote ou chave; a chave é
-        o remote do git normalizado (ou o caminho, sem remote). Workspace e domain são criados se
+        o remote do git normalizado (ou o caminho, sem remote). Workspace e project são criados se
         não existirem. Religar move o projeto.
     """
-    return RepoService(connection_id=connection_id).link(repo, workspace, domain)
+    return RepoService(connection_id=connection_id).link(repo, workspace, project)
 
 
 def register(mcp: FastMCP) -> None:

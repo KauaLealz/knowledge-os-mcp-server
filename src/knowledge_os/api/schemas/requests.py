@@ -4,10 +4,10 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from knowledge_os.schemas.domain_schemas import DomainCreate
 from knowledge_os.schemas.item_schemas import ItemCreate, ItemUpdate
 from knowledge_os.schemas.label_schemas import LabelCreate
 from knowledge_os.schemas.memory_schemas import MemoryClass
+from knowledge_os.schemas.project_schemas import ProjectCreate
 from knowledge_os.schemas.relation_schemas import RelationCreate
 from knowledge_os.schemas.tag_schemas import TagCreate
 from knowledge_os.schemas.workspace_schemas import WorkspaceCreate
@@ -16,8 +16,6 @@ __all__ = [
     "ConfidenceUpdate",
     "ConnectionCreate",
     "ConnectionUpdate",
-    "DomainCreate",
-    "DomainUpdate",
     "ImportanceUpdate",
     "ItemCreate",
     "ItemLabelAdd",
@@ -25,6 +23,8 @@ __all__ = [
     "ItemUpdate",
     "LabelCreate",
     "MemoryClassUpdate",
+    "ProjectCreate",
+    "ProjectUpdate",
     "RelationCreate",
     "TagCreate",
     "WorkspaceCreate",
@@ -39,8 +39,8 @@ class WorkspaceUpdate(BaseModel):
     description: str | None = None
 
 
-class DomainUpdate(WorkspaceUpdate):
-    """PUT /domains/{id}."""
+class ProjectUpdate(WorkspaceUpdate):
+    """PUT /projects/{id}."""
 
 
 class ConfidenceUpdate(BaseModel):

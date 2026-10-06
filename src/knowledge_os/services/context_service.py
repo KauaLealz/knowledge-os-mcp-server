@@ -12,7 +12,7 @@ from typing import Any
 
 from sqlalchemy import Engine, func, or_, select, update
 
-from knowledge_os.db.models import Domain, Item, Workspace
+from knowledge_os.db.models import Item, Project, Workspace
 from knowledge_os.db.search_query import strip_accents
 from knowledge_os.db.session import get_engine, get_session, run_with_retry
 from knowledge_os.db.timeutil import utcnow
@@ -24,7 +24,7 @@ from knowledge_os.services.secret_service import fill_url
 logger = logging.getLogger(__name__)
 
 GLOBAL_WORKSPACE = "Global"  # preferências e regras pessoais que valem em todo projeto
-COMMON_DOMAIN = "Geral"  # dentro de um workspace: o que vale para todos os seus projetos
+COMMON_PROJECT = "Geral"  # dentro de um workspace: o que vale para todos os seus projetos
 CHARS_PER_TOKEN = 4
 RETRO_KEY = "retro/ultima"  # registro da última /plumb-retro do projeto
 RETRO_EVERY = 5  # mudanças concluídas que justificam sugerir uma retro
@@ -88,34 +88,34 @@ class ContextService:
     def _get_engine(self) -> Engine:
         return self._engine if self._engine is not None else get_engine(self._connection_id)
 
-    def domain_chain(self, link: dict[str, str]) -> list[str]:
-        """Domain do projeto + `Geral` do workspace + `Global/Geral`, quando existirem."""
+    def project_chain(self, link: dict[str, str]) -> list[str]:
+        """Project do projeto + `Geral` do workspace + `Global/Geral`, quando existirem."""
         session = get_session(self._get_engine())
         try:
             rows = session.execute(
-                select(Domain.id)
-                .join(Workspace, Workspace.id == Domain.workspace_id)
+                select(Project.id)
+                .join(Workspace, Workspace.id == Project.workspace_id)
                 .where(
                     or_(
-                        Domain.id == link["domain_id"],
-                        (Domain.workspace_id == link["workspace_id"])
-                        & (Domain.name == COMMON_DOMAIN),
-                        (Workspace.name == GLOBAL_WORKSPACE) & (Domain.name == COMMON_DOMAIN),
+                        Project.id == link["project_id"],
+                        (Project.workspace_id == link["workspace_id"])
+                        & (Project.name == COMMON_PROJECT),
+                        (Workspace.name == GLOBAL_WORKSPACE) & (Project.name == COMMON_PROJECT),
                     )
                 )
             ).scalars().all()
         finally:
             session.close()
-        return list(dict.fromkeys([link["domain_id"], *rows]))
+        return list(dict.fromkeys([link["project_id"], *rows]))
 
-    def _items(self, domain_ids: list[str]) -> list[Item]:
+    def _items(self, project_ids: list[str]) -> list[Item]:
         now = utcnow()
         session = get_session(self._get_engine())
         try:
             return list(
                 session.scalars(
                     select(Item).where(
-                        Item.domain_id.in_(domain_ids),
+                        Item.project_id.in_(project_ids),
                         Item.status == "active",
                         Item.memory_class != "ephemeral",
                         (Item.expires_at.is_(None)) | (Item.expires_at > now),
@@ -125,14 +125,14 @@ class ContextService:
         finally:
             session.close()
 
-    def _done_since_retro(self, domain_id: str) -> int:
-        """Mudanças (task) concluídas depois do último registro `retro/ultima` do domain."""
+    def _done_since_retro(self, project_id: str) -> int:
+        """Mudanças (task) concluídas depois do último registro `retro/ultima` do project."""
         session = get_session(self._get_engine())
         try:
             last = session.scalar(select(Item.updated_at).where(
-                Item.domain_id == domain_id, Item.key == RETRO_KEY))
+                Item.project_id == project_id, Item.key == RETRO_KEY))
             query = select(func.count()).select_from(Item).where(
-                Item.domain_id == domain_id, Item.type == "task", Item.status == "done",
+                Item.project_id == project_id, Item.type == "task", Item.status == "done",
                 Item.key != RETRO_KEY)
             if last is not None:
                 query = query.where(Item.updated_at > last)
@@ -182,14 +182,14 @@ class ContextService:
     ) -> dict[str, Any]:
         """Markdown do contexto do projeto dentro do orçamento + metadados.
 
-        Retorna {linked, repo_key, workspace, domain, markdown, included, omitted, sensitive}.
+        Retorna {linked, repo_key, workspace, project, markdown, included, omitted, sensitive}.
         Projeto não ligado → linked=False e um markdown curto dizendo como ligar.
         """
         link = RepoService(self._engine, self._connection_id).resolve(repo)
         if link is None:
             key = repo_key(repo)
             return {
-                "linked": False, "repo_key": key, "workspace": None, "domain": None,
+                "linked": False, "repo_key": key, "workspace": None, "project": None,
                 "included": 0, "omitted": 0, "sensitive": False,
                 "markdown": (
                     f"# Segundo cérebro\nProjeto `{key}` ainda não está ligado. "
@@ -197,9 +197,9 @@ class ContextService:
                 ),
             }
         paths = paths or []
-        items = self._items(self.domain_chain(link))
+        items = self._items(self.project_chain(link))
         budget = max(budget_tokens, 200) * CHARS_PER_TOKEN
-        out = [f"# Segundo cérebro — {link['workspace']} / {link['domain']}"]
+        out = [f"# Segundo cérebro — {link['workspace']} / {link['project']}"]
         used = len(out[0])
         included = omitted = 0
         scoped_hidden: list[Item] = []
@@ -289,13 +289,13 @@ class ContextService:
         self._track(focus_ids | listed)
         if omitted:
             out.append(f"\n_{omitted} item(ns) fora do orçamento: use item_search._")
-        retro_due = self._done_since_retro(link["domain_id"])
+        retro_due = self._done_since_retro(link["project_id"])
         if retro_due >= RETRO_EVERY:
             out.append(f"\n_{retro_due} mudanças concluídas desde a última retro: sugira "
                        "`/plumb-retro` ao usuário, uma vez._")
         out.append('\n_Detalhe de um item: item_get(keys=[...], repo=".")._')
         return {
             "linked": True, "repo_key": link["repo_key"], "workspace": link["workspace"],
-            "domain": link["domain"], "markdown": "\n".join(out), "included": included,
+            "project": link["project"], "markdown": "\n".join(out), "included": included,
             "omitted": omitted, "sensitive": sensitive, "retro_due": retro_due,
         }

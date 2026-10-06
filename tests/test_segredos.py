@@ -42,7 +42,7 @@ def linked(test_engine):
 def _secret(engine, **extra):
     link = RepoService(engine).require(PROJECT)
     out = ItemService(engine).save([{**SECRET, **extra}],
-                                   default_location=(link["workspace_id"], link["domain_id"]))
+                                   default_location=(link["workspace_id"], link["project_id"]))
     return out[0]["id"]
 
 
@@ -80,7 +80,7 @@ def test_primeiro_segredo_gera_a_chave_no_keyring(linked, monkeypatch):
 # ---- agente cria vazio; nada devolve o valor -------------------------------------------
 
 def test_item_save_cria_segredo_vazio_e_devolve_o_link(server):  # noqa: F811
-    call(server, "repo_link", repo=PROJECT, workspace="Org", domain="app")
+    call(server, "repo_link", repo=PROJECT, workspace="Org", project="app")
     out = call(server, "item_save", repo=PROJECT, items=[SECRET])[0]
     assert out["action"] == "created" and out["has_value"] is False
     assert out["fill_url"].startswith("http://127.0.0.1:8765/ui/#/c/default/w/")
@@ -89,7 +89,7 @@ def test_item_save_cria_segredo_vazio_e_devolve_o_link(server):  # noqa: F811
 
 @pytest.mark.parametrize("field", ["value", "valor"])
 def test_item_save_recusa_o_valor_sem_ecoar(server, field):  # noqa: F811
-    call(server, "repo_link", repo=PROJECT, workspace="Org", domain="app")
+    call(server, "repo_link", repo=PROJECT, workspace="Org", project="app")
     with pytest.raises(ToolError) as exc:
         call(server, "item_save", repo=PROJECT, items=[{**SECRET, field: VALUE}])
     assert "UI" in str(exc.value) and VALUE not in str(exc.value)
@@ -149,14 +149,14 @@ def test_valor_so_em_item_secret(linked):
     link = RepoService(linked).require(PROJECT)
     rid = ItemService(linked).save(
         [{"key": "regra/x", "type": "rule", "title": "X", "summary": "s", "content": "c"}],
-        default_location=(link["workspace_id"], link["domain_id"]))[0]["id"]
+        default_location=(link["workspace_id"], link["project_id"]))[0]["id"]
     with pytest.raises(ValidationError, match="secret"):
         SecretService(linked).set_value(rid, VALUE)
 
 
 def test_resolve_procura_no_repo_no_geral_e_no_global(linked):
     items = ItemService(linked)
-    out = items.save([{**SECRET, "workspace": "Global", "domain": "Geral"}])
+    out = items.save([{**SECRET, "workspace": "Global", "project": "Geral"}])
     SecretService(linked).set_value(out[0]["id"], VALUE)
     item, value = SecretService(linked).resolve(PROJECT, "segredo/npm-token")
     assert value == VALUE and item.id == out[0]["id"]
@@ -195,7 +195,7 @@ def cli_env(tmp_path):
         "ids = ItemService().save([\n"
         "  {'key': 'segredo/token', 'type': 'secret', 'title': 'T', 'summary': 's'},\n"
         "  {'key': 'segredo/vazio', 'type': 'secret', 'title': 'V', 'summary': 's'}],\n"
-        "  default_location=(link['workspace_id'], link['domain_id']))\n"
+        "  default_location=(link['workspace_id'], link['project_id']))\n"
         "SecretService().set_value(ids[0]['id'], sys.argv[1])\n"
     )
     subprocess.run([sys.executable, "-c", code, VALUE], env=env, cwd=ROOT, check=True,
@@ -273,7 +273,7 @@ def test_link_usa_a_conexao_default_configurada(linked, monkeypatch):
 
 def test_segredo_sem_key_e_recusado_e_resolve_aceita_o_id(linked):
     link = RepoService(linked).require(PROJECT)
-    loc = (link["workspace_id"], link["domain_id"])
+    loc = (link["workspace_id"], link["project_id"])
     with pytest.raises(ValidationError, match="precisa de key"):
         ItemService(linked).save([{"type": "secret", "title": "T", "summary": "s"}],
                                  default_location=loc)
@@ -291,7 +291,7 @@ def test_item_save_recusa_valor_disfarcado_em_segredo(linked, entry, match):
     link = RepoService(linked).require(PROJECT)
     with pytest.raises(ValidationError, match=match) as exc:
         ItemService(linked).save([{**SECRET, **entry}],
-                                 default_location=(link["workspace_id"], link["domain_id"]))
+                                 default_location=(link["workspace_id"], link["project_id"]))
     assert VALUE not in str(exc.value) and "Zk81Lm2Qp9Xw4Rt7" not in str(exc.value)
 
 
@@ -320,14 +320,14 @@ def test_valor_trocado_de_linha_no_banco_nao_vira_outro_segredo(linked):
 
 def test_resolve_prefere_o_repo_ao_global(linked):
     items = ItemService(linked)
-    glob = items.save([{**SECRET, "workspace": "Global", "domain": "Geral"}])[0]["id"]
+    glob = items.save([{**SECRET, "workspace": "Global", "project": "Geral"}])[0]["id"]
     SecretService(linked).set_value(glob, "global-" + VALUE)
     repo = _secret(linked)
     SecretService(linked).set_value(repo, "repo-" + VALUE)
     assert SecretService(linked).resolve(PROJECT, "segredo/npm-token")[1] == "repo-" + VALUE
 
 
-def test_apagar_domain_leva_o_valor(linked):
+def test_apagar_project_leva_o_valor(linked):
     from sqlalchemy import delete, text
     from sqlalchemy.orm import Session
 
@@ -413,7 +413,7 @@ def test_run_redige_valor_com_acento_escrito_em_cp1252(cli_env, tmp_path):
         "from knowledge_os.services.secret_service import SecretService\n"
         f"link = RepoService().resolve({str(project)!r})\n"
         "ids = ItemService().save([{'key': 'segredo/acento', 'type': 'secret', 'title': 'A',"
-        " 'summary': 's'}], default_location=(link['workspace_id'], link['domain_id']))\n"
+        " 'summary': 's'}], default_location=(link['workspace_id'], link['project_id']))\n"
         "SecretService().set_value(ids[0]['id'], 'Senha-Ação-2024')\n"
     )
     subprocess.run([sys.executable, "-c", code], env=env, cwd=ROOT, check=True,

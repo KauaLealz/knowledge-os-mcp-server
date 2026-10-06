@@ -58,7 +58,7 @@ def test_nomes_e_documentacao(server):
 def test_fluxo_do_plumb(server):
     """Ligar projeto → contexto → gravar em lote → buscar → ler → promover → substituir."""
     assert call(server, "context_get", repo=PROJECT)["linked"] is False
-    call(server, "repo_link", repo=PROJECT, workspace="Polara", domain="app")
+    call(server, "repo_link", repo=PROJECT, workspace="Polara", project="app")
 
     saved = call(server, "item_save", repo=PROJECT, items=[
         {"key": "regra/money", **RULE, "title": "Money em pagamentos",
@@ -98,7 +98,7 @@ def test_fluxo_do_plumb(server):
 
 
 def test_item_save_modos_e_erros(server):
-    call(server, "repo_link", repo=PROJECT, workspace="Polara", domain="app")
+    call(server, "repo_link", repo=PROJECT, workspace="Polara", project="app")
     first = call(server, "item_save", repo=PROJECT,
                  items=[{**RULE, "title": "Cache com Redis"}])
     assert first[0]["action"] == "created" and "similar" not in first[0]
@@ -135,13 +135,13 @@ def test_item_save_modos_e_erros(server):
 
 def test_administracao(server, tmp_path):
     saved = call(server, "item_save", items=[
-        {"workspace": "W", "domain": "D", "key": "a", **RULE, "title": "A", "tags": ["x"]},
-        {"workspace": "W", "domain": "D", "key": "b", **RULE, "title": "B",
+        {"workspace": "W", "project": "D", "key": "a", **RULE, "title": "A", "tags": ["x"]},
+        {"workspace": "W", "project": "D", "key": "b", **RULE, "title": "B",
          "relations": [{"type": "related_to", "target": "a"}]},
     ])
     tree = call(server, "structure_list")
     assert tree == [{"workspace": "W", "description": None, "items": 2,
-                     "domains": [{"name": "D", "items": 2}]}]
+                     "projects": [{"name": "D", "items": 2}]}]
 
     assert {"x"} <= {t["name"] for t in call(server, "vocabulary", kind="tags")}
     lab = call(server, "vocabulary", kind="labels", action="create", name="lgpd")
@@ -160,7 +160,7 @@ def test_administracao(server, tmp_path):
 
     zip_path = call(server, "backup_export", workspace="W")["file_path"]
     preview = call(server, "structure_delete", workspace="W")
-    assert preview == {"status": "preview", "would_delete": {"workspace": "W", "domains": 1,
+    assert preview == {"status": "preview", "would_delete": {"workspace": "W", "projects": 1,
                                                             "items": 2}}
     assert call(server, "structure_list")  # nada apagado sem confirm
     call(server, "structure_delete", workspace="W", confirm=True)
@@ -173,10 +173,10 @@ def test_administracao(server, tmp_path):
 
 
 def test_busca_sem_projeto_usa_o_da_pasta_e_nao_vaza(server, monkeypatch):
-    call(server, "repo_link", repo=PROJECT, workspace="Polara", domain="app")
+    call(server, "repo_link", repo=PROJECT, workspace="Polara", project="app")
     call(server, "item_save", repo=PROJECT, items=[
         {"key": "a", **RULE, "title": "Segredo de cobrança do app"}])
-    call(server, "repo_link", repo="github.com/org/outro", workspace="Outra", domain="o")
+    call(server, "repo_link", repo="github.com/org/outro", workspace="Outra", project="o")
     call(server, "item_save", repo="github.com/org/outro", items=[
         {"key": "b", **RULE, "title": "Segredo de cobrança do outro"}])
 
@@ -193,7 +193,7 @@ def test_busca_sem_projeto_usa_o_da_pasta_e_nao_vaza(server, monkeypatch):
 
 
 def test_item_get_conta_uso(server):
-    call(server, "repo_link", repo=PROJECT, workspace="W", domain="app")
+    call(server, "repo_link", repo=PROJECT, workspace="W", project="app")
     call(server, "item_save", repo=PROJECT, items=[{"key": "r", "title": "R", **RULE}])
     assert call(server, "item_get", keys=["r"], repo=PROJECT)[0]["access_count"] == 0
     assert call(server, "item_get", keys=["r"], repo=PROJECT)[0]["access_count"] == 1

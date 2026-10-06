@@ -62,7 +62,7 @@ class Workspace(Base):
 
     # Relacionamentos
     connection = relationship("Connection", back_populates="workspaces")
-    domains = relationship("Domain", back_populates="workspace", cascade="all, delete-orphan")
+    projects = relationship("Project", back_populates="workspace", cascade="all, delete-orphan")
     items = relationship("Item", back_populates="workspace", cascade="all, delete-orphan")
 
     __table_args__ = (
@@ -72,9 +72,9 @@ class Workspace(Base):
     )
 
 
-class Domain(Base):
-    """Domain: projeto/assunto dentro de um workspace."""
-    __tablename__ = "domains"
+class Project(Base):
+    """Project: projeto/assunto dentro de um workspace."""
+    __tablename__ = "projects"
 
     id = Column(String(36), primary_key=True)
     workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=False)
@@ -84,12 +84,12 @@ class Domain(Base):
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     # Relacionamentos
-    workspace = relationship("Workspace", back_populates="domains")
-    items = relationship("Item", back_populates="domain", cascade="all, delete-orphan")
+    workspace = relationship("Workspace", back_populates="projects")
+    items = relationship("Item", back_populates="project", cascade="all, delete-orphan")
 
     __table_args__ = (
-        UniqueConstraint("workspace_id", "name", name="uq_domain_workspace_name"),
-        Index("idx_domain_workspace", "workspace_id"),
+        UniqueConstraint("workspace_id", "name", name="uq_project_workspace_name"),
+        Index("idx_project_workspace", "workspace_id"),
     )
 
 
@@ -99,7 +99,7 @@ class Item(Base):
 
     id = Column(String(36), primary_key=True)
     workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=False)
-    domain_id = Column(String(36), ForeignKey("domains.id"), nullable=False)
+    project_id = Column(String(36), ForeignKey("projects.id"), nullable=False)
 
     # context, rule, pattern, procedure, knowledge, insight, artifact
     type = Column(String(50), nullable=False)
@@ -115,7 +115,7 @@ class Item(Base):
     ttl_days = Column(Integer, nullable=True)  # Para ephemeral
     expires_at = Column(DateTime, nullable=True)  # ephemeral: created/renewed + ttl_days
 
-    # Segundo cérebro (Plumb): chave estável por domain, para upsert sem duplicar.
+    # Segundo cérebro (Plumb): chave estável por project, para upsert sem duplicar.
     # Coluna "item_key": `key` é palavra reservada no MySQL e a busca usa SQL textual.
     key = Column("item_key", String(200), nullable=True)
     keywords = Column(Text, nullable=True)  # sinônimos e termos de busca extras
@@ -130,20 +130,20 @@ class Item(Base):
 
     # Relacionamentos
     workspace = relationship("Workspace", back_populates="items")
-    domain = relationship("Domain", back_populates="items")
+    project = relationship("Project", back_populates="items")
     tags = relationship("Tag", secondary="item_tags", back_populates="items")
     labels = relationship("Label", secondary="item_labels", back_populates="items")
 
     __table_args__ = (
         Index("idx_item_workspace", "workspace_id"),
-        Index("idx_item_domain", "domain_id"),
+        Index("idx_item_project", "project_id"),
         Index("idx_item_type", "type"),
         Index("idx_item_memory", "memory_class"),
         Index("idx_item_created", "created_at"),
         Index("idx_item_updated", "updated_at"),
         Index("idx_item_status", "status"),
         Index("idx_item_expires", "expires_at"),
-        Index("uq_item_domain_key", "domain_id", "item_key", unique=True),
+        Index("uq_item_project_key", "project_id", "item_key", unique=True),
     )
 
 
@@ -235,13 +235,13 @@ Item.has_value = column_property(
 
 
 class RepoLink(Base):
-    """Liga um repositório (remote do git ou caminho normalizado) a um workspace/domain."""
+    """Liga um repositório (remote do git ou caminho normalizado) a um workspace/project."""
     __tablename__ = "repo_links"
 
     repo_key = Column(String(512), primary_key=True)
     workspace_id = Column(String(36), ForeignKey("workspaces.id"), nullable=False)
-    domain_id = Column(String(36), ForeignKey("domains.id"), nullable=False)
+    project_id = Column(String(36), ForeignKey("projects.id"), nullable=False)
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
-    __table_args__ = (Index("idx_repo_link_domain", "domain_id"),)
+    __table_args__ = (Index("idx_repo_link_project", "project_id"),)

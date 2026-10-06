@@ -12,8 +12,8 @@ from knowledge_os.db.session import default_connection_id
 from knowledge_os.exceptions import NotFoundError, ValidationError
 from knowledge_os.services._common import (
     EXPORT_VERSION,
-    domain_to_dict,
     item_to_dict,
+    project_to_dict,
     session_scope,
     tiebreak,
     utc_now_iso,
@@ -86,7 +86,7 @@ class WorkspaceService:
             return ws
 
     def delete(self, name: str) -> bool:
-        """Remove workspace (e seus domains/items). False se não existe."""
+        """Remove workspace (e seus projects/items). False se não existe."""
         with session_scope(self._session, self._connection_id) as s:
             ws = self._find(s, name)
             if ws is None:
@@ -111,7 +111,7 @@ class WorkspaceService:
             if ws is None:
                 logger.error("Export de workspace inexistente: %s", name)
                 raise NotFoundError(f"Workspace não encontrado: {name}")
-            domains = [domain_to_dict(d) for d in sorted(ws.domains, key=lambda d: d.name)]
+            projects = [project_to_dict(d) for d in sorted(ws.projects, key=lambda d: d.name)]
             items = [item_to_dict(i) for i in sorted(ws.items, key=lambda i: i.created_at or 0)]
             logger.info("Workspace exportado: %s", name)
             return {
@@ -120,11 +120,11 @@ class WorkspaceService:
                     "type": "workspace",
                     "name": ws.name,
                     "exported_at": utc_now_iso(),
-                    "counts": {"domains": len(domains), "items": len(items)},
+                    "counts": {"projects": len(projects), "items": len(items)},
                 },
                 "workspace_data": {
                     "workspace": workspace_to_dict(ws),
-                    "domains": domains,
+                    "projects": projects,
                     "items": items,
                 },
             }

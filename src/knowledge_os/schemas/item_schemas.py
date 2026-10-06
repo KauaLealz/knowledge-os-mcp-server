@@ -43,7 +43,7 @@ class ItemCreate(BaseModel):
     """Entrada de criação de item."""
 
     workspace_id: str
-    domain_id: str
+    project_id: str
     type: str
     memory_class: str = "longterm"  # sem aprovação: já vale; ephemeral = temporário
     title: str = Field(min_length=1, max_length=255)
@@ -114,7 +114,7 @@ class ItemSearchRequest(BaseModel):
     """Parâmetros de busca FTS5."""
 
     workspace_id: str | None = None
-    domain_id: str | None = None
+    project_id: str | None = None
     query: str
     types: list[str] | None = None
     memory_classes: list[str] | None = None
@@ -128,7 +128,7 @@ class ItemSearchResult(BaseModel):
     key: str | None = None
     type: str | None = None
     memory_class: str | None = None
-    domain: str | None = None
+    project: str | None = None
     title: str
     summary: str
     score: float
@@ -151,7 +151,7 @@ class ItemResponse(BaseModel):
 
     id: str
     workspace_id: str
-    domain_id: str
+    project_id: str
     type: str
     memory_class: str
     title: str
@@ -180,7 +180,7 @@ class ItemResponse(BaseModel):
         return cls(
             id=item.id,
             workspace_id=item.workspace_id,
-            domain_id=item.domain_id,
+            project_id=item.project_id,
             type=item.type,
             memory_class=item.memory_class,
             title=item.title,

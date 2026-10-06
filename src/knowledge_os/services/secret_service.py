@@ -34,7 +34,7 @@ def fill_url(item: Item, connection_id: str | None = None) -> str:
         conn = DEFAULT_CONNECTION_ID
     conn = quote(conn, safe="")
     return (f"http://127.0.0.1:{UI_DEFAULT_PORT}/ui/#/c/{conn}/w/{item.workspace_id}"
-            f"/d/{item.domain_id}/i/{item.id}")
+            f"/d/{item.project_id}/i/{item.id}")
 
 
 class SecretService:
@@ -125,12 +125,12 @@ class SecretService:
         from knowledge_os.services.repo_service import RepoService
 
         link = RepoService(self._engine, self._connection_id).require(repo)
-        chain = ContextService(self._engine, self._connection_id).domain_chain(link)
+        chain = ContextService(self._engine, self._connection_id).project_chain(link)
         s = get_session(self._get_engine())
         try:
             found = {
-                i.domain_id: i for i in s.scalars(select(Item).where(
-                    Item.domain_id.in_(chain), (Item.key == key) | (Item.id == key),
+                i.project_id: i for i in s.scalars(select(Item).where(
+                    Item.project_id.in_(chain), (Item.key == key) | (Item.id == key),
                     Item.type == "secret",
                     Item.status == "active"))
             }

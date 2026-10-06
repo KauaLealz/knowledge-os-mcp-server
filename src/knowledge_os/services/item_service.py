@@ -17,11 +17,11 @@ from sqlalchemy.orm import Session
 from knowledge_os.db.dialects import get_dialect
 from knowledge_os.db.models import (
     Artifact,
-    Domain,
     Item,
     ItemLabel,
     ItemTag,
     Label,
+    Project,
     Relation,
     SecretValue,
     Tag,
@@ -134,26 +134,26 @@ class ItemService:
             raise NotFoundError(f"Workspace não encontrado: {ref}")
         return ws_id
 
-    def resolve_domain_id(self, workspace_id: str, ref: str) -> str:
-        """Resolve um domain (nome ou id) dentro do workspace. Levanta NotFoundError."""
+    def resolve_project_id(self, workspace_id: str, ref: str) -> str:
+        """Resolve um project (nome ou id) dentro do workspace. Levanta NotFoundError."""
         with self._session() as s:
             dm_id = s.scalar(
-                select(Domain.id).where(
-                    Domain.workspace_id == workspace_id,
-                    (Domain.name == ref) | (Domain.id == ref),
+                select(Project.id).where(
+                    Project.workspace_id == workspace_id,
+                    (Project.name == ref) | (Project.id == ref),
                 )
             )
         if dm_id is None:
-            raise NotFoundError(f"Domain não encontrado: {ref}")
+            raise NotFoundError(f"Project não encontrado: {ref}")
         return dm_id
 
-    def ensure_location(self, workspace: str, domain: str) -> tuple[str, str]:
-        """Resolve workspace e domain por nome ou id, criando os que não existem."""
+    def ensure_location(self, workspace: str, project: str) -> tuple[str, str]:
+        """Resolve workspace e project por nome ou id, criando os que não existem."""
         return run_with_retry(
-            lambda: self._ensure_location_once(workspace, domain), retry_conflict=True
+            lambda: self._ensure_location_once(workspace, project), retry_conflict=True
         )
 
-    def _ensure_location_once(self, workspace: str, domain: str) -> tuple[str, str]:
+    def _ensure_location_once(self, workspace: str, project: str) -> tuple[str, str]:
         with self._session() as s:
             ws = s.scalar(
                 select(Workspace).where(
@@ -166,12 +166,13 @@ class ItemService:
                 s.add(ws)
                 s.flush()
             dm = s.scalar(
-                select(Domain).where(
-                    Domain.workspace_id == ws.id, (Domain.name == domain) | (Domain.id == domain)
+                select(Project).where(
+                    Project.workspace_id == ws.id,
+                    (Project.name == project) | (Project.id == project),
                 )
             )
             if dm is None:
-                dm = Domain(id=str(uuid.uuid4()), workspace_id=ws.id, name=domain)
+                dm = Project(id=str(uuid.uuid4()), workspace_id=ws.id, name=project)
                 s.add(dm)
             s.commit()
             return ws.id, dm.id
@@ -214,16 +215,16 @@ class ItemService:
     def _insert(self, s: Session, data: ItemCreate) -> Item:
         if s.get(Workspace, data.workspace_id) is None:
             raise NotFoundError(f"Workspace não encontrado: {data.workspace_id}")
-        domain = s.get(Domain, data.domain_id)
-        if domain is None or domain.workspace_id != data.workspace_id:
-            raise NotFoundError(f"Domain não encontrado: {data.domain_id}")
-        if data.key and self._by_key(s, data.domain_id, data.key) is not None:
-            raise ValidationError(f"Já existe item com key {data.key!r} neste domain (use upsert)")
+        project = s.get(Project, data.project_id)
+        if project is None or project.workspace_id != data.workspace_id:
+            raise NotFoundError(f"Project não encontrado: {data.project_id}")
+        if data.key and self._by_key(s, data.project_id, data.key) is not None:
+            raise ValidationError(f"Já existe item com key {data.key!r} neste project (use upsert)")
         now = utcnow()
         item = Item(
             id=str(uuid.uuid4()),
             workspace_id=data.workspace_id,
-            domain_id=data.domain_id,
+            project_id=data.project_id,
             type=data.type,
             memory_class=data.memory_class,
             title=data.title,
@@ -306,15 +307,15 @@ class ItemService:
         return True
 
     @staticmethod
-    def _by_key(s: Session, domain_id: str, key: str) -> Item | None:
-        return s.scalar(select(Item).where(Item.domain_id == domain_id, Item.key == key))
+    def _by_key(s: Session, project_id: str, key: str) -> Item | None:
+        return s.scalar(select(Item).where(Item.project_id == project_id, Item.key == key))
 
     # ------------------------------------------------------------------ CRUD
 
     def create(
         self,
         workspace_id: str,
-        domain_id: str,
+        project_id: str,
         type: str,
         memory_class: str,
         title: str,
@@ -333,7 +334,7 @@ class ItemService:
     ) -> Item:
         """Cria um item e associa tags e labels (criando as que não existirem)."""
         data = self._validate_create(
-            workspace_id=workspace_id, domain_id=domain_id, type=type,
+            workspace_id=workspace_id, project_id=project_id, type=type,
             memory_class=memory_class, title=title, summary=summary, content=content,
             tags=tags or [], labels=labels or [], confidence=confidence,
             importance=importance, ttl_days=ttl_days, key=key, keywords=keywords,
@@ -356,26 +357,26 @@ class ItemService:
             return self._load(s, item_id)
 
     def upsert(
-        self, workspace_id: str, domain_id: str, key: str, **fields: Any
+        self, workspace_id: str, project_id: str, key: str, **fields: Any
     ) -> tuple[Item, str]:
-        """Cria ou atualiza o item de `key` no domain. Retorna (item, created|updated|unchanged).
+        """Cria ou atualiza o item de `key` no project. Retorna (item, created|updated|unchanged).
 
         `memory_class` só sobe (nunca rebaixa um item existente). Na criação, os campos
         obrigatórios de item_create valem.
         """
         with self._session() as s:
-            item, action = self._upsert_in(s, workspace_id, domain_id, key, fields)
+            item, action = self._upsert_in(s, workspace_id, project_id, key, fields)
             s.commit()
             return self._load(s, item.id), action
 
     def _upsert_in(
-        self, s: Session, workspace_id: str, domain_id: str, key: str, fields: dict[str, Any]
+        self, s: Session, workspace_id: str, project_id: str, key: str, fields: dict[str, Any]
     ) -> tuple[Item, str]:
         fields = {k: v for k, v in fields.items() if v is not None}
-        existing = self._by_key(s, domain_id, key)
+        existing = self._by_key(s, project_id, key)
         if existing is None:
             data = self._validate_create(
-                workspace_id=workspace_id, domain_id=domain_id, key=key,
+                workspace_id=workspace_id, project_id=project_id, key=key,
                 **{"tags": [], "labels": [], "scope_paths": [], **fields},
             )
             return self._insert(s, data), "created"
@@ -388,9 +389,9 @@ class ItemService:
         return existing, ("updated" if changed else "unchanged")
 
     def batch_upsert(self, entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Upsert de vários itens numa transação. Cada entrada traz workspace, domain e key."""
+        """Upsert de vários itens numa transação. Cada entrada traz workspace, project e key."""
         for i, e in enumerate(entries):
-            missing = [f for f in ("workspace", "domain", "key") if not e.get(f)]
+            missing = [f for f in ("workspace", "project", "key") if not e.get(f)]
             if missing:
                 raise ValidationError(f"Entrada {i}: faltam {', '.join(missing)}")
         return [
@@ -403,13 +404,13 @@ class ItemService:
         """Grava vários itens numa transação; cada entrada escolhe o modo pelo que traz.
 
         - `id`: atualiza esse item (só os campos informados).
-        - `key`: upsert no domain (cria ou atualiza; não duplica).
+        - `key`: upsert no project (cria ou atualiza; não duplica).
         - nenhum dos dois: cria e devolve `similar` com títulos parecidos já existentes.
 
         Em qualquer modo: `memory_class` só sobe (promoção), `ttl_days` renova um ephemeral a
         partir de agora, e `relations: [{type, target}]` liga ao alvo (id, ou key do mesmo
-        domain, inclusive itens criados no mesmo lote); `supersedes` marca o alvo como
-        substituído. Workspace/domain vêm da entrada ou de `default_location` e são criados se
+        project, inclusive itens criados no mesmo lote); `supersedes` marca o alvo como
+        substituído. Workspace/project vêm da entrada ou de `default_location` e são criados se
         não existirem. Qualquer erro desfaz o lote inteiro e aponta a entrada.
         """
         if not entries:
@@ -443,7 +444,7 @@ class ItemService:
                     e["content"] = e["summary"]  # o resumo diz para que serve
             relations = e.pop("relations", None) or []
             item_id, key = e.pop("id", None), e.pop("key", None)
-            ws, dm = e.pop("workspace", None), e.pop("domain", None)
+            ws, dm = e.pop("workspace", None), e.pop("project", None)
             location = None
             if not item_id:
                 if ws and dm:
@@ -451,7 +452,7 @@ class ItemService:
                 elif default_location:
                     location = default_location
                 else:
-                    raise ValidationError(f"Entrada {i}: informe workspace e domain (ou repo)")
+                    raise ValidationError(f"Entrada {i}: informe workspace e project (ou repo)")
             fields = {k: v for k, v in e.items() if v is not None}
             plans.append((i, item_id, key, location, fields, relations))
 
@@ -481,7 +482,7 @@ class ItemService:
                         if fields.get("title"):
                             similar = self.similar(location[0], fields["title"])
                         data = self._validate_create(
-                            workspace_id=location[0], domain_id=location[1],
+                            workspace_id=location[0], project_id=location[1],
                             **{"tags": [], "labels": [], "scope_paths": [], **fields},
                         )
                         item, action = self._insert(s, data), "created"
@@ -504,7 +505,7 @@ class ItemService:
         return results
 
     def _relate(self, s: Session, item: Item, rel: dict[str, Any]) -> bool:
-        """Cria a relação item → alvo (id ou key do mesmo domain). False se já existia."""
+        """Cria a relação item → alvo (id ou key do mesmo project). False se já existia."""
         from knowledge_os.services.relation_service import RELATION_TYPES
 
         rtype, target_ref = rel.get("type"), rel.get("target")
@@ -512,7 +513,7 @@ class ItemService:
             raise ValidationError(f"type inválido: {rtype!r}. Válidos: {', '.join(RELATION_TYPES)}")
         if not target_ref:
             raise ValidationError("relação sem target")
-        target = s.get(Item, target_ref) or self._by_key(s, item.domain_id, target_ref)
+        target = s.get(Item, target_ref) or self._by_key(s, item.project_id, target_ref)
         if target is None:
             raise NotFoundError(f"Alvo não encontrado: {target_ref}")
         if target.id == item.id:
@@ -558,10 +559,10 @@ class ItemService:
         with self._session() as s:
             return self._load(s, item_id)
 
-    def get_by_key(self, domain_id: str, key: str) -> Item:
-        """Item de `key` no domain. Levanta NotFoundError."""
+    def get_by_key(self, project_id: str, key: str) -> Item:
+        """Item de `key` no project. Levanta NotFoundError."""
         with self._session() as s:
-            item = self._by_key(s, domain_id, key)
+            item = self._by_key(s, project_id, key)
             if item is None:
                 raise NotFoundError(f"Item não encontrado: key {key!r}")
             return self._load(s, item.id)
@@ -571,7 +572,7 @@ class ItemService:
     def search(
         self,
         workspace_id: str | None,
-        domain_id: str | None,
+        project_id: str | None,
         query: str,
         types: list[str] | None = None,
         memory_classes: list[str] | None = None,
@@ -605,9 +606,9 @@ class ItemService:
                 "i.workspace_id IN (SELECT w.id FROM workspaces w WHERE w.connection_id = :cid)"
             )
             params["cid"] = self._cid
-        if domain_id:
-            where.append("i.domain_id = :dm")
-            params["dm"] = domain_id
+        if project_id:
+            where.append("i.project_id = :dm")
+            params["dm"] = project_id
         if types:
             where.append("i.type IN :types")
             params["types"] = list(types)
@@ -627,11 +628,11 @@ class ItemService:
         )
         columns = (
             "i.id AS id, i.item_key AS item_key, i.type AS type, i.memory_class AS memory_class, "
-            "d.name AS domain, i.title AS title, i.summary AS summary, "
+            "d.name AS project, i.title AS title, i.summary AS summary, "
             "COALESCE(i.access_count, 0) AS uses"
         )
         if not query:
-            attempts = [("items i JOIN domains d ON d.id = i.domain_id", None, "0.0", {})]
+            attempts = [("items i JOIN projects d ON d.id = i.project_id", None, "0.0", {})]
             order = tie
         else:
             dialect = get_dialect(dialect_name)
@@ -641,7 +642,7 @@ class ItemService:
             attempts = []
             for expression in raw:
                 source, match, score, mparams = dialect.search_parts(expression)
-                joined = f"{source} JOIN domains d ON d.id = i.domain_id"
+                joined = f"{source} JOIN projects d ON d.id = i.project_id"
                 attempts.append((joined, match, score, mparams))
             order = f"score DESC, {tie}"
 
@@ -665,7 +666,7 @@ class ItemService:
             results = [
                 {
                     "id": r["id"], "key": r["item_key"], "type": r["type"],
-                    "memory_class": r["memory_class"], "domain": r["domain"],
+                    "memory_class": r["memory_class"], "project": r["project"],
                     "title": r["title"], "summary": r["summary"], "score": float(r["score"]),
                     "uses": int(r["uses"] or 0),
                 }

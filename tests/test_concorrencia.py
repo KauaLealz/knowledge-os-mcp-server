@@ -28,7 +28,7 @@ WORKER = (
     "n = int(sys.argv[2])\n"
     "svc = ItemService()\n"
     "for i in range(25):\n"
-    "    svc.save([{'workspace': 'W', 'domain': 'D', 'key': f'p{n}/{i}', 'type': 'knowledge',\n"
+    "    svc.save([{'workspace': 'W', 'project': 'D', 'key': f'p{n}/{i}', 'type': 'knowledge',\n"
     "               'memory_class': 'working', 'title': f't{n}-{i}', 'summary': 's',\n"
     "               'content': 'c'}])\n"
 )
@@ -73,14 +73,14 @@ def banco(tmp_path, monkeypatch):
     engine.dispose()
 
 
-ENTRY = {"workspace": "W", "domain": "D", "key": "k", "type": "knowledge",
+ENTRY = {"workspace": "W", "project": "D", "key": "k", "type": "knowledge",
          "memory_class": "working", "title": "t", "summary": "s", "content": "c"}
 
 
 def test_banco_travado_vira_database_error_legivel(banco):
     engine, db = banco
     svc = ItemService(engine)
-    svc.save([dict(ENTRY)])  # cria workspace/domain antes de travar
+    svc.save([dict(ENTRY)])  # cria workspace/project antes de travar
     lock = sqlite3.connect(db, isolation_level=None)
     lock.execute("BEGIN IMMEDIATE")
     try:
@@ -117,10 +117,10 @@ WORKER_TAG = (
     "import pathlib, time\n"
     "n = int(sys.argv[2])\n"
     "while not pathlib.Path(sys.argv[3]).exists(): time.sleep(0.001)\n"
-    "ItemService().save([{'workspace': 'W', 'domain': 'D', 'key': f'k{i}', 'type': 'knowledge',\n"
+    "ItemService().save([{'workspace': 'W', 'project': 'D', 'key': f'k{i}', 'type': 'knowledge',\n"
     "    'memory_class': 'working', 'title': f't{n}-{i}', 'summary': 's', 'content': 'c',\n"
     "    'tags': ['tag-nova-compartilhada']} for i in range(3)]\n"
-    "    + [{'workspace': 'W', 'domain': 'D', 'key': f'p{n}', 'type': 'knowledge',\n"
+    "    + [{'workspace': 'W', 'project': 'D', 'key': f'p{n}', 'type': 'knowledge',\n"
     "        'memory_class': 'working', 'title': 'u', 'summary': 's', 'content': 'c',\n"
     "        'tags': ['tag-nova-compartilhada']}])\n"
 )

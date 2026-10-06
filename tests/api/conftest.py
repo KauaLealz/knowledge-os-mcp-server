@@ -41,16 +41,16 @@ def mk(client):
             assert r.status_code == 201, r.text
             return r.json()
 
-        def domain(self, ws_id, name="Dom"):
+        def project(self, ws_id, name="Dom"):
             r = client.post(
-                "/api/domains", json={"workspace_id": ws_id, "name": name}
+                "/api/projects", json={"workspace_id": ws_id, "name": name}
             )
             assert r.status_code == 201, r.text
             return r.json()
 
         def item(self, ws_id, dom_id, title="Item", **extra):
             body = {
-                "workspace_id": ws_id, "domain_id": dom_id, "type": "knowledge",
+                "workspace_id": ws_id, "project_id": dom_id, "type": "knowledge",
                 "memory_class": "longterm", "title": title,
                 "summary": f"Resumo {title} conditional", "content": f"Conteudo {title}",
             }
@@ -61,7 +61,7 @@ def mk(client):
 
         def tree(self):
             ws = self.ws()
-            dm = self.domain(ws["id"])
+            dm = self.project(ws["id"])
             return ws, dm, self.item(ws["id"], dm["id"])
 
     return Maker()

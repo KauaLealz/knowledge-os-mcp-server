@@ -1,4 +1,4 @@
-"""Testes de ImportExportService e das tools workspace_import / domain_import."""
+"""Testes de ImportExportService e das tools workspace_import / project_import."""
 
 import io
 import json
@@ -8,7 +8,7 @@ import zipfile
 import pytest
 from sqlalchemy import select
 
-from knowledge_os.db.models import Artifact, Domain, Item, Relation, Workspace
+from knowledge_os.db.models import Artifact, Item, Project, Relation, Workspace
 from knowledge_os.exceptions import NotFoundError, ValidationError
 from knowledge_os.services.artifact_service import ArtifactService
 from knowledge_os.services.import_export_service import ImportExportService
@@ -26,10 +26,10 @@ def art_dir(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def populated(test_engine, test_session, sample_workspace, sample_domain, art_dir, tmp_path):
-    """Workspace com 2 domains, 3 items (tags/labels), 2 relações e 1 artifact."""
+def populated(test_engine, test_session, sample_workspace, sample_project, art_dir, tmp_path):
+    """Workspace com 2 projects, 3 items (tags/labels), 2 relações e 1 artifact."""
     items = ItemService(test_engine)
-    dm2 = Domain(id=str(uuid.uuid4()), workspace_id=sample_workspace.id, name="Outro")
+    dm2 = Project(id=str(uuid.uuid4()), workspace_id=sample_workspace.id, name="Outro")
     test_session.add(dm2)
     test_session.commit()
     kw = dict(
@@ -37,18 +37,18 @@ def populated(test_engine, test_session, sample_workspace, sample_domain, art_di
         summary="s", content="c",
     )
     a = items.create(
-        domain_id=sample_domain.id, title="A", tags=["t1", "t2"], labels=["official"],
+        project_id=sample_project.id, title="A", tags=["t1", "t2"], labels=["official"],
         confidence=70, importance=3, **kw,
     )
-    b = items.create(domain_id=sample_domain.id, title="B", tags=["t1"], **kw)
-    c = items.create(domain_id=dm2.id, title="C", **kw)
+    b = items.create(project_id=sample_project.id, title="B", tags=["t1"], **kw)
+    c = items.create(project_id=dm2.id, title="C", **kw)
     RelationService(test_session).create(a.id, b.id, "depends_on")
     RelationService(test_session).create(a.id, c.id, "references")
     f = tmp_path / "anexo.bin"
     f.write_bytes(b"\x00\x01binario-real\xff")
     art = ArtifactService(test_session, artifacts_dir=art_dir).attach(a.id, str(f))
     return {
-        "ws": sample_workspace, "d1": sample_domain, "d2": dm2, "items": (a, b, c),
+        "ws": sample_workspace, "d1": sample_project, "d2": dm2, "items": (a, b, c),
         "art": art, "file": f,
     }
 
@@ -79,9 +79,9 @@ def test_export_workspace_estrutura(test_session, populated):
     man = json.loads(z.read("manifest.json"))
     assert man["version"] == "1.0" and man["type"] == "workspace"
     assert man["name"] == "TestWorkspace" and man["exported_at"]
-    assert man["counts"] == {"domains": 2, "items": 3, "relations": 2, "artifacts": 1}
+    assert man["counts"] == {"projects": 2, "items": 3, "relations": 2, "artifacts": 1}
     wj = json.loads(z.read("workspace.json"))
-    assert set(wj) >= {"workspace", "domains", "items", "relations"}
+    assert set(wj) >= {"workspace", "projects", "items", "relations"}
     assert len(wj["items"]) == 3 and len(json.loads(z.read("relations.json"))) == 2
     assert z.read(f"artifacts/{populated['art'].id}") == populated["file"].read_bytes()
 
@@ -103,7 +103,8 @@ def test_roundtrip_workspace_ids_novos_semantica_mantida(
     ws = svc.import_workspace(_write(tmp_path, data))
     assert ws.id != populated["ws"].id and ws.name == "TestWorkspace"
     doms = {
-        d.name: d for d in test_session.scalars(select(Domain).where(Domain.workspace_id == ws.id))
+        d.name: d
+        for d in test_session.scalars(select(Project).where(Project.workspace_id == ws.id))
     }
     assert set(doms) == {"TestDomain", "Outro"}
     assert doms["TestDomain"].id != populated["d1"].id
@@ -112,8 +113,8 @@ def test_roundtrip_workspace_ids_novos_semantica_mantida(
     }
     assert set(items) == {"A", "B", "C"}
     assert not ({i.id for i in items.values()} & old_ids)
-    assert items["A"].domain_id == doms["TestDomain"].id
-    assert items["C"].domain_id == doms["Outro"].id
+    assert items["A"].project_id == doms["TestDomain"].id
+    assert items["C"].project_id == doms["Outro"].id
     assert sorted(t.name for t in items["A"].tags) == ["t1", "t2"]
     assert [lb.name for lb in items["A"].labels] == ["official"]
     assert (items["A"].confidence, items["A"].importance) == (70, 3)
@@ -161,41 +162,41 @@ def test_import_workspace_arquivo_invalido(test_session, tmp_path):
 
 def test_import_rejeita_tipo_trocado(test_session, populated, tmp_path):
     svc = ImportExportService(test_session)
-    dom = svc.export_domain(populated["ws"].id, populated["d1"].id)
+    dom = svc.export_project(populated["ws"].id, populated["d1"].id)
     with pytest.raises(ValidationError):
         svc.import_workspace(_write(tmp_path, dom))
     ws_zip = svc.export_workspace(populated["ws"].id)
     with pytest.raises(ValidationError):
-        svc.import_domain(populated["ws"].id, _write(tmp_path, ws_zip))
+        svc.import_project(populated["ws"].id, _write(tmp_path, ws_zip))
 
 
-def test_export_domain_so_domain_e_seus_items(test_session, populated):
-    data = ImportExportService(test_session).export_domain(populated["ws"].id, populated["d1"].id)
+def test_export_project_so_project_e_seus_items(test_session, populated):
+    data = ImportExportService(test_session).export_project(populated["ws"].id, populated["d1"].id)
     z = _zip(data)
     man = json.loads(z.read("manifest.json"))
-    assert man["type"] == "domain" and man["name"] == "TestDomain"
+    assert man["type"] == "project" and man["name"] == "TestDomain"
     assert man["counts"]["items"] == 2
-    dj = json.loads(z.read("domain.json"))
+    dj = json.loads(z.read("project.json"))
     assert {i["title"] for i in dj["items"]} == {"A", "B"}
-    # a relação A->C sai do domain; só A->B é mantida
+    # a relação A->C sai do project; só A->B é mantida
     assert [r["relation_type"] for r in json.loads(z.read("relations.json"))] == ["depends_on"]
     assert f"artifacts/{populated['art'].id}" in z.namelist()
 
 
-def test_export_domain_inexistente(test_session, populated):
+def test_export_project_inexistente(test_session, populated):
     with pytest.raises(NotFoundError):
-        ImportExportService(test_session).export_domain(populated["ws"].id, "nao-existe")
+        ImportExportService(test_session).export_project(populated["ws"].id, "nao-existe")
 
 
-def test_import_domain_em_outro_workspace(test_session, populated, tmp_path, art_dir):
+def test_import_project_em_outro_workspace(test_session, populated, tmp_path, art_dir):
     svc = ImportExportService(test_session)
-    path = _write(tmp_path, svc.export_domain(populated["ws"].id, populated["d1"].id))
+    path = _write(tmp_path, svc.export_project(populated["ws"].id, populated["d1"].id))
     other = Workspace(id=str(uuid.uuid4()), name="Destino")
     test_session.add(other)
     test_session.commit()
-    dm = svc.import_domain(other.id, path)
+    dm = svc.import_project(other.id, path)
     assert dm.id != populated["d1"].id and dm.workspace_id == other.id and dm.name == "TestDomain"
-    items = list(test_session.scalars(select(Item).where(Item.domain_id == dm.id)))
+    items = list(test_session.scalars(select(Item).where(Item.project_id == dm.id)))
     assert {i.title for i in items} == {"A", "B"}
     assert all(i.workspace_id == other.id for i in items)
     by = {i.title: i for i in items}
@@ -205,21 +206,21 @@ def test_import_domain_em_outro_workspace(test_session, populated, tmp_path, art
     assert (art_dir / art.file_path).read_bytes() == populated["file"].read_bytes()
 
 
-def test_import_domain_nome_duplicado_e_workspace_inexistente(test_session, populated, tmp_path):
+def test_import_project_nome_duplicado_e_workspace_inexistente(test_session, populated, tmp_path):
     svc = ImportExportService(test_session)
-    path = _write(tmp_path, svc.export_domain(populated["ws"].id, populated["d1"].id))
+    path = _write(tmp_path, svc.export_project(populated["ws"].id, populated["d1"].id))
     with pytest.raises(ValidationError):
-        svc.import_domain(populated["ws"].id, path)
+        svc.import_project(populated["ws"].id, path)
     with pytest.raises(NotFoundError):
-        svc.import_domain("nao-existe", path)
+        svc.import_project("nao-existe", path)
 
 
 def test_import_artifact_com_membro_ausente_no_zip_falha_limpo(test_session, tmp_path, art_dir):
     payload = {
         "workspace": {"name": "Z"},
-        "domains": [{"id": "d", "name": "D"}],
+        "projects": [{"id": "d", "name": "D"}],
         "items": [{
-            "id": "i", "domain_id": "d", "type": "rule", "memory_class": "longterm",
+            "id": "i", "project_id": "d", "type": "rule", "memory_class": "longterm",
             "title": "t", "summary": "s", "content": "c", "tags": [], "labels": [],
         }],
         "relations": [],

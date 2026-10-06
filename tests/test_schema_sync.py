@@ -34,11 +34,11 @@ def test_sync_adds_column_if_missing():
     engine = create_test_engine()
     schema_sync(engine)
     with engine.begin() as conn:
-        conn.execute(text("ALTER TABLE domains DROP COLUMN description"))
+        conn.execute(text("ALTER TABLE projects DROP COLUMN description"))
     result = schema_sync(engine, dry_run=False)
     assert result["status"] == "updated"
-    assert result["columns_added"] == ["domains.description"]
-    cols = {c["name"] for c in inspect(engine).get_columns("domains")}
+    assert result["columns_added"] == ["projects.description"]
+    cols = {c["name"] for c in inspect(engine).get_columns("projects")}
     assert "description" in cols
 
 
@@ -112,11 +112,11 @@ def test_sync_dry_run_does_not_add_column():
     engine = create_test_engine()
     schema_sync(engine)
     with engine.begin() as conn:
-        conn.execute(text("ALTER TABLE domains DROP COLUMN description"))
+        conn.execute(text("ALTER TABLE projects DROP COLUMN description"))
     result = schema_sync(engine, dry_run=True)
     assert result["status"] == "updated"
-    assert result["columns_added"] == ["domains.description"]
-    assert "description" not in {c["name"] for c in inspect(engine).get_columns("domains")}
+    assert result["columns_added"] == ["projects.description"]
+    assert "description" not in {c["name"] for c in inspect(engine).get_columns("projects")}
 
 
 def test_sync_records_version():

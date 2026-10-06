@@ -27,7 +27,7 @@ router = APIRouter()
 @router.get("/items", response_model=list[ItemResponse])
 def list_items(
     workspace_id: str | None = None,
-    domain_id: str | None = None,
+    project_id: str | None = None,
     type: str | None = None,
     memory_class: str | None = None,
     limit: int = Query(default=100, ge=1, le=500),
@@ -37,8 +37,8 @@ def list_items(
     stmt = select(Item)
     if workspace_id:
         stmt = stmt.where(Item.workspace_id == workspace_id)
-    if domain_id:
-        stmt = stmt.where(Item.domain_id == domain_id)
+    if project_id:
+        stmt = stmt.where(Item.project_id == project_id)
     if type:
         stmt = stmt.where(Item.type == type)
     if memory_class:
@@ -58,7 +58,7 @@ class SearchHit(ItemSearchResult):
     """Resultado de busca com os ids necessários para montar o link na UI."""
 
     workspace_id: str | None = None
-    domain_id: str | None = None
+    project_id: str | None = None
 
 
 class SearchHitsResponse(SearchResponse):
@@ -70,7 +70,7 @@ class SearchHitsResponse(SearchResponse):
 def search_items(
     query: str,
     workspace_id: str | None = None,
-    domain_id: str | None = None,
+    project_id: str | None = None,
     types: str | None = Query(default=None, description="types separados por vírgula"),
     limit: int = Query(default=10, ge=1, le=50),
     engine: Engine = Depends(get_engine_dep),
@@ -85,21 +85,21 @@ def search_items(
         )
     service = ItemService(engine)
     ws_id = service.resolve_workspace_id(workspace_id) if workspace_id else None
-    dm_id = domain_id
-    if domain_id and ws_id:
-        dm_id = service.resolve_domain_id(ws_id, domain_id)
-    rows = service.search(ws_id, dm_id, query, types=type_list or None, limit=limit)
+    pj_id = project_id
+    if project_id and ws_id:
+        pj_id = service.resolve_project_id(ws_id, project_id)
+    rows = service.search(ws_id, pj_id, query, types=type_list or None, limit=limit)
     links = {}
     if rows:
         found = session.execute(
-            select(Item.id, Item.workspace_id, Item.domain_id).where(
+            select(Item.id, Item.workspace_id, Item.project_id).where(
                 Item.id.in_([r["id"] for r in rows])
             )
         )
         links = {i: (w, d) for i, w, d in found}
     results = [
         SearchHit(**r, workspace_id=links.get(r["id"], (None, None))[0],
-                  domain_id=links.get(r["id"], (None, None))[1])
+                  project_id=links.get(r["id"], (None, None))[1])
         for r in rows
     ]
     return SearchHitsResponse(query=query, total=len(results), results=results)

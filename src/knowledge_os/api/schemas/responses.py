@@ -5,9 +5,9 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from knowledge_os.schemas.artifact_schemas import ArtifactResponse
-from knowledge_os.schemas.domain_schemas import DomainResponse
 from knowledge_os.schemas.item_schemas import ItemResponse, ItemSearchResult
 from knowledge_os.schemas.label_schemas import LabelResponse
+from knowledge_os.schemas.project_schemas import ProjectResponse
 from knowledge_os.schemas.relation_schemas import RelationResponse
 from knowledge_os.schemas.tag_schemas import TagResponse
 from knowledge_os.schemas.workspace_schemas import WorkspaceResponse
@@ -18,16 +18,16 @@ __all__ = [
     "ConnectionTest",
     "SchemaSyncResponse",
     "ConnectionTestResponse",
-    "DomainResponse",
-    "DomainStats",
     "ItemResponse",
     "ItemSearchResult",
     "LabelResponse",
+    "ProjectResponse",
+    "ProjectStats",
     "RelationResponse",
     "SearchResponse",
     "TagResponse",
-    "TreeDomain",
     "TreeItem",
+    "TreeProject",
     "WorkspaceResponse",
     "WorkspaceStats",
     "WorkspaceTree",
@@ -35,7 +35,7 @@ __all__ = [
 
 
 class WorkspaceStats(BaseModel):
-    domains: int
+    projects: int
     items: int
 
 
@@ -48,7 +48,7 @@ class TreeItem(BaseModel):
     updated_at: datetime | None
 
 
-class TreeDomain(BaseModel):
+class TreeProject(BaseModel):
     id: str
     name: str
     description: str | None
@@ -57,10 +57,10 @@ class TreeDomain(BaseModel):
 
 
 class WorkspaceTree(BaseModel):
-    domains: list[TreeDomain]
+    projects: list[TreeProject]
 
 
-class DomainStats(BaseModel):
+class ProjectStats(BaseModel):
     items: int
 
 
