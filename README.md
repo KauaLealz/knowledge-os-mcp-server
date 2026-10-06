@@ -7,8 +7,8 @@ o hook de início de sessão injeta o contexto do projeto e o fechamento de cada
 o que valeu, numa chamada.
 
 - **Local-first:** SQLite em `~/.knowledge-os` (Postgres e MySQL opcionais, pela UI).
-- **Barato em contexto:** perfil `agent` com 6 ferramentas (~1.800 tokens de definição) e
-  instruções de ~400 tokens; o pacote de contexto respeita um orçamento.
+- **Barato em contexto:** 14 ferramentas, sempre as mesmas para qualquer cliente MCP, com
+  instruções curtas; o pacote de contexto respeita um orçamento.
 - **Busca sem embeddings que acerta em PT-BR:** FTS5 sem acento, radical e prefixo
   ("migração" acha "migrações"), relevância antes de importância.
 - **Escrita idempotente:** `item_save` em lote, por `key` estável — grava de novo sem duplicar.
@@ -38,25 +38,26 @@ Já tinha instalado antes do layout `src/knowledge_os/`? O comando antigo segue 
 um atalho, com aviso no stderr; reinstale com `uv tool install --editable <caminho-do-repo> --force`.
 
 O instalador do Plumb (`npx plumb-harness install`) registra o servidor no Claude Code e no
-Cursor, com o perfil `agent` e o hook de início de sessão. Para registrar à mão:
+Cursor, com o hook de início de sessão. Para registrar à mão:
 
 ```bash
-claude mcp add --scope user knowledge-os -e KNOWLEDGE_OS_TOOLSET=agent -e LOG_LEVEL=WARNING -- knowledge-mcp
+claude mcp add --scope user knowledge-os -e LOG_LEVEL=WARNING -- knowledge-mcp
 ```
 
 ```json
 // ~/.cursor/mcp.json
 { "mcpServers": { "knowledge-os": { "command": "knowledge-mcp",
-  "env": { "KNOWLEDGE_OS_TOOLSET": "agent", "LOG_LEVEL": "WARNING" } } } }
+  "env": { "LOG_LEVEL": "WARNING" } } } }
 ```
 
 ## Modelo
 
 ```
 Workspace = contexto de trabalho     ex.: Polara (empresa), Pessoal
- ├── Domain Geral                     o que vale para todos os repositórios do workspace
- └── Domain = um repositório          ex.: projpro, synapse
-      └── Item: type · key · title · summary · content · scope_paths · keywords · source
+ ├── Project Geral                     o que vale para todos os repositórios do workspace
+ └── Project = um repositório          ex.: projpro, synapse
+      └── Subject (opcional)           agrupador de assunto dentro do project, ex.: pagamentos
+           └── Item: type · key · title · summary · content · scope_paths · keywords · source
 Global / Geral                        o que vale para você em qualquer lugar
 ```
 
@@ -73,37 +74,45 @@ do contexto. Nota temporária: `memory_class: "ephemeral"` com `ttl_days` — a 
 apaga quando o TTL vence. O resto (aprendizado, regra, decisão, procedimento) nunca expira
 sozinho; cada entrega a um agente conta em `uses`, e a `/plumb-retro` mostra o que nunca foi usado.
 
-Um repositório é ligado a um workspace/domain pela chave do remote do git
-(`project_link`, ou `knowledge-mcp link`).
+Um repositório é ligado a um workspace/project pela chave do remote do git
+(ferramenta `repo(action="link")`, ou `knowledge-mcp link`).
 
 ## Ferramentas
 
-| Perfil `agent` (padrão do Plumb) | |
+As 14 ferramentas abaixo são sempre registradas, para qualquer cliente MCP:
+
+| Ferramenta | Faz |
 |---|---|
-| `context_get` | pacote do projeto (regras, contexto, decisões, padrões, procedimentos, aprendizados) dentro de um orçamento; `paths` traz as regras com escopo |
+| `workspace` | lista, cria, renomeia, mescla ou apaga workspaces |
+| `project` | lista, cria, renomeia, mescla ou apaga projects de um workspace |
+| `subject` | lista, cria, renomeia, mescla ou apaga subjects de um project |
+| `repo` | liga, lista ou desliga repositórios de um workspace/project |
+| `context_get` | pacote do projeto (regras, contexto, decisões, padrões, procedimentos, aprendizados) dentro de um orçamento |
 | `item_search` | busca por texto; devolve resumos |
 | `item_get` | itens completos por ids ou keys, vários de uma vez |
-| `item_save` | criar, atualizar, upsert, lote, renovar e relacionar — numa transação |
-| `project_link` | liga um repositório a workspace/domain |
-| `health_check` | versão, schema e perfil |
+| `item_save` | criar, atualizar, upsert, mover, lote e relacionar — numa transação |
+| `item_delete` | remove um item de vez, com tags, relações e anexos |
+| `relation_delete` | remove uma relação entre itens |
+| `vocabulary` | tags e labels da base |
+| `artifact` | anexa um arquivo a um item ou lê um anexo existente |
+| `backup` | exporta um workspace/project para ZIP, ou importa um ZIP desses |
+| `health_check` | versão e schema do banco |
 
-Perfil `all` (padrão sem a variável): + `structure_list`, `structure_delete` (preview e
-`confirm`), `item_delete`, `relation_delete`, `vocabulary` (tags/labels), `backup_export`,
-`backup_import`, `artifact_attach`, `artifact_get`. Conexões com outros bancos, sincronização
-de schema e migração ficam na UI. Guia completo: [docs/MCP_USAGE.md](docs/MCP_USAGE.md).
+Conexões com outros bancos, sincronização de schema e migração ficam na UI. Guia completo:
+[docs/MCP_USAGE.md](docs/MCP_USAGE.md).
 
 ## CLI
 
 ```bash
 knowledge-mcp                                   # servidor MCP (stdio)
-knowledge-mcp context --project . --paths src/payments/Charge.java --budget 1500
+knowledge-mcp context --repo . --paths src/payments/Charge.java --budget 1500
 knowledge-mcp context --hook claude|cursor      # hook de início de sessão (lê o JSON no stdin)
-knowledge-mcp link --project .                  # domain = repo; workspace = o do dono
+knowledge-mcp link --repo .                     # project = repo; workspace = o do dono
 knowledge-mcp recent --since 2026-10-01 --json  # o que mudou (usado pela daily)
-knowledge-mcp pending --project .               # grava a fila offline (~/.knowledge-os/pending.jsonl)
+knowledge-mcp pending --repo .                   # grava a fila offline (~/.knowledge-os/pending.jsonl)
 knowledge-mcp ui [--port 8765]                  # UI web local (127.0.0.1; já sobe com o MCP)
 knowledge-mcp run --env NPM_TOKEN=segredo/npm-token -- npm publish   # segredo só no filho
-knowledge-mcp --check-db | --bootstrap | --version
+knowledge-mcp --check-db | --bootstrap | --migrate-v2 | --version
 ```
 
 Os subcomandos do cérebro não carregam o servidor MCP: o hook responde em ~1 s.
@@ -111,7 +120,7 @@ Os subcomandos do cérebro não carregam o servidor MCP: o hook responde em ~1 s
 ## Segredos
 
 Token, senha ou chave de API viram um item `secret` (key `segredo/<nome>`), no mesmo esquema do
-resto: no domain do repositório, no `Geral` do workspace (compartilhado pelos repos da empresa)
+resto: no project do repositório, no `Geral` do workspace (compartilhado pelos repos da empresa)
 ou no `Global` (seus). O fluxo:
 
 1. O agente grava o item **sem valor** (`item_save` recusa qualquer campo de valor) e a resposta
