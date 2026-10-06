@@ -68,6 +68,43 @@ class SubjectService:
                 raise NotFoundError(f"Subject não encontrado: {name}")
             return sj
 
+    def rename(self, project_id: str, name: str, new_name: str) -> Subject:
+        """Renomeia um subject dentro do project. ValidationError se new_name já existe."""
+        with session_scope(self._session, self._connection_id) as s:
+            sj = self._find(s, project_id, name)
+            if sj is None:
+                raise NotFoundError(f"Subject não encontrado: {name}")
+            if new_name != name and self._find(s, project_id, new_name) is not None:
+                raise ValidationError(f"Subject já existe no project: {new_name}")
+            sj.name = new_name
+            s.commit()
+            s.refresh(sj)
+            logger.info("Subject renomeado: %s -> %s (project %s)", name, new_name, project_id)
+            return sj
+
+    def merge(self, project_id: str, source: str, target: str) -> dict[str, int]:
+        """Move os items de source para target e apaga source."""
+        with session_scope(self._session, self._connection_id) as s:
+            src = self._find(s, project_id, source)
+            if src is None:
+                raise NotFoundError(f"Subject não encontrado: {source}")
+            tgt = self._find(s, project_id, target)
+            if tgt is None:
+                raise NotFoundError(f"Subject não encontrado: {target}")
+            if src.id == tgt.id:
+                raise ValidationError("source e target são o mesmo subject")
+            from sqlalchemy import update
+
+            from knowledge_os.db.models import Item
+
+            n = s.execute(
+                update(Item).where(Item.subject_id == src.id).values(subject_id=tgt.id)
+            ).rowcount  # type: ignore[attr-defined]
+            s.delete(src)
+            s.commit()
+            logger.info("Subject mesclado: %s -> %s (project %s)", source, target, project_id)
+            return {"merged_items": n or 0}
+
     def delete(self, project_id: str, name: str) -> bool:
         """Remove subject, desvinculando os items (subject_id = None) antes. False se não existe."""
         with session_scope(self._session, self._connection_id) as s:

@@ -85,6 +85,74 @@ class WorkspaceService:
                 raise NotFoundError(f"Workspace não encontrado: {name}")
             return ws
 
+    def rename(self, name: str, new_name: str) -> Workspace:
+        """Renomeia um workspace. ValidationError se new_name já existe."""
+        with session_scope(self._session, self._connection_id) as s:
+            ws = self._find(s, name)
+            if ws is None:
+                raise NotFoundError(f"Workspace não encontrado: {name}")
+            if new_name != name and self._find(s, new_name) is not None:
+                raise ValidationError(f"Workspace já existe: {new_name}")
+            ws.name = new_name
+            s.commit()
+            s.refresh(ws)
+            logger.info("Workspace renomeado: %s -> %s", name, new_name)
+            return ws
+
+    def merge(self, source: str, target: str) -> dict[str, int]:
+        """Move todos os projects de source para target e apaga source.
+
+        Projects homônimos (mesmo nome em source e target) são mesclados pelo
+        ProjectService.merge (repointando items/subjects) em vez de duplicados.
+        """
+        from knowledge_os.services.project_service import _merge_project_contents
+
+        with session_scope(self._session, self._connection_id) as s:
+            src = self._find(s, source)
+            if src is None:
+                raise NotFoundError(f"Workspace não encontrado: {source}")
+            tgt = self._find(s, target)
+            if tgt is None:
+                raise NotFoundError(f"Workspace não encontrado: {target}")
+            if src.id == tgt.id:
+                raise ValidationError("source e target são o mesmo workspace")
+
+            from sqlalchemy import delete, select, update
+
+            from knowledge_os.db.models import Item, RepoLink
+            from knowledge_os.services._common import purge_item_links
+
+            target_project_names = {p.name: p for p in tgt.projects}
+            source_projects = list(src.projects)
+            merged_projects = 0
+            renamed_collisions = 0
+            for project in source_projects:
+                existing = target_project_names.get(project.name)
+                if existing is not None:
+                    _merge_project_contents(s, project, existing)
+                    renamed_collisions += 1
+                else:
+                    s.execute(
+                        update(Item)
+                        .where(Item.project_id == project.id)
+                        .values(workspace_id=tgt.id)
+                    )
+                    project.workspace_id = tgt.id
+                merged_projects += 1
+            s.commit()
+
+            purge_item_links(
+                s, list(s.scalars(select(Item.id).where(Item.workspace_id == src.id)))
+            )
+            s.execute(delete(RepoLink).where(RepoLink.workspace_id == src.id))
+            s.delete(src)
+            s.commit()
+            logger.info("Workspace mesclado: %s -> %s", source, target)
+            return {
+                "merged_projects": merged_projects,
+                "renamed_collisions": renamed_collisions,
+            }
+
     def delete(self, name: str) -> bool:
         """Remove workspace (e seus projects/items). False se não existe."""
         with session_scope(self._session, self._connection_id) as s:

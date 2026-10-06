@@ -193,7 +193,7 @@ class ContextService:
                 "included": 0, "omitted": 0, "sensitive": False,
                 "markdown": (
                     f"# Segundo cérebro\nProjeto `{key}` ainda não está ligado. "
-                    "Sugira ao usuário rodar /plumb-setup (ou ligue com repo_link)."
+                    'Sugira ao usuário rodar /plumb-setup (ou ligue com repo(action="link")).'
                 ),
             }
         paths = paths or []

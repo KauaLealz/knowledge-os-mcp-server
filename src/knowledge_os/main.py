@@ -31,21 +31,13 @@ from knowledge_os.exceptions import ConfigError, DatabaseError  # noqa: E402
 logger = logging.getLogger(__name__)
 
 from knowledge_os import __version__  # noqa: E402
-from knowledge_os.mcp.toolset import selected_toolset  # noqa: E402
 
 _MCP_DIR = Path(__file__).resolve().parent / "mcp"
 INSTRUCTIONS_FILE = _MCP_DIR / "INSTRUCTIONS.md"
-AGENT_INSTRUCTIONS_FILE = _MCP_DIR / "INSTRUCTIONS_AGENT.md"
-TOOLSET = selected_toolset()
 
 # Inicializar FastMCP (as instructions chegam ao agente no handshake do protocolo e entram
-# no contexto de toda sessão: o perfil `agent` usa a versão curta).
-mcp = FastMCP(
-    name="knowledge-mcp",
-    instructions=(AGENT_INSTRUCTIONS_FILE if TOOLSET == "agent" else INSTRUCTIONS_FILE).read_text(
-        encoding="utf-8"
-    ),
-)
+# no contexto de toda sessão).
+mcp = FastMCP(name="knowledge-mcp", instructions=INSTRUCTIONS_FILE.read_text(encoding="utf-8"))
 
 
 def schema_version() -> str | None:
@@ -83,23 +75,19 @@ def health_check() -> dict[str, str]:
     """Verifica a saúde do servidor MCP e do banco default.
 
     **Use quando:** Diagnosticar falhas ou confirmar que o servidor está operacional.
-    **Retorna:** {status: ok|error, database: connected | motivo, version, schema_version,
-        toolset}.
+    **Retorna:** {status: ok|error, database: connected | motivo, version, schema_version}.
     **Exemplo:** health_check()
     **Notas:** Valida a conexão e a presença de todas as tabelas (inclusive a de busca textual).
     """
     result = check_database()
-    return {**result, "version": __version__, "schema_version": schema_version() or "",
-            "toolset": TOOLSET}
+    return {**result, "version": __version__, "schema_version": schema_version() or ""}
 
 
 def register_all_tools() -> None:
-    """Registra os tools do perfil ativo: `agent` (6) ou `all` (+ administração)."""
-    from knowledge_os.mcp import admin_tools, agent_tools
+    """Registra as 14 ferramentas do servidor (sem conceito de perfil)."""
+    from knowledge_os.mcp import tools
 
-    agent_tools.register(mcp)
-    if TOOLSET == "all":
-        admin_tools.register(mcp)
+    tools.register(mcp)
 
 
 def report_connections() -> None:

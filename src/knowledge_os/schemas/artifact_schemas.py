@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 
 class ArtifactCreate(BaseModel):
-    """Entrada de artifact_attach."""
+    """Entrada de artifact(action="attach")."""
 
     item_id: str = Field(min_length=1)
     file_path: str = Field(min_length=1)

@@ -3,10 +3,12 @@
 import re
 import subprocess
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy import Engine, select
 
 from knowledge_os.db.models import Project, RepoLink, Workspace
+from knowledge_os.db.search_query import strip_accents
 from knowledge_os.db.session import get_engine, get_session
 from knowledge_os.db.timeutil import utcnow
 from knowledge_os.exceptions import NotFoundError, ValidationError
@@ -101,18 +103,30 @@ class RepoService:
         return self._engine if self._engine is not None else get_engine(self._connection_id)
 
     def link(
-        self, repo: str, workspace: str | None = None, project: str | None = None
-    ) -> dict[str, str]:
+        self,
+        repo: str,
+        workspace: str | None = None,
+        project: str | None = None,
+        confirm_new: bool = False,
+    ) -> dict[str, Any]:
         """Liga (ou religa) o repositório; workspace e project são criados se não existirem.
 
         Workspace = contexto de trabalho (empresa, cliente, pessoal); project = o repositório.
         Sem workspace: o de outro repo do mesmo dono já ligado; senão o nome do dono no
         remote (sem remote, `Pessoal`). Sem project: o nome do repositório. O project `Geral`
         de cada workspace e o workspace `Global` guardam o que vale para mais de um repo.
+
+        Sem `confirm_new`: se o nome candidato de workspace ou project (depois de
+        casefold + sem acento) bater com um já existente mas com grafia diferente, não cria
+        nada — devolve {status: "candidate", candidate_match: {...}} para o chamador confirmar.
         """
         key = repo_key(repo)
         workspace = workspace or self._sibling_workspace(key) or owner_name(key)
         project = project or repo_name(key)
+        if not confirm_new:
+            candidate = self._find_candidate(workspace, project)
+            if candidate is not None:
+                return {"status": "candidate", "candidate_match": candidate}
         ws_id, pj_id = ItemService(self._engine, self._connection_id).ensure_location(
             workspace, project
         )
@@ -128,6 +142,43 @@ class RepoService:
         finally:
             session.close()
         return {"repo_key": key, "workspace": workspace, "project": project}
+
+    @staticmethod
+    def _norm(name: str) -> str:
+        return strip_accents(name).casefold()
+
+    def _find_candidate(self, workspace: str, project: str) -> dict[str, str] | None:
+        """Nome candidato de workspace/project parecido (casefold+sem acento) com um
+        já existente, mas grafado diferente. Só sinaliza se o literal já não existir.
+        """
+        engine = self._get_engine()
+        session = get_session(engine)
+        try:
+            from knowledge_os.db.session import connection_id_of
+
+            cid = self._connection_id or connection_id_of(engine) or "default"
+            workspaces = list(
+                session.scalars(select(Workspace).where(Workspace.connection_id == cid))
+            )
+            existing_ws = next((w for w in workspaces if w.name == workspace), None)
+            if existing_ws is None:
+                norm_ws = self._norm(workspace)
+                match = next((w for w in workspaces if self._norm(w.name) == norm_ws), None)
+                if match is not None:
+                    return {"field": "workspace", "input": workspace, "candidate": match.name}
+                return None
+            projects = list(
+                session.scalars(select(Project).where(Project.workspace_id == existing_ws.id))
+            )
+            if any(p.name == project for p in projects):
+                return None
+            norm_pj = self._norm(project)
+            match_pj = next((p for p in projects if self._norm(p.name) == norm_pj), None)
+            if match_pj is not None:
+                return {"field": "project", "input": project, "candidate": match_pj.name}
+            return None
+        finally:
+            session.close()
 
     def _sibling_workspace(self, key: str) -> str | None:
         """Workspace de outro repositório do mesmo dono já ligado (o mais recente)."""
@@ -172,6 +223,44 @@ class RepoService:
         if found is None:
             raise NotFoundError(
                 f"Projeto não ligado ao segundo cérebro: {repo_key(repo)}. "
-                "Ligue com repo_link(repo, workspace, project) ou rode /plumb-setup."
+                'Ligue com repo(action="link", repo=..., workspace=..., project=...) '
+                "ou rode /plumb-setup."
             )
         return found
+
+    def list_links(
+        self, workspace: str | None = None, project: str | None = None
+    ) -> list[dict[str, str]]:
+        """Todos os RepoLinks, opcionalmente filtrados por nome de workspace e/ou project."""
+        session = get_session(self._get_engine())
+        try:
+            query = (
+                select(RepoLink, Workspace.name, Project.name)
+                .join(Workspace, Workspace.id == RepoLink.workspace_id)
+                .join(Project, Project.id == RepoLink.project_id)
+            )
+            if workspace:
+                query = query.where(Workspace.name == workspace)
+            if project:
+                query = query.where(Project.name == project)
+            rows = session.execute(query.order_by(RepoLink.repo_key)).all()
+        finally:
+            session.close()
+        return [
+            {"repo_key": link.repo_key, "workspace": ws_name, "project": pj_name}
+            for link, ws_name, pj_name in rows
+        ]
+
+    def unlink(self, repo: str) -> bool:
+        """Apaga o vínculo do repositório. NotFoundError se não existir."""
+        key = repo_key(repo)
+        session = get_session(self._get_engine())
+        try:
+            row = session.get(RepoLink, key)
+            if row is None:
+                raise NotFoundError(f"Projeto não ligado ao segundo cérebro: {key}")
+            session.delete(row)
+            session.commit()
+        finally:
+            session.close()
+        return True

@@ -80,7 +80,7 @@ def test_primeiro_segredo_gera_a_chave_no_keyring(linked, monkeypatch):
 # ---- agente cria vazio; nada devolve o valor -------------------------------------------
 
 def test_item_save_cria_segredo_vazio_e_devolve_o_link(server):  # noqa: F811
-    call(server, "repo_link", repo=PROJECT, workspace="Org", project="app")
+    call(server, "repo", action="link", repo=PROJECT, workspace="Org", project="app")
     out = call(server, "item_save", repo=PROJECT, items=[SECRET])[0]
     assert out["action"] == "created" and out["has_value"] is False
     assert out["fill_url"].startswith("http://127.0.0.1:8765/ui/#/c/default/w/")
@@ -89,7 +89,7 @@ def test_item_save_cria_segredo_vazio_e_devolve_o_link(server):  # noqa: F811
 
 @pytest.mark.parametrize("field", ["value", "valor"])
 def test_item_save_recusa_o_valor_sem_ecoar(server, field):  # noqa: F811
-    call(server, "repo_link", repo=PROJECT, workspace="Org", project="app")
+    call(server, "repo", action="link", repo=PROJECT, workspace="Org", project="app")
     with pytest.raises(ToolError) as exc:
         call(server, "item_save", repo=PROJECT, items=[{**SECRET, field: VALUE}])
     assert "UI" in str(exc.value) and VALUE not in str(exc.value)

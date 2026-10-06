@@ -14,7 +14,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 ROOT = Path(__file__).resolve().parent.parent
-EXPECTED_TOOLS = 15
+EXPECTED_TOOLS = 14
 
 
 @pytest.fixture
@@ -52,7 +52,7 @@ def test_handshake_stdio_initialize_list_tools_health_check(server_env):
     assert not health.is_error
     report = json.loads(health.content[0].text)
     assert (report["status"], report["database"]) == ("ok", "connected")
-    assert report["version"] and report["schema_version"] and report["toolset"] == "all"
+    assert report["version"] and report["schema_version"]
     assert list(cwd.iterdir()) == []  # nada criado no cwd
     assert {p.name for p in home.iterdir()} >= {"connections.json", "knowledge.db"}
 
@@ -108,7 +108,6 @@ def test_wheel_inclui_instructions_e_static(tmp_path):
     (wheel,) = out.glob("knowledge_mcp-*.whl")
     names = set(zipfile.ZipFile(wheel).namelist())
     assert "knowledge_os/mcp/INSTRUCTIONS.md" in names
-    assert "knowledge_os/mcp/INSTRUCTIONS_AGENT.md" in names
     pkg = ROOT / "src" / "knowledge_os"
     static = {"knowledge_os/" + p.relative_to(pkg).as_posix()
               for p in (pkg / "api" / "static").rglob("*") if p.is_file()}
@@ -117,28 +116,6 @@ def test_wheel_inclui_instructions_e_static(tmp_path):
                for n in names)
     # O atalho de instalações antigas não vai no wheel.
     assert not any(n.startswith("src/") or n in {"cli.py", "__init__.py"} for n in names)
-
-
-def test_perfil_agent_expoe_6_tools_e_instrucoes_curtas(server_env):
-    cwd, env, _ = server_env
-    params = StdioServerParameters(
-        command=sys.executable, args=["-m", "knowledge_os.main"],
-        env={**env, "KNOWLEDGE_OS_TOOLSET": "agent"}, cwd=str(cwd),
-    )
-
-    async def scenario():
-        async with stdio_client(params) as (read, write):
-            async with ClientSession(read, write) as session:
-                init = await session.initialize()
-                tools = await session.list_tools()
-                health = await session.call_tool("health_check", {})
-                return init, tools, health
-
-    init, tools, health = asyncio.run(asyncio.wait_for(scenario(), timeout=60))
-    assert {t.name for t in tools.tools} == {
-        "context_get", "item_search", "item_get", "item_save", "repo_link", "health_check"}
-    assert len(init.instructions.encode()) < 2000
-    assert json.loads(health.content[0].text)["toolset"] == "agent"
 
 
 def test_atalho_src_cli_de_instalacao_antiga(tmp_path):
