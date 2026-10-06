@@ -261,8 +261,17 @@ def main(argv: list[str] | None = None) -> int:
         if args.migrate_v2:
             validate_config()
             from knowledge_os.db.rename_v2 import rename_v2
+            from knowledge_os.db.session import create_db_engine
 
-            result = rename_v2(get_engine())
+            # Engine cru, sem passar por get_engine()/init_db(): aquele caminho roda o
+            # schema_sync aditivo primeiro, que criaria "projects"/"repo_links" vazias
+            # antes do rename_v2 rodar — o pré-voo veria a tabela nova já existindo e
+            # pularia o rename de verdade, perdendo os dados presos nas tabelas antigas.
+            engine = create_db_engine()
+            try:
+                result = rename_v2(engine)
+            finally:
+                engine.dispose()
             print(json.dumps(result))
             return 0
 

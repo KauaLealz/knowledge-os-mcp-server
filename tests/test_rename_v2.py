@@ -2,16 +2,24 @@
 (projects/repo_links). O schema antigo não existe mais no código (já virou o novo), então
 é construído aqui via SQL puro, como fixture."""
 
+import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
-from sqlalchemy import inspect, text
+from sqlalchemy import create_engine, inspect, text
 
 from knowledge_os.db.rename_v2 import rename_v2
 from knowledge_os.db.session import create_db_engine
 
 
 def _old_schema_engine(tmp_path: Path):
-    engine = create_db_engine(f"sqlite:///{tmp_path / 'old.db'}")
+    return _write_old_schema(tmp_path / "old.db")
+
+
+def _write_old_schema(db_path: Path):
+    engine = create_db_engine(f"sqlite:///{db_path}")
     with engine.begin() as conn:
         conn.execute(
             text(
@@ -141,3 +149,38 @@ def test_rename_v2_banco_ja_novo_nao_faz_nada(tmp_path):
 
     assert result == {"status": "nothing_to_do"}
     assert "projects" in set(inspect(engine).get_table_names())
+
+
+def test_cli_migrate_v2_migra_de_verdade_sem_rodar_schema_sync_antes(tmp_path):
+    """Regressão: `knowledge-mcp --migrate-v2` tem que migrar os dados de verdade.
+
+    `get_engine()`/`init_db()` rodam `schema_sync` (aditivo) assim que são chamados — isso
+    criaria `projects`/`repo_links` vazias ANTES do `rename_v2` rodar, fazendo o pré-voo achar
+    que já estava tudo migrado (tabela nova já existe) e pular o rename de verdade, perdendo os
+    dados presos nas tabelas antigas. O CLI precisa usar um engine cru (sem passar por
+    `get_engine()`) para o `rename_v2` ver o schema antigo de fato.
+    """
+    home = tmp_path / "home"
+    home.mkdir()
+    db_path = home / "knowledge.db"
+    _write_old_schema(db_path)
+
+    env = {**os.environ, "KNOWLEDGE_OS_HOME": str(home)}
+    out = subprocess.run(
+        [sys.executable, "-m", "knowledge_os.main", "--migrate-v2"],
+        env=env, capture_output=True, text=True, timeout=60,
+    )
+    assert out.returncode == 0, out.stderr
+    result = json.loads(out.stdout)
+    assert result["status"] == "migrated", result
+
+    # Confere no arquivo de verdade, sem reaproveitar nenhum engine do processo do CLI.
+    engine = create_engine(f"sqlite:///{db_path}")
+    tables = set(inspect(engine).get_table_names())
+    assert "projects" in tables
+    assert "domains" not in tables
+
+    with engine.connect() as conn:
+        item_row = conn.execute(text("SELECT project_id FROM items WHERE id = 'i1'")).one()
+        assert item_row.project_id == "d1"  # o dado migrado de verdade, não uma tabela vazia
+    engine.dispose()
