@@ -1,6 +1,7 @@
 """MCP Knowledge OS - Servidor Principal."""
 
 import argparse
+import json
 import logging
 import os
 import socket
@@ -134,6 +135,10 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     group.add_argument(
         "--bootstrap", action="store_true", help="cria schema e labels padrão e sai"
     )
+    group.add_argument(
+        "--migrate-v2", action="store_true",
+        help="migra um banco do schema antigo (domains/project_links) pro novo e sai",
+    )
     sub = parser.add_subparsers(dest="command")
     ui = sub.add_parser("ui", help="sobe a UI web local (somente 127.0.0.1)")
     ui.add_argument("--port", type=int, default=UI_DEFAULT_PORT, help="porta (padrão: 8765)")
@@ -252,6 +257,14 @@ def main(argv: list[str] | None = None) -> int:
             result = check_database()
             print(f"database: {result['database']}")
             return 0 if result["status"] == "ok" else 1
+
+        if args.migrate_v2:
+            validate_config()
+            from knowledge_os.db.rename_v2 import rename_v2
+
+            result = rename_v2(get_engine())
+            print(json.dumps(result))
+            return 0
 
         validate_and_init_config()
         # Diagnóstico das conexões em segundo plano: uma conexão fora do ar não pode
