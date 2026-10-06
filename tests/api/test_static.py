@@ -21,7 +21,7 @@ ASSETS = [
     "js/util.js",
     "js/views/sidebar.js",
     "js/views/workspace.js",
-    "js/views/domain.js",
+    "js/views/project.js",
     "js/views/listing.js",
     "js/markdown.js",
     "js/views/item.js",
@@ -183,7 +183,7 @@ def test_paleta_e_atalhos():
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     assert 'x-data="palette"' in html and 'role="dialog"' in html
     pal = _js("views/palette.js")
-    for grupo in ("Recentes", "Items", "Domains e Workspaces", "Ações", "Configurações"):
+    for grupo in ("Recentes", "Items", "Projects e Workspaces", "Ações", "Configurações"):
         assert f"'{grupo}'" in pal, grupo
     assert "/items/search" in pal
     sc = _js("shortcuts.js")
@@ -194,11 +194,11 @@ def test_paleta_e_atalhos():
 
 def test_edicao_inline_e_modais_de_criacao():
     html = (STATIC / "index.html").read_text(encoding="utf-8")
-    for needle in ("itemEditor", "newModal", "Novo item", "Novo workspace", "Novo domain"):
+    for needle in ("itemEditor", "newModal", "Novo item", "Novo workspace", "Novo project"):
         assert needle in html, needle
     ed = _js("views/editor.js")
     assert "beforeunload" in ed and "'PUT'" in ed and "'POST'" in ed
-    assert "/workspaces" in ed and "/domains" in ed and "/items" in ed
+    assert "/workspaces" in ed and "/projects" in ed and "/items" in ed
     sc = _js("shortcuts.js")
     assert "saveHook" in sc and "toggleEdit" in sc
     assert "Ctrl S" in sc or "⌘ S" in sc
@@ -236,7 +236,7 @@ def test_load_workspaces_descarta_resposta_antiga():
     assert "++this.wsSeq" in st and st.count("seq !== this.wsSeq") >= 2
 
 
-def test_pagina_de_domain_usa_limite_maximo_e_avisa():
+def test_pagina_de_project_usa_limite_maximo_e_avisa():
     lst = _js("views/listing.js")
     assert "LIMIT = 500" in lst and "limit: LIMIT" in lst
     html = (STATIC / "index.html").read_text(encoding="utf-8")
@@ -319,7 +319,7 @@ def test_listas_agrupadas_por_tipo_com_filtros_e_busca():
 def test_paleta_busca_em_todos_os_workspaces_com_ate_20_resultados():
     pal = _js("views/palette.js")
     assert "REMOTE_LIMIT = 20" in pal and "workspace_id: ws" not in pal
-    assert "r.workspace_id" in pal and "r.domain_id" in pal
+    assert "r.workspace_id" in pal and "r.project_id" in pal
 
 
 

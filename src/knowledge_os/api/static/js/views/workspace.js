@@ -1,4 +1,4 @@
-// Página de Workspace: domains, itens recentes e todos os itens agrupados por tipo.
+// Página de Workspace: projects, itens recentes e todos os itens agrupados por tipo.
 import { parseDate } from '../util.js';
 import { listingMixin, mix } from './listing.js';
 
@@ -27,8 +27,8 @@ export function register(Alpine) {
         get totalItems() {
           return Object.keys(this.app.itemIndex).length;
         },
-        previewItems(d) {
-          return d.items.slice(0, 3);
+        previewItems(p) {
+          return p.items.slice(0, 3);
         },
       },
       listingMixin(Alpine),

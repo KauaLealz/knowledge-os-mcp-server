@@ -1,4 +1,4 @@
-// Paleta Ctrl/Cmd+K: Recentes / Items (busca em todos os workspaces) / Domains-Workspaces / Ações / Configurações.
+// Paleta Ctrl/Cmd+K: Recentes / Items (busca em todos os workspaces) / Projects-Workspaces / Ações / Configurações.
 import { api } from '../api.js';
 import { go, hrefs } from '../router.js';
 
@@ -77,7 +77,7 @@ export function register(Alpine) {
               sub: '',
              
               type: r.type,
-              hash: hrefs.item(r.conn, r.ws, r.dm, r.id),
+              hash: hrefs.item(r.conn, r.ws, r.pj, r.id),
             })),
         );
 
@@ -87,23 +87,23 @@ export function register(Alpine) {
           for (const r of this.remote) {
             if (seen.has(r.id)) continue;
             seen.add(r.id);
-            const hash = r.workspace_id && r.domain_id ? hrefs.item(app.connId, r.workspace_id, r.domain_id, r.id) : app.hItemById(r.id);
+            const hash = r.workspace_id && r.project_id ? hrefs.item(app.connId, r.workspace_id, r.project_id, r.id) : app.hItemById(r.id);
             items.push({ key: 'i' + r.id, title: r.title, sub: this.where(r), summary: r.summary, type: r.type, hash });
           }
           // Se a busca do servidor falhou, ainda acha pelo título nos itens do workspace aberto.
           if (!this.remote.length) {
             for (const it of Object.values(app.itemIndex)) {
               if (!match(it.title)) continue;
-              items.push({ key: 'i' + it.id, title: it.title, sub: it.domain_name, type: it.type, hash: app.hItemById(it.id) });
+              items.push({ key: 'i' + it.id, title: it.title, sub: it.project_name, type: it.type, hash: app.hItemById(it.id) });
             }
           }
           add('Items', items.slice(0, REMOTE_LIMIT));
         }
 
         const places = [];
-        for (const d of app.tree?.domains || []) {
-          if (match(d.name)) {
-            places.push({ key: 'd' + d.id, title: d.name, sub: `Domain · ${d.item_count} itens`, icon: 'folder', hash: app.hDomain(d.id) });
+        for (const p of app.tree?.projects || []) {
+          if (match(p.name)) {
+            places.push({ key: 'p' + p.id, title: p.name, sub: `Project · ${p.item_count} itens`, icon: 'folder', hash: app.hProject(p.id) });
           }
         }
         for (const w of app.workspaces) {
@@ -111,7 +111,7 @@ export function register(Alpine) {
             places.push({ key: 'w' + w.id, title: w.name, sub: 'Workspace', icon: 'box', hash: app.hWs(w.id) });
           }
         }
-        add('Domains e Workspaces', places.slice(0, 8));
+        add('Projects e Workspaces', places.slice(0, 8));
 
         add('Ações', this.actions().filter((a) => match(a.title)));
 
@@ -123,10 +123,10 @@ export function register(Alpine) {
         return groups;
       },
 
-      /** "Workspace › Domain" de um resultado da busca. */
+      /** "Workspace › Project" de um resultado da busca. */
       where(r) {
         const ws = this.app.workspaces.find((w) => w.id === r.workspace_id)?.name;
-        return [ws, r.domain].filter(Boolean).join(' › ');
+        return [ws, r.project].filter(Boolean).join(' › ');
       },
 
       /** Ações da paleta. */
@@ -134,7 +134,7 @@ export function register(Alpine) {
         const app = this.app;
         return [
           { key: 'a-new-item', title: 'Novo item', sub: 'Criar no workspace atual', icon: 'plus', run: () => app.openModal('item') },
-          { key: 'a-new-domain', title: 'Novo domain', sub: '', icon: 'folder', run: () => app.openModal('domain') },
+          { key: 'a-new-project', title: 'Novo project', sub: '', icon: 'folder', run: () => app.openModal('project') },
           { key: 'a-new-ws', title: 'Novo workspace', sub: '', icon: 'box', run: () => app.openModal('workspace') },
           { key: 'a-edit', title: 'Alternar Ler / Editar', sub: 'e', icon: 'edit', run: () => app.toggleEdit() },
           { key: 'a-wide', title: 'Alternar largura do conteúdo', sub: '', icon: 'expand', run: () => app.toggleWide() },

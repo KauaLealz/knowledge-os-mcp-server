@@ -1,4 +1,4 @@
-// Lógica compartilhada das listas de itens (telas de Workspace e de Domain): carga da
+// Lógica compartilhada das listas de itens (telas de Workspace e de Project): carga da
 // listagem, chips de tipo (multi-seleção), busca no servidor e agrupamento por tipo.
 // O estado dos filtros vive em Alpine.store('app').filters (não se perde ao navegar).
 import { api } from '../api.js';
@@ -16,7 +16,7 @@ export function mix(view, mixin) {
 }
 
 /**
- * A view precisa fornecer: `scope()` -> { workspace_id, domain_id? } e `Alpine` (via `store`).
+ * A view precisa fornecer: `scope()` -> { workspace_id, project_id? } e `Alpine` (via `store`).
  * Opcional: `sort` ('title' | 'recent').
  */
 export function listingMixin(Alpine) {
@@ -135,9 +135,9 @@ export function listingMixin(Alpine) {
     get groups() {
       return groupByType(this.visible);
     },
-    /** Domain do item: a busca devolve o nome; a listagem só o id (resolvido pela árvore). */
+    /** Project do item: a busca devolve o nome; a listagem só o id (resolvido pela árvore). */
     where(it) {
-      return it.domain || this.app.tree?.domains.find((d) => d.id === it.domain_id)?.name || '';
+      return it.project || this.app.tree?.projects.find((p) => p.id === it.project_id)?.name || '';
     },
   };
 }

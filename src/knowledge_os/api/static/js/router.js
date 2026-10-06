@@ -1,4 +1,4 @@
-// Router por hash: #/c/:conn/w/:ws/d/:dm/i/:item[/edit] e #/settings/connections[/:id|/new].
+// Router por hash: #/c/:conn/w/:ws/p/:pj/i/:item[/edit] e #/settings/connections[/:id|/new].
 
 const enc = encodeURIComponent;
 
@@ -23,9 +23,10 @@ export function parseHash(hash = location.hash) {
   if (seg[2] !== 'w' || !seg[3]) return { name: 'notfound', params };
   params.ws = seg[3];
   if (seg.length === 4) return { name: 'workspace', params };
-  if (seg[4] !== 'd' || !seg[5]) return { name: 'notfound', params };
-  params.dm = seg[5];
-  if (seg.length === 6) return { name: 'domain', params };
+  // Segmento "p" (project): era "d" (domain) antes do rename; "pj" evita colidir com "ws".
+  if (seg[4] !== 'p' || !seg[5]) return { name: 'notfound', params };
+  params.pj = seg[5];
+  if (seg.length === 6) return { name: 'project', params };
   if (seg[6] !== 'i' || !seg[7]) return { name: 'notfound', params };
   params.item = seg[7];
   if (seg.length === 8) return { name: 'item', params };
@@ -36,9 +37,9 @@ export function parseHash(hash = location.hash) {
 export const hrefs = {
   conn: (c) => `#/c/${enc(c)}`,
   ws: (c, w) => `#/c/${enc(c)}/w/${enc(w)}`,
-  domain: (c, w, d) => `#/c/${enc(c)}/w/${enc(w)}/d/${enc(d)}`,
-  item: (c, w, d, i) => `#/c/${enc(c)}/w/${enc(w)}/d/${enc(d)}/i/${enc(i)}`,
-  edit: (c, w, d, i) => `#/c/${enc(c)}/w/${enc(w)}/d/${enc(d)}/i/${enc(i)}/edit`,
+  project: (c, w, p) => `#/c/${enc(c)}/w/${enc(w)}/p/${enc(p)}`,
+  item: (c, w, p, i) => `#/c/${enc(c)}/w/${enc(w)}/p/${enc(p)}/i/${enc(i)}`,
+  edit: (c, w, p, i) => `#/c/${enc(c)}/w/${enc(w)}/p/${enc(p)}/i/${enc(i)}/edit`,
   connections: (sub) => `#/settings/connections${sub ? '/' + enc(sub) : ''}`,
 };
 

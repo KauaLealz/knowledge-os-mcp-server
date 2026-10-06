@@ -50,7 +50,7 @@ export const appStore = {
   wsSeq: 0,
   wsError: null,
 
-  // Filtros das listas (workspace e domain): ficam no store para não se perderem ao navegar.
+  // Filtros das listas (workspace e project): ficam no store para não se perderem ao navegar.
   filters: { q: '', types: [] },
   filtersWs: null,
 
@@ -170,7 +170,7 @@ export const appStore = {
     const p = this.route.params;
     let t = 'Knowledge OS';
     if (this.route.name === 'item' && this.itemIndex[p.item]) t = this.itemIndex[p.item].title + ' · ' + t;
-    else if (this.route.name === 'domain' && this.domain) t = this.domain.name + ' · ' + t;
+    else if (this.route.name === 'project' && this.project) t = this.project.name + ' · ' + t;
     else if (this.route.name === 'workspace' && this.workspace) t = this.workspace.name + ' · ' + t;
     else if (this.route.name === 'connections') t = 'Conexões · ' + t;
     document.title = t;
@@ -216,15 +216,15 @@ export const appStore = {
       const data = await api('GET', `/workspaces/${wsId}/tree`);
       if (this.treeWs !== wsId) return;
       const index = {};
-      for (const d of data.domains) {
-        for (const it of d.items) {
-          index[it.id] = { ...it, domain_id: d.id, domain_name: d.name, workspace_id: wsId };
+      for (const p of data.projects) {
+        for (const it of p.items) {
+          index[it.id] = { ...it, project_id: p.id, project_name: p.name, workspace_id: wsId };
         }
       }
       this.tree = data;
       this.itemIndex = index;
-      const dm = this.route.params.dm;
-      if (dm && this.expanded[dm] === undefined) this.expanded[dm] = true;
+      const pj = this.route.params.pj;
+      if (pj && this.expanded[pj] === undefined) this.expanded[pj] = true;
     } catch (e) {
       if (this.treeWs === wsId) {
         this.tree = null;
@@ -245,8 +245,8 @@ export const appStore = {
   get workspace() {
     return this.workspaces.find((w) => w.id === this.route.params.ws) || null;
   },
-  get domain() {
-    return this.tree?.domains.find((d) => d.id === this.route.params.dm) || null;
+  get project() {
+    return this.tree?.projects.find((p) => p.id === this.route.params.pj) || null;
   },
   get connName() {
     return this.connections.find((c) => c.id === this.connId)?.name || this.connId || '—';
@@ -262,29 +262,29 @@ export const appStore = {
   hWs(wsId) {
     return hrefs.ws(this.connId, wsId ?? this.route.params.ws);
   },
-  hDomain(dmId) {
-    return hrefs.domain(this.connId, this.route.params.ws, dmId);
+  hProject(pjId) {
+    return hrefs.project(this.connId, this.route.params.ws, pjId);
   },
-  hItem(dmId, itemId) {
-    return hrefs.item(this.connId, this.route.params.ws, dmId, itemId);
+  hItem(pjId, itemId) {
+    return hrefs.item(this.connId, this.route.params.ws, pjId, itemId);
   },
   /** Link de um item de lista/busca (usa os ids do próprio item quando vêm). */
   hItemOf(it) {
     const ws = it.workspace_id || this.route.params.ws;
-    return hrefs.item(this.connId, ws, it.domain_id, it.id);
+    return hrefs.item(this.connId, ws, it.project_id, it.id);
   },
   hItemById(itemId) {
     const it = this.itemIndex[itemId];
-    return it ? hrefs.item(this.connId, this.route.params.ws, it.domain_id, itemId) : null;
+    return it ? hrefs.item(this.connId, this.route.params.ws, it.project_id, itemId) : null;
   },
   hConnections: (sub) => hrefs.connections(sub),
 
   // ---- árvore ----
-  isOpen(dmId) {
-    return this.expanded[dmId] ?? this.route.params.dm === dmId;
+  isOpen(pjId) {
+    return this.expanded[pjId] ?? this.route.params.pj === pjId;
   },
-  toggleDomain(dmId) {
-    this.expanded[dmId] = !this.isOpen(dmId);
+  toggleProject(pjId) {
+    this.expanded[pjId] = !this.isOpen(pjId);
     lsSet('kos.expanded', JSON.stringify(this.expanded));
   },
 
@@ -304,7 +304,7 @@ export const appStore = {
       type: item.type,
       conn: this.connId,
       ws: item.workspace_id,
-      dm: item.domain_id,
+      pj: item.project_id,
     };
     this.recents = [entry, ...this.recents.filter((r) => !(r.id === entry.id && r.conn === entry.conn))].slice(0, 8);
     lsSet('kos.recents', JSON.stringify(this.recents));
@@ -314,7 +314,7 @@ export const appStore = {
   toggleEdit() {
     const p = this.route.params;
     if (this.route.name !== 'item') return;
-    go(p.edit ? hrefs.item(p.conn, p.ws, p.dm, p.item) : hrefs.edit(p.conn, p.ws, p.dm, p.item));
+    go(p.edit ? hrefs.item(p.conn, p.ws, p.pj, p.item) : hrefs.edit(p.conn, p.ws, p.pj, p.item));
   },
   /** Fecha o modal; se o formulário está sujo, confirma antes de descartar. */
   closeModal() {

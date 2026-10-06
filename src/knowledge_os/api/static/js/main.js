@@ -4,7 +4,7 @@ import { appStore } from './store.js';
 import { typeLabel, typeClass, timeAgo } from './util.js';
 import { register as registerSidebar } from './views/sidebar.js';
 import { register as registerWorkspace } from './views/workspace.js';
-import { register as registerDomain } from './views/domain.js';
+import { register as registerProject } from './views/project.js';
 import { register as registerItem } from './views/item.js';
 import { register as registerPalette } from './views/palette.js';
 import { register as registerEditor } from './views/editor.js';
@@ -18,7 +18,7 @@ Alpine.magic('tc', () => typeClass);
 
 registerSidebar(Alpine);
 registerWorkspace(Alpine);
-registerDomain(Alpine);
+registerProject(Alpine);
 registerItem(Alpine);
 registerPalette(Alpine);
 registerEditor(Alpine);

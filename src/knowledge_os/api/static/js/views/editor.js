@@ -1,4 +1,4 @@
-// Edição inline do item (textarea mono + preview) e modais Novo item / workspace / domain.
+// Edição inline do item (textarea mono + preview) e modais Novo item / workspace / project.
 import { api } from '../api.js';
 import { go, hrefs } from '../router.js';
 import { renderTo } from '../markdown.js';
@@ -116,11 +116,11 @@ export function register(Alpine) {
     get kind() {
       return this.app.modal;
     },
-    get domains() {
-      return this.app.tree?.domains || [];
+    get projects() {
+      return this.app.tree?.projects || [];
     },
     get title() {
-      return { item: 'Novo item', workspace: 'Novo workspace', domain: 'Novo domain' }[this.kind] || '';
+      return { item: 'Novo item', workspace: 'Novo workspace', project: 'Novo project' }[this.kind] || '';
     },
 
     init() {
@@ -129,7 +129,7 @@ export function register(Alpine) {
         name: '',
         description: '',
         workspace_id: p.ws || this.app.workspaces[0]?.id || '',
-        domain_id: p.dm || this.domains[0]?.id || '',
+        project_id: p.pj || this.projects[0]?.id || '',
         type: 'knowledge',
         title: '',
         summary: '',
@@ -155,7 +155,7 @@ export function register(Alpine) {
       this.saving = true;
       try {
         if (this.kind === 'workspace') await this.createWorkspace();
-        else if (this.kind === 'domain') await this.createDomain();
+        else if (this.kind === 'project') await this.createProject();
         else await this.createItem();
       } catch (e) {
         this.error = e.message;
@@ -176,31 +176,31 @@ export function register(Alpine) {
       go(hrefs.ws(this.app.connId, ws.id));
     },
 
-    async createDomain() {
+    async createProject() {
       const f = this.form;
       if (!f.workspace_id) throw new Error('Escolha o workspace.');
-      if (!f.name.trim()) throw new Error('Informe o nome do domain.');
-      const dm = await api('POST', '/domains', {
+      if (!f.name.trim()) throw new Error('Informe o nome do project.');
+      const pj = await api('POST', '/projects', {
         body: { workspace_id: f.workspace_id, name: f.name.trim(), description: f.description.trim() || null },
       });
       await this.app.loadTree(f.workspace_id);
-      this.app.expanded[dm.id] = true;
+      this.app.expanded[pj.id] = true;
       this.app.modal = null;
-      this.app.toast('Domain criado');
-      go(hrefs.domain(this.app.connId, f.workspace_id, dm.id));
+      this.app.toast('Project criado');
+      go(hrefs.project(this.app.connId, f.workspace_id, pj.id));
     },
 
     async createItem() {
       const f = this.form;
       const ws = this.app.route.params.ws;
       if (!ws) throw new Error('Abra um workspace antes de criar um item.');
-      if (!f.domain_id) throw new Error('Escolha o domain (crie um se ainda não houver).');
+      if (!f.project_id) throw new Error('Escolha o project (crie um se ainda não houver).');
       for (const [k, label] of [['title', 'título'], ['summary', 'resumo'], ['content', 'conteúdo']]) {
         if (!String(f[k]).trim()) throw new Error(`Informe o ${label}.`);
       }
       const body = {
         workspace_id: ws,
-        domain_id: f.domain_id,
+        project_id: f.project_id,
         type: f.type,
         memory_class: 'longterm', // a UI não expõe classe de memória: itens novos nascem duradouros
         title: f.title.trim(),
@@ -212,7 +212,7 @@ export function register(Alpine) {
       await this.app.loadTree(ws);
       this.app.modal = null;
       this.app.toast('Item criado');
-      go(hrefs.item(this.app.connId, ws, it.domain_id, it.id));
+      go(hrefs.item(this.app.connId, ws, it.project_id, it.id));
     },
   }));
 }

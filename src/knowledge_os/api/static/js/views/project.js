@@ -1,17 +1,17 @@
-// Página de Domain: itens do domain agrupados por tipo, com filtros e busca.
+// Página de Project: itens do project agrupados por tipo, com filtros e busca.
 import { listingMixin, mix, LIMIT } from './listing.js';
 
 export function register(Alpine) {
-  Alpine.data('domainView', () =>
+  Alpine.data('projectView', () =>
     mix(
       {
         scope() {
           const p = this.app.route.params;
-          return { workspace_id: p.ws, domain_id: p.dm };
+          return { workspace_id: p.ws, project_id: p.pj };
         },
         init() {
           this.$watch(
-            () => this.app.route.params.dm + '|' + this.app.treeWs,
+            () => this.app.route.params.pj + '|' + this.app.treeWs,
             () => this.loadItems(),
           );
           this.loadItems();
@@ -19,11 +19,11 @@ export function register(Alpine) {
         },
         /** Lista cheia (== limite) ou menor que o item_count da árvore: avisa que há mais itens. */
         get truncated() {
-          const total = this.app.domain?.item_count ?? 0;
+          const total = this.app.project?.item_count ?? 0;
           return !this.loading && this.items.length > 0 && (this.items.length >= LIMIT || this.items.length < total);
         },
         get totalItems() {
-          return Math.max(this.app.domain?.item_count ?? 0, this.items.length);
+          return Math.max(this.app.project?.item_count ?? 0, this.items.length);
         },
       },
       listingMixin(Alpine),

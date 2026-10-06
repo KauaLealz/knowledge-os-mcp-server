@@ -116,7 +116,7 @@
         </div>
       </div>
 
-      <!-- Árvore Workspace → Domain → Item -->
+      <!-- Árvore Workspace → Project → Item -->
       <nav class="tree" aria-label="Árvore do workspace">
         <template x-if="$store.app.route.params.ws && $store.app.treeLoading && !$store.app.tree">
           <div><div class="skeleton"></div><div class="skeleton" style="width:70%"></div><div class="skeleton" style="width:85%"></div></div>
@@ -126,33 +126,33 @@
             <div class="tree-head">
               <span x-text="$store.app.workspace ? $store.app.workspace.name : 'Workspace'"></span>
             </div>
-            <template x-for="d in $store.app.tree.domains" :key="d.id">
+            <template x-for="p in $store.app.tree.projects" :key="p.id">
               <div>
-                <div class="tree-row" :class="{ active: $store.app.route.name === 'domain' && $store.app.route.params.dm === d.id }">
-                  <button class="tw" @click="$store.app.toggleDomain(d.id)"
-                          :aria-label="($store.app.isOpen(d.id) ? 'Recolher ' : 'Expandir ') + d.name"
-                          :aria-expanded="$store.app.isOpen(d.id)">
-                    <svg class="ic" :class="{ open: $store.app.isOpen(d.id) }"><use href="#i-chevron"/></svg>
+                <div class="tree-row" :class="{ active: $store.app.route.name === 'project' && $store.app.route.params.pj === p.id }">
+                  <button class="tw" @click="$store.app.toggleProject(p.id)"
+                          :aria-label="($store.app.isOpen(p.id) ? 'Recolher ' : 'Expandir ') + p.name"
+                          :aria-expanded="$store.app.isOpen(p.id)">
+                    <svg class="ic" :class="{ open: $store.app.isOpen(p.id) }"><use href="#i-chevron"/></svg>
                   </button>
-                  <a class="tree-link" :href="$store.app.hDomain(d.id)">
+                  <a class="tree-link" :href="$store.app.hProject(p.id)">
                     <svg class="ic"><use href="#i-folder"/></svg>
-                    <span class="tl-text" x-text="d.name"></span>
-                    <span class="count" x-text="d.item_count"></span>
+                    <span class="tl-text" x-text="p.name"></span>
+                    <span class="count" x-text="p.item_count"></span>
                   </a>
                 </div>
-                <div class="tree-items" x-show="$store.app.isOpen(d.id)">
-                  <template x-for="it in d.items" :key="it.id">
+                <div class="tree-items" x-show="$store.app.isOpen(p.id)">
+                  <template x-for="it in p.items" :key="it.id">
                     <a class="tree-item" :class="{ active: $store.app.route.params.item === it.id }"
-                       :href="$store.app.hItem(d.id, it.id)" :title="it.title">
+                       :href="$store.app.hItem(p.id, it.id)" :title="it.title">
                       <span class="tdot" :class="$tc(it.type)" aria-hidden="true"></span>
                       <span class="sr-only" x-text="$tlabel(it.type) + ': '"></span><span x-text="it.title"></span>
                     </a>
                   </template>
-                  <div class="tree-empty" x-show="!d.items.length">Sem itens</div>
+                  <div class="tree-empty" x-show="!p.items.length">Sem itens</div>
                 </div>
               </div>
             </template>
-            <div class="tree-empty" x-show="!$store.app.tree.domains.length">Este workspace ainda não tem domains.</div>
+            <div class="tree-empty" x-show="!$store.app.tree.projects.length">Este workspace ainda não tem projects.</div>
           </div>
         </template>
         <div class="tree-empty" x-show="$store.app.route.params.ws && $store.app.treeError" x-text="$store.app.treeError"></div>
@@ -186,8 +186,8 @@
           <div class="dd-menu right" x-show="open" x-cloak role="menu">
             <button class="dd-item" role="menuitem" :disabled="!$store.app.route.params.ws" @click="close(); $store.app.openModal('item')">
               <svg class="ic"><use href="#i-file"/></svg><span class="grow">Novo item</span></button>
-            <button class="dd-item" role="menuitem" :disabled="!$store.app.workspaces.length" @click="close(); $store.app.openModal('domain')">
-              <svg class="ic"><use href="#i-folder"/></svg><span class="grow">Novo domain</span></button>
+            <button class="dd-item" role="menuitem" :disabled="!$store.app.workspaces.length" @click="close(); $store.app.openModal('project')">
+              <svg class="ic"><use href="#i-folder"/></svg><span class="grow">Novo project</span></button>
             <button class="dd-item" role="menuitem" @click="close(); $store.app.openModal('workspace')">
               <svg class="ic"><use href="#i-box"/></svg><span class="grow">Novo workspace</span></button>
           </div>
@@ -230,7 +230,7 @@
                     <span class="card-title"><svg class="ic"><use href="#i-box"/></svg><span class="tl-text" x-text="w.name"></span></span>
                     <span class="card-desc" x-text="w.description || 'Sem descrição'"></span>
                     <span class="card-foot" x-show="w.stats">
-                      <span><b x-text="w.stats?.domains"></b> domains</span>
+                      <span><b x-text="w.stats?.projects"></b> projects</span>
                       <span><b x-text="w.stats?.items"></b> itens</span>
                     </span>
                   </a>
@@ -256,7 +256,7 @@
                   <h1 class="page-title" x-text="$store.app.workspace.name"></h1>
                   <p class="page-lead" x-show="$store.app.workspace.description" x-text="$store.app.workspace.description"></p>
                   <div class="page-meta" x-show="$store.app.tree">
-                    <span><b x-text="$store.app.tree?.domains.length"></b> domains</span>
+                    <span><b x-text="$store.app.tree?.projects.length"></b> projects</span>
                     <span><b x-text="totalItems"></b> itens</span>
                     <span>criado <b x-text="$ago($store.app.workspace.created_at)"></b></span>
                   </div>
@@ -286,25 +286,25 @@
 
                   <template x-if="!filtering">
                   <div>
-                  <div class="section-title"><span>Domains</span>
-                    <button class="btn" @click="$store.app.openModal('domain')"><svg class="ic"><use href="#i-plus"/></svg> Novo domain</button></div>
+                  <div class="section-title"><span>Projects</span>
+                    <button class="btn" @click="$store.app.openModal('project')"><svg class="ic"><use href="#i-plus"/></svg> Novo project</button></div>
                   <div class="card-grid">
-                    <template x-for="d in $store.app.tree?.domains || []" :key="d.id">
-                      <a class="card" :href="$store.app.hDomain(d.id)">
-                        <span class="card-title"><svg class="ic"><use href="#i-folder"/></svg><span class="tl-text" x-text="d.name"></span><span class="count" x-text="d.item_count"></span></span>
-                        <span class="card-desc" x-show="d.description" x-text="d.description"></span>
+                    <template x-for="p in $store.app.tree?.projects || []" :key="p.id">
+                      <a class="card" :href="$store.app.hProject(p.id)">
+                        <span class="card-title"><svg class="ic"><use href="#i-folder"/></svg><span class="tl-text" x-text="p.name"></span><span class="count" x-text="p.item_count"></span></span>
+                        <span class="card-desc" x-show="p.description" x-text="p.description"></span>
                         <ul class="mini-list">
-                          <template x-for="it in previewItems(d)" :key="it.id"><li x-text="'· ' + it.title"></li></template>
+                          <template x-for="it in previewItems(p)" :key="it.id"><li x-text="'· ' + it.title"></li></template>
                         </ul>
                       </a>
                     </template>
                   </div>
                   </div>
                   </template>
-                  <div class="state" x-show="$store.app.tree && !$store.app.tree.domains.length">
+                  <div class="state" x-show="$store.app.tree && !$store.app.tree.projects.length">
                     <svg class="logo"><use href="#logo"/></svg>
-                    <h3>Sem domains</h3>
-                    <p>Este workspace ainda não tem domains.</p>
+                    <h3>Sem projects</h3>
+                    <p>Este workspace ainda não tem projects.</p>
                   </div>
 
                   <template x-if="recent.length && !filtering">
@@ -312,12 +312,12 @@
                       <div class="section-title">Atualizados recentemente</div>
                       <div class="item-list">
                         <template x-for="it in recent" :key="it.id">
-                          <a class="item-row" :href="$store.app.hItem(it.domain_id, it.id)">
+                          <a class="item-row" :href="$store.app.hItem(it.project_id, it.id)">
                             <div>
                               <div class="ir-title" x-text="it.title"></div>
                               <div class="ir-meta">
                                 <span class="tbadge" :class="$tc(it.type)"><span class="tdot" aria-hidden="true"></span><span x-text="$tlabel(it.type)"></span></span>
-                                <span class="chip outline" x-text="it.domain_name"></span>
+                                <span class="chip outline" x-text="it.project_name"></span>
                                 <span class="muted" style="font-size:12.5px" x-text="$ago(it.updated_at)"></span>
                               </div>
                             </div>
@@ -384,19 +384,19 @@
             </div></div>
           </template>
 
-          <!-- Domain -->
-          <template x-if="$store.app.route.name === 'domain'">
-            <div class="page" x-data="domainView"><div class="doc">
-              <template x-if="$store.app.domain">
+          <!-- Project -->
+          <template x-if="$store.app.route.name === 'project'">
+            <div class="page" x-data="projectView"><div class="doc">
+              <template x-if="$store.app.project">
                 <div>
                   <nav class="crumbs">
                     <a :href="$store.app.hConn()" x-text="$store.app.connName"></a><span class="sep">/</span>
                     <a :href="$store.app.hWs()" x-text="$store.app.workspace?.name"></a><span class="sep">/</span>
-                    <span x-text="$store.app.domain.name"></span>
+                    <span x-text="$store.app.project.name"></span>
                   </nav>
-                  <h1 class="page-title" x-text="$store.app.domain.name"></h1>
-                  <p class="page-lead" x-show="$store.app.domain.description" x-text="$store.app.domain.description"></p>
-                  <div class="page-meta"><span><b x-text="$store.app.domain.item_count"></b> itens</span></div>
+                  <h1 class="page-title" x-text="$store.app.project.name"></h1>
+                  <p class="page-lead" x-show="$store.app.project.description" x-text="$store.app.project.description"></p>
+                  <div class="page-meta"><span><b x-text="$store.app.project.item_count"></b> itens</span></div>
                   <div class="toolbar"><button class="btn primary" @click="$store.app.openModal('item')"><svg class="ic"><use href="#i-plus"/></svg> Novo item</button></div>
 
                   <div class="banner" role="status" x-show="truncated">
@@ -406,7 +406,7 @@
                   <div class="filterbar">
                     <label class="searchbox">
                       <svg class="ic"><use href="#i-search"/></svg>
-                      <input type="search" class="input" x-model="$store.app.filters.q" placeholder="Buscar neste domain…" aria-label="Buscar itens" autocomplete="off">
+                      <input type="search" class="input" x-model="$store.app.filters.q" placeholder="Buscar neste project…" aria-label="Buscar itens" autocomplete="off">
                     </label>
                     <div class="type-chips" role="group" aria-label="Filtrar por tipo">
                       <button class="tchip" :class="{ on: !filters.types.length }" :aria-pressed="!filters.types.length" @click="clearTypes()">
@@ -465,8 +465,8 @@
                   </div>
                   <div class="state" x-show="!loading && !error && !items.length && !filtering">
                     <svg class="logo"><use href="#logo"/></svg>
-                    <h3>Domain vazio</h3>
-                    <p>Ainda não há itens neste domain.</p>
+                    <h3>Project vazio</h3>
+                    <p>Ainda não há itens neste project.</p>
                   </div>
                   <div class="state error" x-show="error" role="alert">
                     <svg class="logo"><use href="#logo"/></svg>
@@ -476,9 +476,9 @@
                   </div>
                 </div>
               </template>
-              <div class="state error" x-show="!$store.app.domain && !$store.app.treeLoading" role="alert">
+              <div class="state error" x-show="!$store.app.project && !$store.app.treeLoading" role="alert">
                 <svg class="logo"><use href="#logo"/></svg>
-                <h3>Domain não encontrado</h3>
+                <h3>Project não encontrado</h3>
                 <p>Ele pode ter sido removido.</p>
                 <a class="btn" :href="$store.app.hWs()">Voltar ao workspace</a>
               </div>
@@ -496,7 +496,7 @@
                     <nav class="crumbs">
                       <a :href="$store.app.hConn()" x-text="$store.app.connName"></a><span class="sep">/</span>
                       <a :href="$store.app.hWs()" x-text="$store.app.workspace?.name"></a><span class="sep">/</span>
-                      <a :href="$store.app.hDomain(item.domain_id)" x-text="domainName"></a><span class="sep">/</span>
+                      <a :href="$store.app.hProject(item.project_id)" x-text="projectName"></a><span class="sep">/</span>
                       <span x-text="item.title"></span>
                     </nav>
 
@@ -631,12 +631,12 @@
 
                     <nav class="pager" aria-label="Itens vizinhos">
                       <template x-if="prev">
-                        <a class="pager-a" :href="$store.app.hItem(item.domain_id, prev.id)">
+                        <a class="pager-a" :href="$store.app.hItem(item.project_id, prev.id)">
                           <span class="muted">Anterior</span><b x-text="prev.title"></b>
                         </a>
                       </template>
                       <template x-if="next">
-                        <a class="pager-a next" :href="$store.app.hItem(item.domain_id, next.id)">
+                        <a class="pager-a next" :href="$store.app.hItem(item.project_id, next.id)">
                           <span class="muted">Próximo</span><b x-text="next.title"></b>
                         </a>
                       </template>
@@ -857,7 +857,7 @@
     <div class="palette" role="dialog" aria-modal="true" aria-label="Buscar e comandos">
       <div class="pal-input">
         <svg class="ic"><use href="#i-search"/></svg>
-        <input x-ref="input" x-model="q" type="text" placeholder="Buscar itens em todos os workspaces, domains, ações…" autocomplete="off" spellcheck="false"
+        <input x-ref="input" x-model="q" type="text" placeholder="Buscar itens em todos os workspaces, projects, ações…" autocomplete="off" spellcheck="false"
                role="combobox" aria-expanded="true" aria-controls="pal-list"
                :aria-activedescendant="'pal-' + sel"
                @keydown.arrow-down.prevent="move(1)" @keydown.arrow-up.prevent="move(-1)"
@@ -888,7 +888,7 @@
   </div>
   </template>
 
-  <!-- Novo item / domain / workspace -->
+  <!-- Novo item / project / workspace -->
   <template x-if="$store.app.modal">
   <div class="overlay" x-data="newModal" @click.self="close()">
     <form class="dialog wide" role="dialog" aria-modal="true" :aria-label="title" @submit.prevent="submit()">
@@ -906,16 +906,16 @@
           </div>
         </template>
 
-        <template x-if="kind === 'domain'">
+        <template x-if="kind === 'project'">
           <div>
             <div class="field"><label for="m-ws">Workspace</label>
               <select id="m-ws" class="select" x-model="form.workspace_id">
                 <template x-for="w in $store.app.workspaces" :key="w.id"><option :value="w.id" x-text="w.name"></option></template>
               </select></div>
-            <div class="field"><label for="m-dname">Nome</label>
-              <input id="m-dname" x-ref="first" class="input" type="text" x-model="form.name" maxlength="255" required></div>
-            <div class="field"><label for="m-ddesc">Descrição</label>
-              <textarea id="m-ddesc" class="textarea" rows="3" x-model="form.description"></textarea></div>
+            <div class="field"><label for="m-pname">Nome</label>
+              <input id="m-pname" x-ref="first" class="input" type="text" x-model="form.name" maxlength="255" required></div>
+            <div class="field"><label for="m-pdesc">Descrição</label>
+              <textarea id="m-pdesc" class="textarea" rows="3" x-model="form.description"></textarea></div>
           </div>
         </template>
 
@@ -925,16 +925,16 @@
             <div class="field"><label for="m-title">Título</label>
               <input id="m-title" x-ref="first" class="input" type="text" x-model="form.title" maxlength="255" required></div>
             <div class="form-row">
-              <div class="field"><label for="m-domain">Domain</label>
-                <select id="m-domain" class="select" x-model="form.domain_id">
-                  <template x-for="d in domains" :key="d.id"><option :value="d.id" x-text="d.name"></option></template>
+              <div class="field"><label for="m-project">Project</label>
+                <select id="m-project" class="select" x-model="form.project_id">
+                  <template x-for="p in projects" :key="p.id"><option :value="p.id" x-text="p.name"></option></template>
                 </select></div>
               <div class="field"><label for="m-type">Tipo</label>
                 <select id="m-type" class="select" x-model="form.type">
                   <template x-for="t in types" :key="t"><option :value="t" x-text="$tlabel(t)"></option></template>
                 </select></div>
             </div>
-            <p class="form-hint" x-show="!domains.length">Este workspace ainda não tem domains: crie um antes do item.</p>
+            <p class="form-hint" x-show="!projects.length">Este workspace ainda não tem projects: crie um antes do item.</p>
             <div class="field"><label for="m-sum">Resumo</label>
               <input id="m-sum" class="input" type="text" x-model="form.summary" required></div>
             <div class="field"><label for="m-content">Conteúdo (Markdown)</label>
