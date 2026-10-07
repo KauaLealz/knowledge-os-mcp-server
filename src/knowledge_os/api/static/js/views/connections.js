@@ -108,7 +108,7 @@ export function register(Alpine) {
 
     // ---- apresentação ----
     target(c) {
-      return c.remote_url || 'Repositório local (sem remote)';
+      return c.remote_url || 'Local-only repository (no remote)';
     },
     dotClass(c) {
       if (!c.enabled) return 'off';
@@ -117,8 +117,8 @@ export function register(Alpine) {
     },
     lastTest(c) {
       const t = c.last_test;
-      if (!t) return 'Nunca testada';
-      return t.status === 'ok' ? `OK · ${t.latency_ms} ms` : 'Falhou no último teste';
+      if (!t) return 'Never tested';
+      return t.status === 'ok' ? `OK · ${t.latency_ms} ms` : 'Failed on last test';
     },
 
     // ---- corpo da requisição ----
@@ -157,7 +157,7 @@ export function register(Alpine) {
     async save() {
       const creating = this.isNew;
       const saved = await this.persist();
-      if (saved) this.app.toast(creating ? 'Conexão criada' : 'Conexão salva');
+      if (saved) this.app.toast(creating ? 'Connection created' : 'Connection saved');
     },
 
     async saveAndTest() {
@@ -189,7 +189,7 @@ export function register(Alpine) {
       try {
         await api('PUT', `/connections/${encodeURIComponent(this.conn.id)}/default`);
         await this.refreshList();
-        this.app.toast('Conexão definida como default');
+        this.app.toast('Connection set as default');
       } catch (e) {
         this.error = e.message;
       }
@@ -207,8 +207,8 @@ export function register(Alpine) {
           this.plan = r;
         } else {
           this.plan = null;
-          this.syncMessage = `Schema sincronizado (${r.status}).`;
-          this.app.toast('Schema sincronizado');
+          this.syncMessage = `Schema synced (${r.status}).`;
+          this.app.toast('Schema synced');
         }
       } catch (e) {
         this.error = e.message;
@@ -230,7 +230,7 @@ export function register(Alpine) {
           const next = this.app.connections.find((c) => c.is_default) || this.app.connections[0];
           if (next) await this.app.selectConnection(next.id);
         }
-        this.app.toast('Conexão excluída');
+        this.app.toast('Connection deleted');
         go(hrefs.connections());
       } catch (e) {
         this.error = e.message;

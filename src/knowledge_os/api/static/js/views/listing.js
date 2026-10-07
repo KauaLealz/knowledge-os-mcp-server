@@ -1,26 +1,26 @@
-// Lógica compartilhada das listas de itens (telas de Workspace e de Project): carga da
-// listagem, chips de tipo (multi-seleção), busca no servidor e agrupamento por tipo.
-// O estado dos filtros vive em Alpine.store('app').filters (não se perde ao navegar).
+// Shared logic for item listings (Workspace, Project and Subject pages): paged loading,
+// type chips (multi-select), server search and project/subject filters. Filter state lives
+// in Alpine.store('app').filters (survives navigation).
 import { api } from '../api.js';
-import { TYPE_ORDER, groupByType, parseDate, typeLabel } from '../util.js';
+import { TYPE_ORDER, parseDate, typeLabel } from '../util.js';
 
-export const PAGE_SIZE = 50; // itens por página (mesmo tamanho da busca)
-const SEARCH_LIMIT = 50; // máximo aceito pela busca
+export const PAGE_SIZE = 50; // items per page (same size as search)
+const SEARCH_LIMIT = 50; // max accepted by search
 const MIN_QUERY = 2;
 
 const time = (it) => parseDate(it.updated_at)?.getTime() || 0;
 
-/** Copia getters/setters junto (o spread de objeto avaliaria os getters). */
+/** Copies getters/setters too (a plain object spread would evaluate the getters). */
 export function mix(view, mixin) {
   return Object.defineProperties(view, Object.getOwnPropertyDescriptors(mixin));
 }
 
 /**
- * A view precisa fornecer: `scope()` -> { workspace_id, project_id? } e `Alpine` (via `store`).
- * Opcional: `sort` ('title' | 'recent').
+ * The view must provide: `scope()` -> { workspace_id, project_id? } and `Alpine` (via `store`).
+ * Optional: `sort` ('title' | 'recent').
  */
 export function listingMixin(Alpine) {
-  let timer = null; // fora do estado reativo
+  let timer = null; // outside reactive state
   let searchSeq = 0;
   let loadSeq = 0;
   return {
@@ -33,7 +33,7 @@ export function listingMixin(Alpine) {
     remote: [],
     searching: false,
     searchError: null,
-    sort: 'recent', // listagem geral por padrão ordenada pelo mais atualizado
+    sort: 'recent', // listing defaults to most-recently-updated first
 
     get app() {
       return Alpine.store('app');
@@ -61,8 +61,8 @@ export function listingMixin(Alpine) {
         () => this.filters.q + '|' + this.filters.types.join(',') + '|' + JSON.stringify(this.scope()),
         () => this.runSearch(),
       );
-      // project/assunto filtram no servidor (não só a página carregada, como o tipo) —
-      // mudar qualquer um dos dois recarrega a página 1 com o filtro novo.
+      // project/subject filter on the server (not just the loaded page, like type does) —
+      // changing either reloads page 1 with the new filter.
       this.$watch(
         () => this.filters.projectIds.join(',') + '|' + this.filters.subjectIds.join(',') + '|' + JSON.stringify(this.scope()),
         () => {
@@ -73,7 +73,7 @@ export function listingMixin(Alpine) {
       this.runSearch();
     },
 
-    /** Carga inicial (ou recarga ao trocar de workspace/project): busca a página 1. */
+    /** Initial load (or reload on workspace/project change): fetches page 1. */
     async loadItems() {
       await this.goToPage(1);
     },
@@ -82,7 +82,7 @@ export function listingMixin(Alpine) {
       return Math.max(1, Math.ceil(this.total / this.pageSize));
     },
 
-    /** Busca uma página específica e substitui a lista exibida (sem acumular). */
+    /** Fetches a specific page and replaces the displayed list (no accumulation). */
     async goToPage(n) {
       const scope = this.scope();
       if (!scope.workspace_id) return;
@@ -142,7 +142,7 @@ export function listingMixin(Alpine) {
       }, 250);
     },
 
-    // ---- chips de tipo ----
+    // ---- type chips ----
     toggleType(t) {
       const cur = this.filters.types;
       this.filters.types = cur.includes(t) ? cur.filter((x) => x !== t) : [...cur, t];
@@ -157,7 +157,7 @@ export function listingMixin(Alpine) {
       this.filters.subjectIds = [];
     },
 
-    // ---- filtro por project/assunto (multisseleção, filtra no servidor) ----
+    // ---- project/subject filter (multi-select, filters on the server) ----
     toggleProjectFilter(id) {
       const cur = this.filters.projectIds;
       this.filters.projectIds = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
@@ -166,16 +166,16 @@ export function listingMixin(Alpine) {
       const cur = this.filters.subjectIds;
       this.filters.subjectIds = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
     },
-    /** Workspace: todo project da árvore. Project: nenhum (já é um project só, o filtro de
-     * project ali seria redundante). */
+    /** Workspace: every project in the tree. Project: none (already a single project — a
+     * project filter there would be redundant). */
     get projectFilterOptions() {
       if (this.scope().project_id) return [];
       return (this.app.tree?.projects || []).map((p) => ({ id: p.id, name: p.name }));
     },
-    /** Workspace: assuntos de todos os projects, com o nome do project junto (pra
-     * diferenciar "Credenciais" de um project do "Credenciais" de outro). Project: só os
-     * assuntos do próprio project, sem precisar repetir o nome dele. Subject: nenhum — já
-     * é um assunto só, o filtro ali seria redundante com a própria página. */
+    /** Workspace: subjects across all projects, with the project name alongside (to tell
+     * apart a "Credentials" subject from one project vs. another's). Project: only that
+     * project's subjects, no need to repeat its name. Subject: none — already a single
+     * subject, a filter there would be redundant with the page itself. */
     get subjectFilterOptions() {
       if (this.scope().subject_id) return [];
       const pid = this.scope().project_id;
@@ -188,7 +188,8 @@ export function listingMixin(Alpine) {
       }
       return out;
     },
-    /** Chips: com contagem na listagem; na busca, todos os tipos (a contagem vem dos grupos). */
+    /** Chips: with a count in the listing; in search mode, every type (the count comes
+     * from the result groups). */
     get chipTypes() {
       const counts = {};
       for (const it of this.items) counts[it.type] = (counts[it.type] || 0) + 1;
@@ -201,18 +202,16 @@ export function listingMixin(Alpine) {
       }));
     },
 
-    // ---- lista exibida ----
+    // ---- displayed list: a single flat list, sorted — no grouping by type ----
     get visible() {
       if (this.searchMode) return this.remote;
       const sel = this.filters.types;
       const list = sel.length ? this.items.filter((i) => sel.includes(i.type)) : this.items.slice();
       if (this.sort === 'recent') return list.sort((a, b) => time(b) - time(a));
-      return list.sort((a, b) => a.title.localeCompare(b.title, 'pt-BR'));
+      return list.sort((a, b) => a.title.localeCompare(b.title));
     },
-    get groups() {
-      return groupByType(this.visible);
-    },
-    /** Project do item: a busca devolve o nome; a listagem só o id (resolvido pela árvore). */
+    /** Item's project: search returns the name; the listing only has the id (resolved via
+     * the tree). */
     where(it) {
       return it.project || this.app.tree?.projects?.find((p) => p.id === it.project_id)?.name || '';
     },

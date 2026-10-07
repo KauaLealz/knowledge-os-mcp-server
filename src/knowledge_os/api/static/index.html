@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -12,7 +12,7 @@
   <script type="module" src="js/main.js"></script>
 </head>
 <body>
-<noscript><div class="fullscreen"><div class="box"><h3>Knowledge OS</h3><p>Este painel precisa de JavaScript.</p></div></div></noscript>
+<noscript><div class="fullscreen"><div class="box"><h3>Knowledge OS</h3><p>This panel requires JavaScript.</p></div></div></noscript>
 
 <!-- Sprite: logo colorida (viewBox 32) e ícones de ação/navegação (viewBox 24, traço 1.75, sem preenchimento) -->
 <svg xmlns="http://www.w3.org/2000/svg" class="sprite" width="0" height="0" aria-hidden="true">
@@ -47,13 +47,13 @@
 
 <div x-data x-cloak>
 
-  <!-- Falha ao iniciar -->
+  <!-- Failed to start -->
   <div class="fullscreen" x-show="$store.app.bootError" role="alert">
     <div class="box">
       <svg class="logo"><use href="#logo"/></svg>
-      <h2>Não foi possível carregar</h2>
+      <h2>Could not load</h2>
       <p class="muted" x-text="$store.app.bootError"></p>
-      <button class="btn" @click="$store.app.boot()">Tentar de novo</button>
+      <button class="btn" @click="$store.app.boot()">Try again</button>
     </div>
   </div>
 
@@ -61,15 +61,15 @@
        :class="{ wide: $store.app.wide, 'drawer-open': $store.app.drawer }">
 
     <!-- ===== Sidebar ===== -->
-    <aside class="sidebar" aria-label="Navegação">
+    <aside class="sidebar" aria-label="Navigation">
       <a class="brand" :href="$store.app.connId ? $store.app.hConn() : '#/'">
         <svg class="logo"><use href="#logo"/></svg>
         <span>Knowledge OS</span>
       </a>
 
       <div class="tree-empty" x-show="$store.app.connError" role="alert">
-        <span x-text="'Conexões indisponíveis: ' + $store.app.connError"></span>
-        <button class="btn" @click="$store.app.boot()">Tentar de novo</button>
+        <span x-text="'Connections unavailable: ' + $store.app.connError"></span>
+        <button class="btn" @click="$store.app.boot()">Try again</button>
       </div>
 
       <div class="switcher">
@@ -102,7 +102,7 @@
           <div>
             <div class="tree-row" :class="{ active: $store.app.route.name === 'workspace' && $store.app.route.params.ws === w.id }">
               <button class="tw" @click="$store.app.toggleWorkspace(w.id)"
-                      :aria-label="($store.app.isWorkspaceOpen(w.id) ? 'Recolher ' : 'Expandir ') + w.name"
+                      :aria-label="($store.app.isWorkspaceOpen(w.id) ? 'Collapse ' : 'Expand ') + w.name"
                       :aria-expanded="$store.app.isWorkspaceOpen(w.id)">
                 <svg class="ic" :class="{ open: $store.app.isWorkspaceOpen(w.id) }"><use href="#i-chevron"/></svg>
               </button>
@@ -110,7 +110,7 @@
                 <svg class="ic"><use href="#i-box"/></svg>
                 <span class="tl-text" x-text="w.name"></span>
               </a>
-              <a class="tw" :href="$store.app.hGraph(w.id)" :aria-label="'Grafo de ' + w.name" title="Grafo">
+              <a class="tw" :href="$store.app.hGraph(w.id)" :aria-label="'Graph for ' + w.name" title="Graph">
                 <svg class="ic"><use href="#i-command"/></svg>
               </a>
             </div>
@@ -125,7 +125,7 @@
                     <div>
                       <div class="tree-row" :class="{ active: $store.app.route.name === 'project' && $store.app.route.params.pj === p.id }">
                         <button class="tw" @click="$store.app.toggleProject(p.id)"
-                                :aria-label="($store.app.isOpen(p.id) ? 'Recolher ' : 'Expandir ') + p.name"
+                                :aria-label="($store.app.isOpen(p.id) ? 'Collapse ' : 'Expand ') + p.name"
                                 :aria-expanded="$store.app.isOpen(p.id)">
                           <svg class="ic" :class="{ open: $store.app.isOpen(p.id) }"><use href="#i-chevron"/></svg>
                         </button>
@@ -140,7 +140,7 @@
                           <div class="tree-subject">
                             <div class="tree-row">
                               <button class="tw" @click="$store.app.toggleProject(p.id + ':' + s.id)"
-                                      :aria-label="($store.app.isOpen(p.id + ':' + s.id) ? 'Recolher ' : 'Expandir ') + s.name"
+                                      :aria-label="($store.app.isOpen(p.id + ':' + s.id) ? 'Collapse ' : 'Expand ') + s.name"
                                       :aria-expanded="$store.app.isOpen(p.id + ':' + s.id)">
                                 <svg class="ic" :class="{ open: $store.app.isOpen(p.id + ':' + s.id) }"><use href="#i-chevron"/></svg>
                               </button>
@@ -158,7 +158,7 @@
                                   <span class="sr-only" x-text="$tlabel(it.type) + ': '"></span><span x-text="it.title"></span>
                                 </a>
                               </template>
-                              <div class="tree-empty" x-show="!s.items.length">Sem itens</div>
+                              <div class="tree-empty" x-show="!s.items.length">No items</div>
                             </div>
                           </div>
                         </template>
@@ -169,23 +169,23 @@
                             <span class="sr-only" x-text="$tlabel(it.type) + ': '"></span><span x-text="it.title"></span>
                           </a>
                         </template>
-                        <div class="tree-empty" x-show="!p.items.length && !(p.subjects || []).length">Sem itens</div>
+                        <div class="tree-empty" x-show="!p.items.length && !(p.subjects || []).length">No items</div>
                       </div>
                     </div>
                   </template>
-                  <div class="tree-empty" x-show="!($store.app.trees[w.id]?.projects?.length)">Este workspace ainda não tem projects.</div>
+                  <div class="tree-empty" x-show="!($store.app.trees[w.id]?.projects?.length)">This workspace has no projects yet.</div>
                 </div>
               </template>
               <div class="tree-empty" x-show="$store.app.treeErrorWs[w.id]" x-text="$store.app.treeErrorWs[w.id]"></div>
             </div>
           </div>
         </template>
-        <div class="tree-empty" x-show="!$store.app.workspaces.length">Nenhum workspace nesta conexão.</div>
+        <div class="tree-empty" x-show="!$store.app.workspaces.length">No workspaces in this connection.</div>
       </nav>
 
       <div class="side-foot">
         <a class="side-link" :class="{ active: $store.app.route.name === 'connections' }" :href="$store.app.hConnections()">
-          <svg class="ic"><use href="#i-settings"/></svg> Configurações · Conexões
+          <svg class="ic"><use href="#i-settings"/></svg> Settings · Connections
         </a>
       </div>
     </aside>
@@ -194,12 +194,12 @@
     <!-- ===== Conteúdo ===== -->
     <div class="main">
       <header class="topbar">
-        <button class="btn icon ghost menu-btn" @click="$store.app.drawer = true" aria-label="Abrir menu">
+        <button class="btn icon ghost menu-btn" @click="$store.app.drawer = true" aria-label="Open menu">
           <svg class="ic"><use href="#i-menu"/></svg>
         </button>
-        <button class="search-btn" @click="$store.app.paletteOpen = true" aria-label="Buscar e comandos">
+        <button class="search-btn" @click="$store.app.paletteOpen = true" aria-label="Search and commands">
           <svg class="ic"><use href="#i-search"/></svg>
-          <span class="search-txt">Buscar…</span>
+          <span class="search-txt">Search…</span>
           <kbd x-text="$store.app.isMac ? '⌘K' : 'Ctrl K'"></kbd>
         </button>
         <div class="spacer"></div>
@@ -209,16 +209,16 @@
           </button>
           <div class="dd-menu right" x-show="open" x-cloak role="menu">
             <button class="dd-item" role="menuitem" :disabled="!$store.app.route.params.ws" @click="close(); $store.app.openModal('item')">
-              <svg class="ic"><use href="#i-file"/></svg><span class="grow">Novo item</span></button>
+              <svg class="ic"><use href="#i-file"/></svg><span class="grow">New item</span></button>
             <button class="dd-item" role="menuitem" :disabled="!$store.app.workspaces.length" @click="close(); $store.app.openModal('project')">
-              <svg class="ic"><use href="#i-folder"/></svg><span class="grow">Novo project</span></button>
+              <svg class="ic"><use href="#i-folder"/></svg><span class="grow">New project</span></button>
             <button class="dd-item" role="menuitem" @click="close(); $store.app.openModal('workspace')">
-              <svg class="ic"><use href="#i-box"/></svg><span class="grow">Novo workspace</span></button>
+              <svg class="ic"><use href="#i-box"/></svg><span class="grow">New workspace</span></button>
           </div>
         </div>
         <button class="btn icon ghost wide-btn" @click="$store.app.toggleWide()" :aria-pressed="$store.app.wide"
-                :title="$store.app.wide ? 'Voltar à largura padrão' : 'Usar toda a largura'"
-                :aria-label="$store.app.wide ? 'Voltar à largura padrão' : 'Usar toda a largura'">
+                :title="$store.app.wide ? 'Back to default width' : 'Use full width'"
+                :aria-label="$store.app.wide ? 'Back to default width' : 'Use full width'">
           <svg class="ic"><use :href="'#i-' + ($store.app.wide ? 'shrink' : 'expand')"/></svg>
         </button>
         <button class="btn icon ghost" @click="$store.app.toggleTheme()"
@@ -241,30 +241,30 @@
               <nav class="crumbs"><span x-text="$store.app.connName"></span></nav>
               <div class="page-head">
                 <h1 class="page-title">Workspaces</h1>
-                <div class="toolbar"><button class="btn primary" @click="$store.app.openModal('workspace')"><svg class="ic"><use href="#i-plus"/></svg> Novo workspace</button></div>
+                <div class="toolbar"><button class="btn primary" @click="$store.app.openModal('workspace')"><svg class="ic"><use href="#i-plus"/></svg> New workspace</button></div>
               </div>
               <div class="state error" x-show="$store.app.wsError" role="alert">
                 <svg class="logo"><use href="#logo"/></svg>
-                <h3>Não foi possível listar os workspaces</h3>
+                <h3>Could not list workspaces</h3>
                 <p x-text="$store.app.wsError"></p>
-                <button class="btn" @click="$store.app.loadWorkspaces()">Tentar de novo</button>
+                <button class="btn" @click="$store.app.loadWorkspaces()">Try again</button>
               </div>
               <div class="card-grid" x-show="!$store.app.wsError">
                 <template x-for="w in $store.app.workspaces" :key="w.id">
                   <a class="card" :href="$store.app.hWs(w.id)">
                     <span class="card-title"><svg class="ic"><use href="#i-box"/></svg><span class="tl-text" x-text="w.name"></span></span>
-                    <span class="card-desc" x-text="w.description || 'Sem descrição'"></span>
+                    <span class="card-desc" x-text="w.description || 'No description'"></span>
                     <span class="card-foot" x-show="w.stats">
                       <span><b x-text="w.stats?.projects"></b> projects</span>
-                      <span><b x-text="w.stats?.items"></b> itens</span>
+                      <span><b x-text="w.stats?.items"></b> items</span>
                     </span>
                   </a>
                 </template>
               </div>
               <div class="state" x-show="!$store.app.wsError && !$store.app.workspaces.length && !$store.app.wsLoading">
                 <svg class="logo"><use href="#logo"/></svg>
-                <h3>Nenhum workspace ainda</h3>
-                <p>Esta conexão está vazia. Crie um workspace para começar.</p>
+                <h3>No workspaces yet</h3>
+                <p>This connection is empty. Create a workspace to get started.</p>
               </div>
             </div></div>
           </template>
@@ -281,15 +281,15 @@
                   <div class="page-head">
                     <h1 class="page-title" x-text="$store.app.workspace.name"></h1>
                     <div class="toolbar">
-                      <a class="btn" :href="graphHref()">Ver grafo</a>
-                      <button class="btn" @click="$store.app.openModal('project')"><svg class="ic"><use href="#i-plus"/></svg> Novo project</button>
+                      <a class="btn" :href="graphHref()"><svg class="ic"><use href="#i-command"/></svg> View graph</a>
+                      <button class="btn" @click="$store.app.openModal('project')"><svg class="ic"><use href="#i-plus"/></svg> New project</button>
                     </div>
                   </div>
 
                   <div class="searchbar">
                     <label class="searchbox">
                       <svg class="ic"><use href="#i-search"/></svg>
-                      <input type="search" class="input" x-model="$store.app.filters.q" placeholder="Buscar neste workspace…" aria-label="Buscar itens" autocomplete="off">
+                      <input type="search" class="input" x-model="$store.app.filters.q" placeholder="Search in this workspace…" aria-label="Search items" autocomplete="off">
                     </label>
                     <div class="filter-pop" x-data="{ open: false }" @keydown.escape.window="open = false">
                       <button type="button" class="btn icon" :class="{ active: filtering }" @click="open = !open" :aria-expanded="open" aria-haspopup="true" aria-label="Filtros">
@@ -308,7 +308,7 @@
                           </div>
                         </div>
                         <div class="filter-group" x-show="subjectFilterOptions.length">
-                          <div class="filter-group-title">Assunto</div>
+                          <div class="filter-group-title">Subject</div>
                           <div class="filter-check-list">
                             <template x-for="s in subjectFilterOptions" :key="s.id">
                               <label class="filter-check">
@@ -319,7 +319,7 @@
                           </div>
                         </div>
                         <div class="filter-group">
-                          <div class="filter-group-title">Tipo</div>
+                          <div class="filter-group-title">Type</div>
                           <div class="type-chips" role="group" aria-label="Filtrar por tipo">
                             <button class="tchip" :class="{ on: !filters.types.length }" :aria-pressed="!filters.types.length" @click="clearTypes()">
                               Todos <span class="n" x-show="!searchMode" x-text="items.length"></span>
@@ -334,10 +334,10 @@
                           </div>
                         </div>
                         <div class="filter-group">
-                          <div class="filter-group-title">Ordenar</div>
-                          <select class="select sm" x-model="sort" aria-label="Ordenar">
-                            <option value="title">Ordem alfabética</option>
-                            <option value="recent">Mais recentes</option>
+                          <div class="filter-group-title">Sort</div>
+                          <select class="select sm" x-model="sort" aria-label="Sort">
+                            <option value="title">Alphabetical</option>
+                            <option value="recent">Most recent</option>
                           </select>
                         </div>
                         <button class="btn ghost sm" x-show="filtering" @click="clearFilters()">Limpar filtros</button>
@@ -345,71 +345,62 @@
                     </div>
                   </div>
                   <div class="banner" role="alert" x-show="searchError">
-                    <svg class="ic"><use href="#i-alert"/></svg><span x-text="'Busca indisponível: ' + searchError"></span>
+                    <svg class="ic"><use href="#i-alert"/></svg><span x-text="'Search unavailable: ' + searchError"></span>
                   </div>
 
-                  <div class="section-title"><span x-text="filtering ? 'Resultados' : 'Todos os itens'"></span>
-                    <span class="muted" x-show="searching">Buscando…</span></div>
+                  <span class="muted" x-show="searching">Searching…</span>
                   <div class="banner" role="alert" x-show="error">
-                    <svg class="ic"><use href="#i-alert"/></svg><span x-text="'Não foi possível carregar os itens: ' + error"></span>
-                    <button class="btn" @click="loadItems()">Tentar de novo</button>
+                    <svg class="ic"><use href="#i-alert"/></svg><span x-text="'Could not load items: ' + error"></span>
+                    <button class="btn" @click="loadItems()">Try again</button>
                   </div>
-                  <template x-for="g in groups" :key="g.type">
-                    <section class="group">
-                      <h3 class="group-head" :class="$tc(g.type)">
-                        <span class="tdot" aria-hidden="true"></span>
-                        <span x-text="g.label"></span><span class="count" x-text="g.items.length"></span>
-                      </h3>
-                      <div class="item-list">
-                        <template x-for="it in g.items" :key="it.id">
-                          <a class="item-row" :href="$store.app.hItemOf(it)">
-                            <div>
-                              <div class="ir-title" x-text="it.title"></div>
-                              <div class="ir-sum" x-text="it.summary"></div>
-                              <div class="ir-meta">
-                                <span class="tbadge" :class="$tc(it.type)"><span class="tdot" aria-hidden="true"></span><span x-text="$tlabel(it.type)"></span></span>
-                                <span class="chip outline" x-show="true && where(it)" x-text="where(it)"></span>
-                                <span class="muted" style="font-size:12.5px" x-show="it.updated_at" x-text="$ago(it.updated_at)"></span>
-                              </div>
-                            </div>
-                          </a>
-                        </template>
-                      </div>
-                    </section>
-                  </template>
-                  <div class="toolbar" x-show="!searchMode && totalPages > 1">
-                    <button class="btn icon ghost" :disabled="page <= 1 || loading" @click="prevPage()" aria-label="Página anterior">
+                  <div class="item-list">
+                    <template x-for="it in visible" :key="it.id">
+                      <a class="item-row" :href="$store.app.hItemOf(it)">
+                        <div>
+                          <div class="ir-title" x-text="it.title"></div>
+                          <div class="ir-sum" x-text="it.summary"></div>
+                          <div class="ir-meta">
+                            <span class="tbadge" :class="$tc(it.type)"><span class="tdot" aria-hidden="true"></span><span x-text="$tlabel(it.type)"></span></span>
+                            <span class="chip outline" x-show="where(it)" x-text="where(it)"></span>
+                            <span class="muted" style="font-size:12.5px" x-show="it.updated_at" x-text="$ago(it.updated_at)"></span>
+                          </div>
+                        </div>
+                      </a>
+                    </template>
+                  </div>
+                  <div class="toolbar" x-show="!searchMode">
+                    <button class="btn icon ghost" :disabled="page <= 1 || loading" @click="prevPage()" aria-label="Previous page">
                       <svg class="ic"><use href="#i-arrow-left"/></svg>
                     </button>
-                    <span class="muted" style="font-size:13px">Página <b x-text="page"></b> de <b x-text="totalPages"></b> · <span x-text="total"></span> itens</span>
-                    <button class="btn icon ghost" :disabled="page >= totalPages || loading" @click="nextPage()" aria-label="Próxima página">
+                    <span class="muted" style="font-size:13px">Page <b x-text="page"></b> of <b x-text="totalPages"></b> · <span x-text="total"></span> items</span>
+                    <button class="btn icon ghost" :disabled="page >= totalPages || loading" @click="nextPage()" aria-label="Next page">
                       <svg class="ic"><use href="#i-arrow-right"/></svg>
                     </button>
                   </div>
                   <div class="state" x-show="filtering && !visible.length && !searching && !searchError">
                     <svg class="logo"><use href="#logo"/></svg>
-                    <h3>Nenhum item encontrado</h3>
-                    <p>Nada corresponde à busca e aos tipos escolhidos.</p>
-                    <button class="btn" @click="clearFilters()">Limpar filtros</button>
+                    <h3>No items found</h3>
+                    <p>Nothing matches the search and chosen filters.</p>
+                    <button class="btn" @click="clearFilters()">Clear filters</button>
                   </div>
                   <div class="state" x-show="!filtering && !loading && !error && !items.length">
                     <svg class="logo"><use href="#logo"/></svg>
-                    <h3>Nenhum item ainda</h3>
-                    <p>Crie o primeiro item deste workspace.</p>
+                    <h3>No items yet</h3>
+                    <p>Create the first item in this workspace.</p>
                   </div>
                 </div>
               </template>
               <div class="state error" x-show="$store.app.wsError" role="alert">
                 <svg class="logo"><use href="#logo"/></svg>
-                <h3>Não foi possível carregar o workspace</h3>
+                <h3>Could not load the workspace</h3>
                 <p x-text="$store.app.wsError"></p>
-                <button class="btn" @click="$store.app.refresh()">Tentar de novo</button>
+                <button class="btn" @click="$store.app.refresh()">Try again</button>
               </div>
               <div class="state error" x-show="!$store.app.workspace && !$store.app.wsLoading && !$store.app.wsError" role="alert">
                 <svg class="logo"><use href="#logo"/></svg>
-                <h3>Workspace não encontrado</h3>
-                <p>Ele pode ter sido removido ou pertencer a outra conexão.</p>
-                <a class="btn" :href="$store.app.hConn()">Ver workspaces</a>
+                <h3>Workspace not found</h3>
+                <p>It may have been removed or belong to another connection.</p>
+                <a class="btn" :href="$store.app.hConn()">View workspaces</a>
               </div>
             </div></div>
           </template>
@@ -417,7 +408,6 @@
           <!-- Grafo (workspace, project ou subject — mesma view, escopo pela rota) -->
           <template x-if="['graph', 'project-graph', 'subject-graph'].includes($store.app.route.name)">
             <div class="page" x-data="graphView"><div class="doc">
-              <a class="back-link" :href="backHref()"><svg class="ic"><use href="#i-arrow-left"/></svg> Voltar</a>
               <nav class="crumbs">
                 <a :href="$store.app.hConn()" x-text="$store.app.connName"></a><span class="sep">/</span>
                 <a :href="$store.app.hWs()" x-text="$store.app.workspace?.name"></a><span class="sep">/</span>
@@ -429,43 +419,49 @@
                   <a :href="$store.app.hSubject($store.app.route.params.subj)" x-text="$store.app.subject?.name"></a>
                 </template>
                 <span class="sep" x-show="$store.app.route.params.subj">/</span>
-                <span>Grafo</span>
+                <span>Graph</span>
               </nav>
-              <h1 class="page-title">Grafo de relações</h1>
+              <div class="page-head">
+                <h1 class="page-title">Relationship graph</h1>
+                <div class="toolbar"><a class="btn ghost" :href="backHref()"><svg class="ic"><use href="#i-arrow-left"/></svg> Back</a></div>
+              </div>
               <div class="state" x-show="loading">
                 <svg class="logo"><use href="#logo"/></svg>
-                <h3>Carregando grafo…</h3>
+                <h3>Loading graph…</h3>
               </div>
               <div class="state error" x-show="error" role="alert">
                 <svg class="logo"><use href="#logo"/></svg>
-                <h3>Não foi possível carregar o grafo</h3>
+                <h3>Could not load the graph</h3>
                 <p x-text="error"></p>
-                <button class="btn" @click="load()">Tentar de novo</button>
+                <button class="btn" @click="load()">Try again</button>
               </div>
               <div class="state" x-show="!loading && !error && !nodes.length">
                 <svg class="logo"><use href="#logo"/></svg>
                 <h3>Sem itens</h3>
-                <p>Este escopo ainda não tem itens para mostrar no grafo.</p>
-              </div>
-
-              <!-- Legenda genérica (o que cada forma significa) — estática, não por
-                   project/assunto (isso já está no próprio rótulo do nó agora) -->
-              <div class="graph-key" x-show="!loading && !error && nodes.length">
-                <span class="graph-key-item"><i class="gk-shape gk-circle"></i> Item</span>
-                <span class="graph-key-item" x-show="['graph', 'project-graph'].includes($store.app.route.name)">
-                  <i class="gk-shape gk-triangle"></i> Assunto
-                </span>
-                <span class="graph-key-item" x-show="$store.app.route.name === 'graph'">
-                  <i class="gk-shape gk-square"></i> Project
-                </span>
+                <p>This scope has no items to show in the graph yet.</p>
               </div>
 
               <template x-if="!loading && !error && nodes.length">
-                <svg class="graph-svg" xmlns="http://www.w3.org/2000/svg" x-effect="renderSvg($el)"></svg>
+                <div class="graph-canvas">
+                  <!-- Generic legend (what each shape means) — static, not per project/
+                       subject (that's already in the node's own label) — pinned at the
+                       top, inside the graph component itself -->
+                  <div class="graph-key">
+                    <span class="graph-key-item"><i class="gk-shape gk-circle"></i> Item</span>
+                    <span class="graph-key-item" x-show="['graph', 'project-graph'].includes($store.app.route.name)">
+                      <i class="gk-shape gk-triangle"></i> Subject
+                    </span>
+                    <span class="graph-key-item" x-show="$store.app.route.name === 'graph'">
+                      <i class="gk-shape gk-square"></i> Project
+                    </span>
+                  </div>
+                  <svg class="graph-svg" xmlns="http://www.w3.org/2000/svg" x-effect="renderSvg($el)"></svg>
+                </div>
               </template>
 
               <style>
-                .graph-key { display: flex; gap: 18px; align-items: center; margin: 0 0 10px; font-size: 12px; color: var(--text-2); }
+                .graph-canvas { position: relative; }
+                .graph-key { position: absolute; top: 10px; left: 10px; z-index: 5; display: flex; gap: 14px; align-items: center; padding: 6px 10px; border-radius: 6px; background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(2px); font-size: 12px; color: var(--text-2); pointer-events: none; }
                 .graph-key-item { display: inline-flex; align-items: center; gap: 6px; }
                 .gk-shape { display: inline-block; width: 11px; height: 11px; background: var(--text-3); flex: none; }
                 .gk-circle { border-radius: 50%; }
@@ -494,7 +490,6 @@
             <div class="page" x-data="projectView"><div class="doc">
               <template x-if="$store.app.project">
                 <div>
-                  <a class="back-link" :href="backHref()"><svg class="ic"><use href="#i-arrow-left"/></svg> Voltar</a>
                   <nav class="crumbs">
                     <a :href="$store.app.hConn()" x-text="$store.app.connName"></a><span class="sep">/</span>
                     <a :href="$store.app.hWs()" x-text="$store.app.workspace?.name"></a><span class="sep">/</span>
@@ -503,15 +498,16 @@
                   <div class="page-head">
                     <h1 class="page-title" x-text="$store.app.project.name"></h1>
                     <div class="toolbar">
-                      <a class="btn" :href="graphHref()">Ver grafo</a>
-                      <button class="btn primary" @click="$store.app.openModal('item')"><svg class="ic"><use href="#i-plus"/></svg> Novo item</button>
+                      <a class="btn ghost" :href="backHref()"><svg class="ic"><use href="#i-arrow-left"/></svg> Back</a>
+                      <a class="btn" :href="graphHref()"><svg class="ic"><use href="#i-command"/></svg> View graph</a>
+                      <button class="btn primary" @click="$store.app.openModal('item')"><svg class="ic"><use href="#i-plus"/></svg> New item</button>
                     </div>
                   </div>
 
                   <div class="searchbar">
                     <label class="searchbox">
                       <svg class="ic"><use href="#i-search"/></svg>
-                      <input type="search" class="input" x-model="$store.app.filters.q" placeholder="Buscar neste project…" aria-label="Buscar itens" autocomplete="off">
+                      <input type="search" class="input" x-model="$store.app.filters.q" placeholder="Search in this project…" aria-label="Search items" autocomplete="off">
                     </label>
                     <div class="filter-pop" x-data="{ open: false }" @keydown.escape.window="open = false">
                       <button type="button" class="btn icon" :class="{ active: filtering }" @click="open = !open" :aria-expanded="open" aria-haspopup="true" aria-label="Filtros">
@@ -519,7 +515,7 @@
                       </button>
                       <div class="filter-popover" x-show="open" x-cloak x-transition @click.outside="open = false">
                         <div class="filter-group" x-show="subjectFilterOptions.length">
-                          <div class="filter-group-title">Assunto</div>
+                          <div class="filter-group-title">Subject</div>
                           <div class="filter-check-list">
                             <template x-for="s in subjectFilterOptions" :key="s.id">
                               <label class="filter-check">
@@ -530,7 +526,7 @@
                           </div>
                         </div>
                         <div class="filter-group">
-                          <div class="filter-group-title">Tipo</div>
+                          <div class="filter-group-title">Type</div>
                           <div class="type-chips" role="group" aria-label="Filtrar por tipo">
                             <button class="tchip" :class="{ on: !filters.types.length }" :aria-pressed="!filters.types.length" @click="clearTypes()">
                               Todos <span class="n" x-show="!searchMode" x-text="items.length"></span>
@@ -545,10 +541,10 @@
                           </div>
                         </div>
                         <div class="filter-group">
-                          <div class="filter-group-title">Ordenar</div>
-                          <select class="select sm" x-model="sort" aria-label="Ordenar">
-                            <option value="title">Ordem alfabética</option>
-                            <option value="recent">Mais recentes</option>
+                          <div class="filter-group-title">Sort</div>
+                          <select class="select sm" x-model="sort" aria-label="Sort">
+                            <option value="title">Alphabetical</option>
+                            <option value="recent">Most recent</option>
                           </select>
                         </div>
                         <button class="btn ghost sm" x-show="filtering" @click="clearFilters()">Limpar filtros</button>
@@ -556,65 +552,56 @@
                     </div>
                   </div>
                   <div class="banner" role="alert" x-show="searchError">
-                    <svg class="ic"><use href="#i-alert"/></svg><span x-text="'Busca indisponível: ' + searchError"></span>
+                    <svg class="ic"><use href="#i-alert"/></svg><span x-text="'Search unavailable: ' + searchError"></span>
                   </div>
-                  <span class="muted" x-show="searching">Buscando…</span>
-                  <template x-for="g in groups" :key="g.type">
-                    <section class="group">
-                      <h3 class="group-head" :class="$tc(g.type)">
-                        <span class="tdot" aria-hidden="true"></span>
-                        <span x-text="g.label"></span><span class="count" x-text="g.items.length"></span>
-                      </h3>
-                      <div class="item-list">
-                        <template x-for="it in g.items" :key="it.id">
-                          <a class="item-row" :href="$store.app.hItemOf(it)">
-                            <div>
-                              <div class="ir-title" x-text="it.title"></div>
-                              <div class="ir-sum" x-text="it.summary"></div>
-                              <div class="ir-meta">
-                                <span class="tbadge" :class="$tc(it.type)"><span class="tdot" aria-hidden="true"></span><span x-text="$tlabel(it.type)"></span></span>
-                                <span class="chip outline" x-show="false && where(it)" x-text="where(it)"></span>
-                                <span class="muted" style="font-size:12.5px" x-show="it.updated_at" x-text="$ago(it.updated_at)"></span>
-                              </div>
-                            </div>
-                          </a>
-                        </template>
-                      </div>
-                    </section>
-                  </template>
-                  <div class="toolbar" x-show="!searchMode && totalPages > 1">
-                    <button class="btn icon ghost" :disabled="page <= 1 || loading" @click="prevPage()" aria-label="Página anterior">
+                  <span class="muted" x-show="searching">Searching…</span>
+                  <div class="item-list">
+                    <template x-for="it in visible" :key="it.id">
+                      <a class="item-row" :href="$store.app.hItemOf(it)">
+                        <div>
+                          <div class="ir-title" x-text="it.title"></div>
+                          <div class="ir-sum" x-text="it.summary"></div>
+                          <div class="ir-meta">
+                            <span class="tbadge" :class="$tc(it.type)"><span class="tdot" aria-hidden="true"></span><span x-text="$tlabel(it.type)"></span></span>
+                            <span class="muted" style="font-size:12.5px" x-show="it.updated_at" x-text="$ago(it.updated_at)"></span>
+                          </div>
+                        </div>
+                      </a>
+                    </template>
+                  </div>
+                  <div class="toolbar" x-show="!searchMode">
+                    <button class="btn icon ghost" :disabled="page <= 1 || loading" @click="prevPage()" aria-label="Previous page">
                       <svg class="ic"><use href="#i-arrow-left"/></svg>
                     </button>
-                    <span class="muted" style="font-size:13px">Página <b x-text="page"></b> de <b x-text="totalPages"></b> · <span x-text="total"></span> itens</span>
-                    <button class="btn icon ghost" :disabled="page >= totalPages || loading" @click="nextPage()" aria-label="Próxima página">
+                    <span class="muted" style="font-size:13px">Page <b x-text="page"></b> of <b x-text="totalPages"></b> · <span x-text="total"></span> items</span>
+                    <button class="btn icon ghost" :disabled="page >= totalPages || loading" @click="nextPage()" aria-label="Next page">
                       <svg class="ic"><use href="#i-arrow-right"/></svg>
                     </button>
                   </div>
                   <div class="state" x-show="filtering && !visible.length && !searching && !searchError">
                     <svg class="logo"><use href="#logo"/></svg>
-                    <h3>Nenhum item encontrado</h3>
-                    <p>Nada corresponde à busca e aos tipos escolhidos.</p>
-                    <button class="btn" @click="clearFilters()">Limpar filtros</button>
+                    <h3>No items found</h3>
+                    <p>Nothing matches the search and chosen filters.</p>
+                    <button class="btn" @click="clearFilters()">Clear filters</button>
                   </div>
                   <div class="state" x-show="!loading && !error && !items.length && !filtering">
                     <svg class="logo"><use href="#logo"/></svg>
-                    <h3>Project vazio</h3>
-                    <p>Ainda não há itens neste project.</p>
+                    <h3>Empty project</h3>
+                    <p>There are no items in this project yet.</p>
                   </div>
                   <div class="state error" x-show="error" role="alert">
                     <svg class="logo"><use href="#logo"/></svg>
-                    <h3>Não foi possível carregar os itens</h3>
+                    <h3>Could not load items</h3>
                     <p x-text="error"></p>
-                    <button class="btn" @click="load()">Tentar de novo</button>
+                    <button class="btn" @click="load()">Try again</button>
                   </div>
                 </div>
               </template>
               <div class="state error" x-show="!$store.app.project && !$store.app.treeLoading" role="alert">
                 <svg class="logo"><use href="#logo"/></svg>
-                <h3>Project não encontrado</h3>
-                <p>Ele pode ter sido removido.</p>
-                <a class="btn" :href="$store.app.hWs()">Voltar ao workspace</a>
+                <h3>Project not found</h3>
+                <p>It may have been removed.</p>
+                <a class="btn" :href="$store.app.hWs()">Back to workspace</a>
               </div>
             </div></div>
           </template>
@@ -624,7 +611,6 @@
             <div class="page" x-data="subjectView"><div class="doc">
               <template x-if="$store.app.subject">
                 <div>
-                  <a class="back-link" :href="backHref()"><svg class="ic"><use href="#i-arrow-left"/></svg> Voltar</a>
                   <nav class="crumbs">
                     <a :href="$store.app.hConn()" x-text="$store.app.connName"></a><span class="sep">/</span>
                     <a :href="$store.app.hWs()" x-text="$store.app.workspace?.name"></a><span class="sep">/</span>
@@ -633,13 +619,16 @@
                   </nav>
                   <div class="page-head">
                     <h1 class="page-title" x-text="$store.app.subject.name"></h1>
-                    <div class="toolbar"><a class="btn" :href="graphHref()">Ver grafo</a></div>
+                    <div class="toolbar">
+                      <a class="btn ghost" :href="backHref()"><svg class="ic"><use href="#i-arrow-left"/></svg> Back</a>
+                      <a class="btn" :href="graphHref()"><svg class="ic"><use href="#i-command"/></svg> View graph</a>
+                    </div>
                   </div>
 
                   <div class="searchbar">
                     <label class="searchbox">
                       <svg class="ic"><use href="#i-search"/></svg>
-                      <input type="search" class="input" x-model="$store.app.filters.q" placeholder="Buscar neste assunto…" aria-label="Buscar itens" autocomplete="off">
+                      <input type="search" class="input" x-model="$store.app.filters.q" placeholder="Search in this subject…" aria-label="Search items" autocomplete="off">
                     </label>
                     <div class="filter-pop" x-data="{ open: false }" @keydown.escape.window="open = false">
                       <button type="button" class="btn icon" :class="{ active: filtering }" @click="open = !open" :aria-expanded="open" aria-haspopup="true" aria-label="Filtros">
@@ -647,7 +636,7 @@
                       </button>
                       <div class="filter-popover" x-show="open" x-cloak x-transition @click.outside="open = false">
                         <div class="filter-group">
-                          <div class="filter-group-title">Tipo</div>
+                          <div class="filter-group-title">Type</div>
                           <div class="type-chips" role="group" aria-label="Filtrar por tipo">
                             <button class="tchip" :class="{ on: !filters.types.length }" :aria-pressed="!filters.types.length" @click="clearTypes()">
                               Todos <span class="n" x-show="!searchMode" x-text="items.length"></span>
@@ -662,10 +651,10 @@
                           </div>
                         </div>
                         <div class="filter-group">
-                          <div class="filter-group-title">Ordenar</div>
-                          <select class="select sm" x-model="sort" aria-label="Ordenar">
-                            <option value="title">Ordem alfabética</option>
-                            <option value="recent">Mais recentes</option>
+                          <div class="filter-group-title">Sort</div>
+                          <select class="select sm" x-model="sort" aria-label="Sort">
+                            <option value="title">Alphabetical</option>
+                            <option value="recent">Most recent</option>
                           </select>
                         </div>
                         <button class="btn ghost sm" x-show="filtering" @click="clearFilters()">Limpar filtros</button>
@@ -673,64 +662,56 @@
                     </div>
                   </div>
                   <div class="banner" role="alert" x-show="searchError">
-                    <svg class="ic"><use href="#i-alert"/></svg><span x-text="'Busca indisponível: ' + searchError"></span>
+                    <svg class="ic"><use href="#i-alert"/></svg><span x-text="'Search unavailable: ' + searchError"></span>
                   </div>
-                  <span class="muted" x-show="searching">Buscando…</span>
-                  <template x-for="g in groups" :key="g.type">
-                    <section class="group">
-                      <h3 class="group-head" :class="$tc(g.type)">
-                        <span class="tdot" aria-hidden="true"></span>
-                        <span x-text="g.label"></span><span class="count" x-text="g.items.length"></span>
-                      </h3>
-                      <div class="item-list">
-                        <template x-for="it in g.items" :key="it.id">
-                          <a class="item-row" :href="$store.app.hItemOf(it)">
-                            <div>
-                              <div class="ir-title" x-text="it.title"></div>
-                              <div class="ir-sum" x-text="it.summary"></div>
-                              <div class="ir-meta">
-                                <span class="tbadge" :class="$tc(it.type)"><span class="tdot" aria-hidden="true"></span><span x-text="$tlabel(it.type)"></span></span>
-                                <span class="muted" style="font-size:12.5px" x-show="it.updated_at" x-text="$ago(it.updated_at)"></span>
-                              </div>
-                            </div>
-                          </a>
-                        </template>
-                      </div>
-                    </section>
-                  </template>
-                  <div class="toolbar" x-show="!searchMode && totalPages > 1">
-                    <button class="btn icon ghost" :disabled="page <= 1 || loading" @click="prevPage()" aria-label="Página anterior">
+                  <span class="muted" x-show="searching">Searching…</span>
+                  <div class="item-list">
+                    <template x-for="it in visible" :key="it.id">
+                      <a class="item-row" :href="$store.app.hItemOf(it)">
+                        <div>
+                          <div class="ir-title" x-text="it.title"></div>
+                          <div class="ir-sum" x-text="it.summary"></div>
+                          <div class="ir-meta">
+                            <span class="tbadge" :class="$tc(it.type)"><span class="tdot" aria-hidden="true"></span><span x-text="$tlabel(it.type)"></span></span>
+                            <span class="muted" style="font-size:12.5px" x-show="it.updated_at" x-text="$ago(it.updated_at)"></span>
+                          </div>
+                        </div>
+                      </a>
+                    </template>
+                  </div>
+                  <div class="toolbar" x-show="!searchMode">
+                    <button class="btn icon ghost" :disabled="page <= 1 || loading" @click="prevPage()" aria-label="Previous page">
                       <svg class="ic"><use href="#i-arrow-left"/></svg>
                     </button>
-                    <span class="muted" style="font-size:13px">Página <b x-text="page"></b> de <b x-text="totalPages"></b> · <span x-text="total"></span> itens</span>
-                    <button class="btn icon ghost" :disabled="page >= totalPages || loading" @click="nextPage()" aria-label="Próxima página">
+                    <span class="muted" style="font-size:13px">Page <b x-text="page"></b> of <b x-text="totalPages"></b> · <span x-text="total"></span> items</span>
+                    <button class="btn icon ghost" :disabled="page >= totalPages || loading" @click="nextPage()" aria-label="Next page">
                       <svg class="ic"><use href="#i-arrow-right"/></svg>
                     </button>
                   </div>
                   <div class="state" x-show="filtering && !visible.length && !searching && !searchError">
                     <svg class="logo"><use href="#logo"/></svg>
-                    <h3>Nenhum item encontrado</h3>
-                    <p>Nada corresponde à busca e aos tipos escolhidos.</p>
-                    <button class="btn" @click="clearFilters()">Limpar filtros</button>
+                    <h3>No items found</h3>
+                    <p>Nothing matches the search and chosen filters.</p>
+                    <button class="btn" @click="clearFilters()">Clear filters</button>
                   </div>
                   <div class="state" x-show="!loading && !error && !items.length && !filtering">
                     <svg class="logo"><use href="#logo"/></svg>
-                    <h3>Assunto vazio</h3>
-                    <p>Ainda não há itens neste assunto.</p>
+                    <h3>Empty subject</h3>
+                    <p>There are no items in this subject yet.</p>
                   </div>
                   <div class="state error" x-show="error" role="alert">
                     <svg class="logo"><use href="#logo"/></svg>
-                    <h3>Não foi possível carregar os itens</h3>
+                    <h3>Could not load items</h3>
                     <p x-text="error"></p>
-                    <button class="btn" @click="load()">Tentar de novo</button>
+                    <button class="btn" @click="load()">Try again</button>
                   </div>
                 </div>
               </template>
               <div class="state error" x-show="!$store.app.subject && !$store.app.treeLoading" role="alert">
                 <svg class="logo"><use href="#logo"/></svg>
-                <h3>Assunto não encontrado</h3>
+                <h3>Subject not found</h3>
                 <p>Ele pode ter sido removido.</p>
-                <a class="btn" :href="$store.app.hProject($store.app.route.params.pj)">Voltar ao project</a>
+                <a class="btn" :href="$store.app.hProject($store.app.route.params.pj)">Back to project</a>
               </div>
             </div></div>
           </template>
@@ -743,7 +724,6 @@
 
                 <template x-if="item">
                   <article>
-                    <a class="back-link" :href="backHref()"><svg class="ic"><use href="#i-arrow-left"/></svg> Voltar</a>
                     <nav class="crumbs">
                       <a :href="$store.app.hConn()" x-text="$store.app.connName"></a><span class="sep">/</span>
                       <a :href="$store.app.hWs()" x-text="$store.app.workspace?.name"></a><span class="sep">/</span>
@@ -754,13 +734,14 @@
                     <div class="item-head">
                       <h1 class="page-title" x-text="item.title"></h1>
                       <div class="item-actions">
-                        <button class="btn" @click="$store.app.toggleEdit()" title="Atalho: e">
+                        <a class="btn ghost" :href="backHref()"><svg class="ic"><use href="#i-arrow-left"/></svg> Back</a>
+                        <button class="btn" @click="$store.app.toggleEdit()" title="Shortcut: e">
                           <svg class="ic"><use :href="'#i-' + ($store.app.route.params.edit ? 'eye' : 'edit')"/></svg>
-                          <span x-text="$store.app.route.params.edit ? 'Ler' : 'Editar'"></span> <kbd>e</kbd>
+                          <span x-text="$store.app.route.params.edit ? 'Read' : 'Edit'"></span> <kbd>e</kbd>
                         </button>
-                        <button class="btn" x-show="!$store.app.route.params.edit && item.type !== 'secret'" @click="copyMarkdown()"><svg class="ic"><use href="#i-copy"/></svg> Copiar como Markdown</button>
+                        <button class="btn" x-show="!$store.app.route.params.edit && item.type !== 'secret'" @click="copyMarkdown()"><svg class="ic"><use href="#i-copy"/></svg> Copy as Markdown</button>
                         <button class="btn" x-show="!$store.app.route.params.edit && item.type !== 'secret'" :aria-pressed="showRaw" @click="showRaw = !showRaw">
-                          <svg class="ic"><use href="#i-eye"/></svg> <span x-text="showRaw ? 'Ver renderizado' : 'Ver Markdown'"></span>
+                          <svg class="ic"><use href="#i-eye"/></svg> <span x-text="showRaw ? 'View rendered' : 'View Markdown'"></span>
                         </button>
                         <button class="btn danger" x-show="!$store.app.route.params.edit" :disabled="deleting" @click="remove()">
                           <svg class="ic"><use href="#i-x"/></svg>
@@ -775,18 +756,18 @@
                     <template x-if="item.type === 'secret' && !$store.app.route.params.edit">
                       <section class="card secret-box" x-data="secretForm(item, (u) => applyUpdate(u))">
                         <div class="card-title"><span x-text="item.has_value ? 'Valor definido' : 'Sem valor'"></span></div>
-                        <p class="secret-note">O valor fica cifrado nesta máquina e nunca é mostrado de volta. O agente só o usa rodando <code>knowledge-mcp run</code>, sem ver o valor.</p>
+                        <p class="secret-note">The value is encrypted on this machine and never shown again. The agent only uses it by running <code>knowledge-mcp run</code>, without seeing the value.</p>
                         <div class="secret-form">
                           <input class="input" type="password" autocomplete="off" data-1p-ignore data-lpignore="true" spellcheck="false" aria-label="Valor do segredo"
                                  x-show="!multiline" @keydown.enter.prevent="save()"
-                                 :placeholder="item.has_value ? 'Novo valor (substitui o atual)' : 'Cole o valor aqui'" x-model="value">
-                          <textarea class="input mono" rows="6" autocomplete="off" data-1p-ignore data-lpignore="true" spellcheck="false" aria-label="Valor do segredo (várias linhas)"
-                                    x-show="multiline" placeholder="Cole a chave ou o arquivo aqui" x-model="value"></textarea>
-                          <button class="btn primary" type="button" :disabled="!value || busy" @click="save()">Salvar</button>
+                                 :placeholder="item.has_value ? 'New value (replaces current)' : 'Paste the value here'" x-model="value">
+                          <textarea class="input mono" rows="6" autocomplete="off" data-1p-ignore data-lpignore="true" spellcheck="false" aria-label="Secret value (multiple lines)"
+                                    x-show="multiline" placeholder="Paste the key or file content here" x-model="value"></textarea>
+                          <button class="btn primary" type="button" :disabled="!value || busy" @click="save()">Save</button>
                           <button class="btn danger" type="button" x-show="item.has_value" :disabled="busy" @click="clear()"
-                                  x-text="confirming ? 'Confirmar: apagar' : 'Apagar valor'"></button>
+                                  x-text="confirming ? 'Confirm: delete' : 'Delete value'"></button>
                         </div>
-                        <label class="secret-multi"><input type="checkbox" x-model="multiline"> Várias linhas (chave PEM, kubeconfig) — o texto fica visível enquanto você cola</label>
+                        <label class="secret-multi"><input type="checkbox" x-model="multiline"> Multiple lines (PEM key, kubeconfig) — the text stays visible while you paste</label>
                         <span class="form-error" x-show="error" x-text="error" role="alert"></span>
                       </section>
                     </template>
@@ -810,7 +791,7 @@
                     <template x-if="$store.app.route.params.edit && item && item.id === $store.app.route.params.item">
                       <div class="editor" x-data="itemEditor(item, (u) => applyUpdate(u))">
                         <div class="editor-meta">
-                          <div class="field grow"><label for="ed-title">Título</label>
+                          <div class="field grow"><label for="ed-title">Title</label>
                             <input id="ed-title" class="input" type="text" maxlength="255" x-model="draft.title"></div>
                           <div class="field"><label for="ed-type">Tipo</label>
                             <select id="ed-type" class="select" x-model="draft.type">
@@ -818,7 +799,7 @@
                             </select></div>
                           <div class="field grow"><label for="ed-summary">Resumo</label>
                             <input id="ed-summary" class="input" type="text" x-model="draft.summary"></div>
-                          <div class="field grow"><label for="ed-tags">Tags (separadas por vírgula)</label>
+                          <div class="field grow"><label for="ed-tags">Tags (comma-separated)</label>
                             <input id="ed-tags" class="input" type="text" x-model="draft.tags"></div>
                         </div>
                         <div class="editor-grid">
@@ -832,10 +813,10 @@
                           </div>
                         </div>
                         <div class="editor-bar">
-                          <span class="muted" x-show="dirty">Alterações não salvas</span>
+                          <span class="muted" x-show="dirty">Unsaved changes</span>
                           <span class="form-error" x-show="error" x-text="error" role="alert"></span>
                           <span class="grow"></span>
-                          <button class="btn" @click="$store.app.toggleEdit()">Fechar edição</button>
+                          <button class="btn" @click="$store.app.toggleEdit()">Close editor</button>
                           <button class="btn primary" :disabled="!dirty || saving" @click="save()">
                             <span x-text="saving ? 'Salvando…' : 'Salvar'"></span> <kbd x-text="$store.app.isMac ? '⌘ S' : 'Ctrl S'"></kbd>
                           </button>
@@ -845,10 +826,10 @@
 
                     <template x-if="out.length || inc.length">
                       <section class="rels">
-                        <h2 class="section-title">Relações</h2>
+                        <h2 class="section-title">Relations</h2>
                         <div class="rel-cols">
                           <div x-show="out.length">
-                            <h3 class="rel-h">Referencia</h3>
+                            <h3 class="rel-h">References</h3>
                             <template x-for="r in out" :key="r.id">
                               <a class="rel" :href="relHref(r.other)">
                                 <span class="chip" x-text="r.type"></span>
@@ -858,7 +839,7 @@
                             </template>
                           </div>
                           <div x-show="inc.length">
-                            <h3 class="rel-h">Referenciado por</h3>
+                            <h3 class="rel-h">Referenced by</h3>
                             <template x-for="r in inc" :key="r.id">
                               <a class="rel" :href="relHref(r.other)">
                                 <span class="chip" x-text="r.type"></span>
@@ -892,7 +873,7 @@
                       </template>
                       <template x-if="next">
                         <a class="pager-a next" :href="$store.app.hItem(item.project_id, next.id)">
-                          <span class="muted">Próximo</span><b x-text="next.title"></b>
+                          <span class="muted">Next</span><b x-text="next.title"></b>
                         </a>
                       </template>
                     </nav>
@@ -901,20 +882,20 @@
 
                 <div class="state error" x-show="notFound" role="alert">
                   <svg class="logo"><use href="#logo"/></svg>
-                  <h3>Item não encontrado</h3>
-                  <p>Ele pode ter sido removido ou pertencer a outra conexão.</p>
-                  <a class="btn" :href="$store.app.hWs()">Voltar ao workspace</a>
+                  <h3>Item not found</h3>
+                  <p>It may have been removed or belong to another connection.</p>
+                  <a class="btn" :href="$store.app.hWs()">Back to workspace</a>
                 </div>
                 <div class="state error" x-show="error" role="alert">
                   <svg class="logo"><use href="#logo"/></svg>
-                  <h3>Não foi possível carregar o item</h3>
+                  <h3>Could not load the item</h3>
                   <p x-text="error"></p>
-                  <button class="btn" @click="load()">Tentar de novo</button>
+                  <button class="btn" @click="load()">Try again</button>
                 </div>
               </div>
 
-              <aside class="toc" x-show="item && headings.length" aria-label="Nesta página">
-                <div class="toc-title">Nesta página</div>
+              <aside class="toc" x-show="item && headings.length" aria-label="On this page">
+                <div class="toc-title">On this page</div>
                 <template x-for="h in headings" :key="h.id">
                   <a class="toc-link" :class="{ active: active === h.id, sub: h.level === 3 }"
                      :href="'#' + h.id" @click.prevent="goTo(h.id)" x-text="h.text"></a>
@@ -927,9 +908,9 @@
           <template x-if="$store.app.route.name === 'connections'">
             <div class="page"><div class="doc" x-data="connectionsView">
               <nav class="crumbs">
-                <a href="#/settings/connections" x-show="sub">Conexões</a><span class="sep" x-show="sub">/</span>
-                <span x-show="!sub">Configurações</span>
-                <span x-show="isNew">Nova conexão</span>
+                <a href="#/settings/connections" x-show="sub">Connections</a><span class="sep" x-show="sub">/</span>
+                <span x-show="!sub">Settings</span>
+                <span x-show="isNew">New connection</span>
                 <span x-show="conn" x-text="conn?.name"></span>
               </nav>
 
@@ -937,14 +918,14 @@
               <template x-if="!sub">
                 <div>
                   <div class="page-head">
-                    <h1 class="page-title">Conexões</h1>
-                    <div class="toolbar"><a class="btn primary" href="#/settings/connections/new"><svg class="ic"><use href="#i-plus"/></svg> Nova conexão</a></div>
+                    <h1 class="page-title">Connections</h1>
+                    <div class="toolbar"><a class="btn primary" href="#/settings/connections/new"><svg class="ic"><use href="#i-plus"/></svg> New connection</a></div>
                   </div>
                   <div class="state error" x-show="error || $store.app.connError" role="alert">
                     <svg class="logo"><use href="#logo"/></svg>
-                    <h3>Não foi possível listar as conexões</h3>
+                    <h3>Could not list connections</h3>
                     <p x-text="error || $store.app.connError"></p>
-                    <button class="btn" @click="load()">Tentar de novo</button>
+                    <button class="btn" @click="load()">Try again</button>
                   </div>
                   <div class="conn-list" x-show="!error && !$store.app.connError">
                     <template x-for="c in $store.app.connections" :key="c.id">
@@ -954,8 +935,8 @@
                           <span class="conn-name"><b x-text="c.name"></b>
                             <span class="chip outline" x-text="c.review_mode"></span>
                             <span class="chip accent" x-show="c.is_default">Default</span>
-                            <span class="chip outline" x-show="c.is_catalog">Catálogo</span>
-                            <span class="chip outline" x-show="!c.enabled">Desabilitada</span>
+                            <span class="chip outline" x-show="c.is_catalog">Catalog</span>
+                            <span class="chip outline" x-show="!c.enabled">Disabled</span>
                           </span>
                           <span class="conn-sub" x-text="target(c)"></span>
                         </span>
@@ -972,48 +953,48 @@
               <!-- Detalhe / nova -->
               <template x-if="sub">
                 <div>
-                  <h1 class="page-title" x-text="isNew ? 'Nova conexão' : (conn ? conn.name : 'Conexão')"></h1>
+                  <h1 class="page-title" x-text="isNew ? 'New connection' : (conn ? conn.name : 'Connection')"></h1>
                   <p class="page-meta" x-show="conn">
                     <span class="chip outline" x-text="conn?.review_mode"></span>
                     <span class="chip accent" x-show="conn?.is_default">Default</span>
-                    <span class="chip outline" x-show="conn?.is_catalog">Catálogo (somente leitura)</span>
+                    <span class="chip outline" x-show="conn?.is_catalog">Catalog (read-only)</span>
                   </p>
 
                   <div class="state error" x-show="notFound" role="alert">
                     <svg class="logo"><use href="#logo"/></svg>
-                    <h3>Conexão não encontrada</h3>
-                    <a class="btn" href="#/settings/connections">Voltar às conexões</a>
+                    <h3>Connection not found</h3>
+                    <a class="btn" href="#/settings/connections">Back to connections</a>
                   </div>
 
                   <div x-show="!notFound">
                     <p class="form-error" x-show="error" x-text="error" role="alert"></p>
 
-                    <!-- Formulário (não existe para o catálogo) -->
+                    <!-- Form (does not exist for the catalog) -->
                     <form x-show="isNew || editable" @submit.prevent="save()" autocomplete="off">
                       <div class="form-row">
-                        <div class="field grow"><label for="c-name">Nome</label>
+                        <div class="field grow"><label for="c-name">Name</label>
                           <input id="c-name" class="input" type="text" x-model="form.name" maxlength="255" required></div>
-                        <div class="field"><label for="c-review">Modo de publicação</label>
+                        <div class="field"><label for="c-review">Publish mode</label>
                           <select id="c-review" class="select" x-model="form.review_mode">
-                            <option value="direct">Direto</option>
+                            <option value="direct">Direct</option>
                             <option value="pr">Pull request</option>
                           </select></div>
                       </div>
 
                       <div class="field"><label for="c-remote">Remote git</label>
                         <input id="c-remote" class="input mono" type="text" x-model="form.remote_url" placeholder="https://github.com/org/repo.git">
-                        <span class="form-hint-text">Em branco: repositório só local (sem GitHub). Clone e índice de busca vivem no home de dados.</span></div>
+                        <span class="form-hint-text">Blank: local-only repository (no GitHub). The clone and search index live in the data home.</span></div>
 
-                      <label class="check"><input type="checkbox" x-model="form.enabled"> Habilitada</label>
+                      <label class="check"><input type="checkbox" x-model="form.enabled"> Enabled</label>
 
                       <div class="toolbar" style="margin-top:14px">
-                        <button type="submit" class="btn primary" :disabled="saving" x-text="saving ? 'Salvando…' : (isNew ? 'Criar' : 'Salvar')"></button>
-                        <button type="button" class="btn" :disabled="saving || testing" @click="saveAndTest()">Salvar e testar</button>
-                        <a class="btn ghost" href="#/settings/connections">Cancelar</a>
+                        <button type="submit" class="btn primary" :disabled="saving" x-text="saving ? 'Saving…' : (isNew ? 'Create' : 'Save')"></button>
+                        <button type="button" class="btn" :disabled="saving || testing" @click="saveAndTest()">Save and test</button>
+                        <a class="btn ghost" href="#/settings/connections">Cancel</a>
                       </div>
                     </form>
 
-                    <!-- Resultado do teste: mensagem + latência (a mensagem vem sem a senha) -->
+                    <!-- Test result: message + latency (the message never includes the password) -->
                     <div class="alert-inline" :class="alert?.kind" x-show="alert" role="status">
                       <svg class="ic"><use :href="alert?.kind === 'ok' ? '#i-check' : '#i-alert'"/></svg>
                       <span x-text="alert?.message"></span>
@@ -1022,37 +1003,37 @@
 
                     <template x-if="conn">
                       <div>
-                        <h2 class="section-title">Ações</h2>
+                        <h2 class="section-title">Actions</h2>
                         <div class="toolbar">
-                          <button class="btn" :disabled="testing" @click="test()"><svg class="ic"><use href="#i-refresh"/></svg> <span x-text="testing ? 'Testando…' : 'Testar'"></span></button>
-                          <button class="btn" :disabled="conn.is_default || !conn.enabled" @click="makeDefault()">Definir como default</button>
+                          <button class="btn" :disabled="testing" @click="test()"><svg class="ic"><use href="#i-refresh"/></svg> <span x-text="testing ? 'Testing…' : 'Test'"></span></button>
+                          <button class="btn" :disabled="conn.is_default || !conn.enabled" @click="makeDefault()">Set as default</button>
                         </div>
-                        <p class="form-hint-text">“Testar” usa a configuração salva. “Definir como default” também muda a conexão usada pelas tools MCP quando elas são chamadas sem <code>connection_id</code>.</p>
+                        <p class="form-hint-text">"Test" uses the saved configuration. "Set as default" also changes the connection used by MCP tools when they're called without <code>connection_id</code>.</p>
 
                         <h2 class="section-title">Schema</h2>
                         <div class="toolbar">
-                          <button class="btn" :disabled="syncing" @click="syncSchema(true)">Sincronizar schema (dry-run)</button>
-                          <button class="btn primary" x-show="plan" :disabled="syncing || !canApply" @click="syncSchema(false)">Aplicar</button>
+                          <button class="btn" :disabled="syncing" @click="syncSchema(true)">Sync schema (dry run)</button>
+                          <button class="btn primary" x-show="plan" :disabled="syncing || !canApply" @click="syncSchema(false)">Apply</button>
                         </div>
                         <div class="plan" x-show="plan">
-                          <p class="plan-title">Plano (nada foi gravado): <b x-text="plan?.status"></b></p>
-                          <p class="muted" x-show="planEmpty && !plan?.pending_manual.length">O schema já está em dia.</p>
-                          <template x-for="g in [['Tabelas a criar', plan?.tables_created], ['Colunas a adicionar', plan?.columns_added], ['Índices a criar', plan?.indexes_created], ['Diferenças manuais (não aplicadas)', plan?.pending_manual]]" :key="g[0]">
+                          <p class="plan-title">Plan (nothing written yet): <b x-text="plan?.status"></b></p>
+                          <p class="muted" x-show="planEmpty && !plan?.pending_manual.length">Schema is already up to date.</p>
+                          <template x-for="g in [['Tables to create', plan?.tables_created], ['Columns to add', plan?.columns_added], ['Indexes to create', plan?.indexes_created], ['Manual differences (not applied)', plan?.pending_manual]]" :key="g[0]">
                             <div x-show="g[1] && g[1].length"><div class="rel-h" x-text="g[0]"></div>
                               <ul class="mini-list"><template x-for="x in g[1]" :key="x"><li x-text="x"></li></template></ul></div>
                           </template>
-                          <p x-show="plan?.fts_created">Busca textual (FTS) a criar.</p>
+                          <p x-show="plan?.fts_created">Full-text search (FTS) to be created.</p>
                         </div>
                         <p class="form-hint-text" x-show="syncMessage" x-text="syncMessage"></p>
 
                         <div class="danger-zone" x-show="editable">
-                          <h2 class="section-title">Zona de perigo</h2>
-                          <p x-show="!canDelete">Esta é a conexão default: defina outra como default antes de excluí-la.</p>
+                          <h2 class="section-title">Danger zone</h2>
+                          <p x-show="!canDelete">This is the default connection: set another as default before deleting it.</p>
                           <div x-show="canDelete">
-                            <p>Exclui o cadastro da conexão (os dados do banco não são tocados). Digite <b x-text="conn.name"></b> para confirmar.</p>
+                            <p>Deletes the connection record (database data is untouched). Type <b x-text="conn.name"></b> to confirm.</p>
                             <div class="toolbar">
-                              <input class="input" type="text" x-model="confirmName" :placeholder="conn.name" aria-label="Nome da conexão para confirmar" autocomplete="off" style="max-width:260px">
-                              <button class="btn danger" :disabled="!dangerReady || deleting" @click="remove()">Excluir conexão</button>
+                              <input class="input" type="text" x-model="confirmName" :placeholder="conn.name" aria-label="Connection name to confirm" autocomplete="off" style="max-width:260px">
+                              <button class="btn danger" :disabled="!dangerReady || deleting" @click="remove()">Delete connection</button>
                             </div>
                           </div>
                         </div>
@@ -1069,9 +1050,9 @@
             <div class="page"><div class="doc">
               <div class="state">
                 <svg class="logo"><use href="#logo"/></svg>
-                <h3>Página não encontrada</h3>
-                <p>O endereço não corresponde a nenhuma tela.</p>
-                <a class="btn" href="#/">Ir para o início</a>
+                <h3>Page not found</h3>
+                <p>This address does not match any screen.</p>
+                <a class="btn" href="#/">Go to start</a>
               </div>
             </div></div>
           </template>
@@ -1081,13 +1062,13 @@
     </div>
   </div>
 
-  <!-- Paleta Ctrl/Cmd+K -->
+  <!-- Ctrl/Cmd+K palette -->
   <template x-if="$store.app.paletteOpen">
   <div class="overlay" x-data="palette" @click.self="$store.app.paletteOpen = false">
-    <div class="palette" role="dialog" aria-modal="true" aria-label="Buscar e comandos">
+    <div class="palette" role="dialog" aria-modal="true" aria-label="Search and commands">
       <div class="pal-input">
         <svg class="ic"><use href="#i-search"/></svg>
-        <input x-ref="input" x-model="q" type="text" placeholder="Buscar itens em todos os workspaces, projects, ações…" autocomplete="off" spellcheck="false"
+        <input x-ref="input" x-model="q" type="text" placeholder="Search items across every workspace, project, actions…" autocomplete="off" spellcheck="false"
                role="combobox" aria-expanded="true" aria-controls="pal-list"
                :aria-activedescendant="'pal-' + sel"
                @keydown.arrow-down.prevent="move(1)" @keydown.arrow-up.prevent="move(-1)"
@@ -1112,27 +1093,27 @@
             </template>
           </div>
         </template>
-        <div class="pal-empty" x-show="!flat.length && !searching">Nada encontrado para “<span x-text="q"></span>”.</div>
+        <div class="pal-empty" x-show="!flat.length && !searching">Nothing found for “<span x-text="q"></span>”.</div>
       </div>
     </div>
   </div>
   </template>
 
-  <!-- Novo item / project / workspace -->
+  <!-- New item / project / workspace -->
   <template x-if="$store.app.modal">
   <div class="overlay" x-data="newModal" @click.self="close()">
     <form class="dialog wide" role="dialog" aria-modal="true" :aria-label="title" @submit.prevent="submit()">
       <div class="dialog-head"><h2 x-text="title"></h2>
-        <button type="button" class="btn icon ghost" @click="close()" aria-label="Fechar"><svg class="ic"><use href="#i-x"/></svg></button>
+        <button type="button" class="btn icon ghost" @click="close()" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button>
       </div>
       <div class="dialog-body">
         <template x-if="kind === 'workspace'">
           <div>
-            <div class="field"><label for="m-name">Nome</label>
+            <div class="field"><label for="m-name">Name</label>
               <input id="m-name" x-ref="first" class="input" type="text" x-model="form.name" maxlength="255" required></div>
-            <div class="field"><label for="m-desc">Descrição</label>
+            <div class="field"><label for="m-desc">Description</label>
               <textarea id="m-desc" class="textarea" rows="3" x-model="form.description"></textarea></div>
-            <p class="muted" style="font-size:13px;margin:0">Será criado na conexão <b x-text="$store.app.connName"></b>.</p>
+            <p class="muted" style="font-size:13px;margin:0">Will be created in the <b x-text="$store.app.connName"></b> connection.</p>
           </div>
         </template>
 
@@ -1142,9 +1123,9 @@
               <select id="m-ws" class="select" x-model="form.workspace_id">
                 <template x-for="w in $store.app.workspaces" :key="w.id"><option :value="w.id" x-text="w.name"></option></template>
               </select></div>
-            <div class="field"><label for="m-pname">Nome</label>
+            <div class="field"><label for="m-pname">Name</label>
               <input id="m-pname" x-ref="first" class="input" type="text" x-model="form.name" maxlength="255" required></div>
-            <div class="field"><label for="m-pdesc">Descrição</label>
+            <div class="field"><label for="m-pdesc">Description</label>
               <textarea id="m-pdesc" class="textarea" rows="3" x-model="form.description"></textarea></div>
           </div>
         </template>
@@ -1152,7 +1133,7 @@
         <template x-if="kind === 'item'">
           <div>
             <p class="muted" style="font-size:13px;margin:0 0 12px">Workspace: <b x-text="$store.app.workspace?.name"></b></p>
-            <div class="field"><label for="m-title">Título</label>
+            <div class="field"><label for="m-title">Title</label>
               <input id="m-title" x-ref="first" class="input" type="text" x-model="form.title" maxlength="255" required></div>
             <div class="form-row">
               <div class="field"><label for="m-project">Project</label>
@@ -1164,13 +1145,13 @@
                   <template x-for="t in types" :key="t"><option :value="t" x-text="$tlabel(t)"></option></template>
                 </select></div>
             </div>
-            <p class="form-hint" x-show="!projects.length">Este workspace ainda não tem projects: crie um antes do item.</p>
+            <p class="form-hint" x-show="!projects.length">This workspace has no projects yet: create one before the item.</p>
             <div class="field"><label for="m-sum">Resumo</label>
               <input id="m-sum" class="input" type="text" x-model="form.summary" required></div>
-            <div class="field"><label for="m-content">Conteúdo (Markdown)</label>
+            <div class="field"><label for="m-content">Content (Markdown)</label>
               <textarea id="m-content" class="textarea mono" rows="8" x-model="form.content" spellcheck="false" required></textarea></div>
             <div class="form-row">
-              <div class="field"><label for="m-tags">Tags (separadas por vírgula)</label>
+              <div class="field"><label for="m-tags">Tags (comma-separated)</label>
                 <input id="m-tags" class="input" type="text" x-model="form.tags"></div>
             </div>
           </div>
@@ -1179,19 +1160,19 @@
         <p class="form-error" x-show="error" x-text="error" role="alert"></p>
       </div>
       <div class="dialog-foot">
-        <button type="button" class="btn" @click="close()">Cancelar</button>
-        <button type="submit" class="btn primary" :disabled="saving" x-text="saving ? 'Criando…' : 'Criar'"></button>
+        <button type="button" class="btn" @click="close()">Cancel</button>
+        <button type="submit" class="btn primary" :disabled="saving" x-text="saving ? 'Creating…' : 'Create'"></button>
       </div>
     </form>
   </div>
   </template>
 
-  <!-- Atalhos -->
+  <!-- Shortcuts -->
   <template x-if="$store.app.helpOpen">
   <div class="overlay" @click.self="$store.app.helpOpen = false">
-    <div class="dialog" role="dialog" aria-modal="true" aria-label="Atalhos de teclado">
-      <div class="dialog-head"><h2>Atalhos de teclado</h2>
-        <button class="btn icon ghost" @click="$store.app.helpOpen = false" aria-label="Fechar"><svg class="ic"><use href="#i-x"/></svg></button>
+    <div class="dialog" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
+      <div class="dialog-head"><h2>Keyboard shortcuts</h2>
+        <button class="btn icon ghost" @click="$store.app.helpOpen = false" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button>
       </div>
       <div class="dialog-body">
         <template x-for="s in $store.app.shortcuts" :key="s.label">

@@ -79,11 +79,11 @@ export function register(Alpine) {
       async save() {
         if (this.saving) return;
         if (!this.dirty) {
-          this.app.toast('Nada para salvar');
+          this.app.toast('Nothing to save');
           return;
         }
         if (blank(this.draft.title) || blank(this.draft.summary) || blank(this.draft.content)) {
-          this.error = 'Título, resumo e conteúdo não podem ficar vazios.';
+          this.error = 'Title, summary and content cannot be empty.';
           return;
         }
         this.saving = true;
@@ -92,7 +92,7 @@ export function register(Alpine) {
           const updated = await api('PUT', `/items/${item.id}`, { body: changes(this.draft, this.saved) });
           this.saved = pick(updated);
           applyUpdate(updated);
-          this.app.toast('Alterações salvas');
+          this.app.toast('Changes saved');
           this.app.loadTree(); // atualiza updated_at na árvore
         } catch (e) {
           this.error = e.message;
@@ -120,7 +120,7 @@ export function register(Alpine) {
       return this.app.tree?.projects || [];
     },
     get title() {
-      return { item: 'Novo item', workspace: 'Novo workspace', project: 'Novo project' }[this.kind] || '';
+      return { item: 'New item', workspace: 'New workspace', project: 'New project' }[this.kind] || '';
     },
 
     init() {
@@ -166,37 +166,37 @@ export function register(Alpine) {
 
     async createWorkspace() {
       const f = this.form;
-      if (!f.name.trim()) throw new Error('Informe o nome do workspace.');
+      if (!f.name.trim()) throw new Error('Enter the workspace name.');
       const ws = await api('POST', '/workspaces', {
         body: { name: f.name.trim(), description: f.description.trim() || null },
       });
       await this.app.loadWorkspaces();
       this.app.modal = null;
-      this.app.toast('Workspace criado');
+      this.app.toast('Workspace created');
       go(hrefs.ws(this.app.connId, ws.id));
     },
 
     async createProject() {
       const f = this.form;
-      if (!f.workspace_id) throw new Error('Escolha o workspace.');
-      if (!f.name.trim()) throw new Error('Informe o nome do project.');
+      if (!f.workspace_id) throw new Error('Choose the workspace.');
+      if (!f.name.trim()) throw new Error('Enter the project name.');
       const pj = await api('POST', '/projects', {
         body: { workspace_id: f.workspace_id, name: f.name.trim(), description: f.description.trim() || null },
       });
       await this.app.loadTree(f.workspace_id);
       this.app.expanded[pj.id] = true;
       this.app.modal = null;
-      this.app.toast('Project criado');
+      this.app.toast('Project created');
       go(hrefs.project(this.app.connId, f.workspace_id, pj.id));
     },
 
     async createItem() {
       const f = this.form;
       const ws = this.app.route.params.ws;
-      if (!ws) throw new Error('Abra um workspace antes de criar um item.');
-      if (!f.project_id) throw new Error('Escolha o project (crie um se ainda não houver).');
-      for (const [k, label] of [['title', 'título'], ['summary', 'resumo'], ['content', 'conteúdo']]) {
-        if (!String(f[k]).trim()) throw new Error(`Informe o ${label}.`);
+      if (!ws) throw new Error('Open a workspace before creating an item.');
+      if (!f.project_id) throw new Error('Choose the project (create one if there isn\'t one yet).');
+      for (const [k, label] of [['title', 'title'], ['summary', 'summary'], ['content', 'content']]) {
+        if (!String(f[k]).trim()) throw new Error(`Enter the ${label}.`);
       }
       const body = {
         workspace_id: ws,
@@ -211,7 +211,7 @@ export function register(Alpine) {
       const it = await api('POST', '/items', { body });
       await this.app.loadTree(ws);
       this.app.modal = null;
-      this.app.toast('Item criado');
+      this.app.toast('Item created');
       go(hrefs.item(this.app.connId, ws, it.project_id, it.id));
     },
   }));

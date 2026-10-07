@@ -10,12 +10,12 @@ export const isMac = /Mac|iPhone|iPad/.test(navigator.platform || '');
 
 /** Lista exibida na ajuda (`?`). */
 export const SHORTCUTS = [
-  { keys: [isMac ? '⌘ K' : 'Ctrl K', '/'], label: 'Abrir a busca e os comandos' },
-  { keys: ['e'], label: 'Alternar entre Ler e Editar (na página de um item)' },
-  { keys: [isMac ? '⌘ S' : 'Ctrl S'], label: 'Salvar a edição' },
-  { keys: ['?'], label: 'Mostrar esta ajuda' },
-  { keys: ['Esc'], label: 'Fechar painel, paleta ou modal' },
-  { keys: ['↑', '↓', 'Enter'], label: 'Navegar e escolher na paleta' },
+  { keys: [isMac ? '⌘ K' : 'Ctrl K', '/'], label: 'Open search and commands' },
+  { keys: ['e'], label: 'Toggle between Read and Edit (on an item page)' },
+  { keys: [isMac ? '⌘ S' : 'Ctrl S'], label: 'Save the edit' },
+  { keys: ['?'], label: 'Show this help' },
+  { keys: ['Esc'], label: 'Close panel, palette or modal' },
+  { keys: ['↑', '↓', 'Enter'], label: 'Navigate and choose in the palette' },
 ];
 
 export function registerShortcuts(app) {

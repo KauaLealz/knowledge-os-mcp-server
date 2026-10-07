@@ -1,6 +1,6 @@
-// Utilitários pequenos e sem dependências.
+// Small, dependency-free utilities.
 
-/** localStorage com try/catch: a página funciona sem storage. */
+/** localStorage with try/catch: the page works without storage. */
 export function lsGet(key) {
   try {
     return window.localStorage.getItem(key);
@@ -13,11 +13,11 @@ export function lsSet(key, value) {
   try {
     window.localStorage.setItem(key, value);
   } catch {
-    /* sem storage: ignora */
+    /* no storage: ignore */
   }
 }
 
-/** A API devolve datetimes UTC sem fuso (utcnow): assume UTC quando não há. */
+/** The API returns naive UTC datetimes (utcnow): assume UTC when there's no offset. */
 export function parseDate(value) {
   if (!value) return null;
   const s = String(value);
@@ -29,65 +29,43 @@ export function timeAgo(value) {
   const d = parseDate(value);
   if (!d) return '';
   const sec = Math.round((Date.now() - d.getTime()) / 1000);
-  if (sec < 45) return 'agora';
-  if (sec < 3600) return `há ${Math.max(1, Math.round(sec / 60))} min`;
-  if (sec < 86400) return `há ${Math.round(sec / 3600)} h`;
-  if (sec < 2592000) return `há ${Math.round(sec / 86400)} d`;
-  if (sec < 31536000) {
-    const m = Math.round(sec / 2592000);
-    return `há ${m} ${m > 1 ? 'meses' : 'mês'}`;
-  }
-  return `há ${Math.round(sec / 31536000)} a`;
+  if (sec < 45) return 'now';
+  if (sec < 3600) return `${Math.max(1, Math.round(sec / 60))}m ago`;
+  if (sec < 86400) return `${Math.round(sec / 3600)}h ago`;
+  if (sec < 2592000) return `${Math.round(sec / 86400)}d ago`;
+  if (sec < 31536000) return `${Math.round(sec / 2592000)}mo ago`;
+  return `${Math.round(sec / 31536000)}y ago`;
 }
 
 export function formatDate(value) {
   const d = parseDate(value);
-  return d ? d.toLocaleString('pt-BR', { dateStyle: 'medium', timeStyle: 'short' }) : '';
+  return d ? d.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : '';
 }
 
 /**
- * Mapa único dos tipos: rótulo PT-BR e plural (cabeçalho de grupo). O tipo não tem ícone: aparece como ponto colorido + texto.
- * A cor vem da classe `t-<tipo>` (tokens --t-<tipo> em tokens.css).
- * A ordem das chaves é a ordem fixa dos grupos nas listas.
+ * Single map of item types to their display label. No icons — just a colored dot + text.
+ * Color comes from the `t-<type>` class (tokens --t-<type> in tokens.css).
  */
 export const TYPE_META = {
-  rule: { label: 'Regra', plural: 'Regras' },
-  insight: { label: 'Decisão', plural: 'Decisões' },
-  procedure: { label: 'Procedimento', plural: 'Procedimentos' },
-  pattern: { label: 'Padrão', plural: 'Padrões' },
-  knowledge: { label: 'Aprendizado', plural: 'Aprendizados' },
-  context: { label: 'Contexto', plural: 'Contexto' },
-  artifact: { label: 'Anexo', plural: 'Anexos' },
-  spec: { label: 'Especificação', plural: 'Especificações' },
-  secret: { label: 'Segredo', plural: 'Segredos' },
+  rule: { label: 'Rule' },
+  insight: { label: 'Decision' },
+  procedure: { label: 'Procedure' },
+  pattern: { label: 'Pattern' },
+  knowledge: { label: 'Learning' },
+  context: { label: 'Context' },
+  artifact: { label: 'Attachment' },
+  spec: { label: 'Spec' },
+  secret: { label: 'Secret' },
 };
 export const TYPE_ORDER = Object.keys(TYPE_META);
-/** Tipos que o usuário pode escolher ao criar um item (segredo nasce pelo agente; a UI só preenche o valor). */
+/** Types the user can pick when creating an item (secret is created by the agent; the UI
+ * only ever fills in its value). */
 export const ITEM_TYPES = TYPE_ORDER.filter((t) => t !== 'secret');
 
 export function typeLabel(type) {
   return TYPE_META[type]?.label || String(type || '');
 }
-export function typePlural(type) {
-  return TYPE_META[type]?.plural || String(type || '');
-}
-/** Classe de cor (`t-rule`...); tipo desconhecido fica neutro. */
+/** Color class (`t-rule`...); unknown type falls back to neutral. */
 export function typeClass(type) {
   return TYPE_META[type] ? 't-' + type : 't-unknown';
-}
-
-/** Agrupa por tipo na ordem fixa; grupos vazios não aparecem; tipos fora do mapa vão ao fim. */
-export function groupByType(items) {
-  const by = new Map();
-  for (const it of items) {
-    if (!by.has(it.type)) by.set(it.type, []);
-    by.get(it.type).push(it);
-  }
-  const known = TYPE_ORDER.filter((t) => by.has(t));
-  const extra = [...by.keys()].filter((t) => !TYPE_META[t]).sort();
-  return [...known, ...extra].map((type) => ({
-    type,
-    label: typePlural(type),
-    items: by.get(type),
-  }));
 }

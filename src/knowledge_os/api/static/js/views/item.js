@@ -48,7 +48,7 @@ export function register(Alpine) {
       try {
         await api('PUT', `/items/${item.id}/secret`, { body: { value: this.value } });
         onUpdate(await api('GET', `/items/${item.id}`));
-        this.app.toast('Valor salvo');
+        this.app.toast('Value saved');
       } catch (e) {
         this.error = e.message;
       } finally {
@@ -67,7 +67,7 @@ export function register(Alpine) {
       try {
         await api('DELETE', `/items/${item.id}/secret`);
         onUpdate(await api('GET', `/items/${item.id}`));
-        this.app.toast('Valor apagado');
+        this.app.toast('Value deleted');
       } catch (e) {
         this.error = e.message;
       } finally {
@@ -238,9 +238,9 @@ export function register(Alpine) {
     async copyMarkdown() {
       try {
         await copyText(`# ${this.item.title}\n\n${this.item.content}`);
-        this.app.toast('Markdown copiado');
+        this.app.toast('Markdown copied');
       } catch {
-        this.app.toast('Não foi possível copiar', 'error');
+        this.app.toast('Could not copy', 'error');
       }
     },
     async downloadArtifact(a) {
@@ -263,7 +263,7 @@ export function register(Alpine) {
         const id = this.item.id;
         await api('DELETE', `/items/${id}`);
         if (mine !== this.seq) return;
-        this.app.toast('Item excluído');
+        this.app.toast('Item deleted');
         go(this.app.hProject(pjId));
       } catch (e) {
         if (mine === this.seq) this.error = e.message;

@@ -67,7 +67,7 @@ export function register(Alpine) {
         };
 
         add(
-          'Recentes',
+          'Recent',
           app.recents
             .filter((r) => r.conn === app.connId && match(r.title))
             .slice(0, q ? 4 : 6)
@@ -103,7 +103,7 @@ export function register(Alpine) {
         const places = [];
         for (const p of app.tree?.projects || []) {
           if (match(p.name)) {
-            places.push({ key: 'p' + p.id, title: p.name, sub: `Project · ${p.item_count} itens`, icon: 'folder', hash: app.hProject(p.id) });
+            places.push({ key: 'p' + p.id, title: p.name, sub: `Project · ${p.item_count} items`, icon: 'folder', hash: app.hProject(p.id) });
           }
         }
         for (const w of app.workspaces) {
@@ -111,15 +111,15 @@ export function register(Alpine) {
             places.push({ key: 'w' + w.id, title: w.name, sub: 'Workspace', icon: 'box', hash: app.hWs(w.id) });
           }
         }
-        add('Projects e Workspaces', places.slice(0, 8));
+        add('Projects & workspaces', places.slice(0, 8));
 
-        add('Ações', this.actions().filter((a) => match(a.title)));
+        add('Actions', this.actions().filter((a) => match(a.title)));
 
         const settings = [
-          { key: 's-conn', title: 'Conexões', sub: 'Configurações', icon: 'db', hash: app.hConnections() },
-          { key: 's-theme', title: app.themeAction, sub: 'Configurações', icon: app.theme === 'dark' ? 'sun' : 'moon', run: () => app.toggleTheme() },
+          { key: 's-conn', title: 'Connections', sub: 'Settings', icon: 'db', hash: app.hConnections() },
+          { key: 's-theme', title: app.themeAction, sub: 'Settings', icon: app.theme === 'dark' ? 'sun' : 'moon', run: () => app.toggleTheme() },
         ];
-        add('Configurações', settings.filter((s) => match(s.title)));
+        add('Settings', settings.filter((s) => match(s.title)));
         return groups;
       },
 
@@ -133,13 +133,13 @@ export function register(Alpine) {
       actions() {
         const app = this.app;
         return [
-          { key: 'a-new-item', title: 'Novo item', sub: 'Criar no workspace atual', icon: 'plus', run: () => app.openModal('item') },
-          { key: 'a-new-project', title: 'Novo project', sub: '', icon: 'folder', run: () => app.openModal('project') },
-          { key: 'a-new-ws', title: 'Novo workspace', sub: '', icon: 'box', run: () => app.openModal('workspace') },
-          { key: 'a-edit', title: 'Alternar Ler / Editar', sub: 'e', icon: 'edit', run: () => app.toggleEdit() },
-          { key: 'a-wide', title: 'Alternar largura do conteúdo', sub: '', icon: 'expand', run: () => app.toggleWide() },
-          { key: 'a-help', title: 'Ver atalhos de teclado', sub: '?', icon: 'command', run: () => (app.helpOpen = true) },
-          { key: 'a-refresh', title: 'Recarregar dados', sub: '', icon: 'refresh', run: () => app.refresh() },
+          { key: 'a-new-item', title: 'New item', sub: 'Create in the current workspace', icon: 'plus', run: () => app.openModal('item') },
+          { key: 'a-new-project', title: 'New project', sub: '', icon: 'folder', run: () => app.openModal('project') },
+          { key: 'a-new-ws', title: 'New workspace', sub: '', icon: 'box', run: () => app.openModal('workspace') },
+          { key: 'a-edit', title: 'Toggle Read / Edit', sub: 'e', icon: 'edit', run: () => app.toggleEdit() },
+          { key: 'a-wide', title: 'Toggle content width', sub: '', icon: 'expand', run: () => app.toggleWide() },
+          { key: 'a-help', title: 'View keyboard shortcuts', sub: '?', icon: 'command', run: () => (app.helpOpen = true) },
+          { key: 'a-refresh', title: 'Reload data', sub: '', icon: 'refresh', run: () => app.refresh() },
         ];
       },
 

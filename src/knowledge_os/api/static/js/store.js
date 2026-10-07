@@ -90,7 +90,7 @@ export const appStore = {
     this.lastHash = location.hash;
     window.addEventListener('hashchange', () => {
       // Edição com alterações não salvas: confirma antes de sair da rota.
-      if (this.dirty && location.hash !== this.lastHash && !window.confirm('Há alterações não salvas. Descartar?')) {
+      if (this.dirty && location.hash !== this.lastHash && !window.confirm('There are unsaved changes. Discard them?')) {
         location.hash = this.lastHash;
         return;
       }
@@ -172,7 +172,7 @@ export const appStore = {
     if (this.route.name === 'item' && this.itemIndex[p.item]) t = this.itemIndex[p.item].title + ' · ' + t;
     else if (this.route.name === 'project' && this.project) t = this.project.name + ' · ' + t;
     else if (this.route.name === 'workspace' && this.workspace) t = this.workspace.name + ' · ' + t;
-    else if (this.route.name === 'connections') t = 'Conexões · ' + t;
+    else if (this.route.name === 'connections') t = 'Connections · ' + t;
     document.title = t;
   },
 
@@ -369,7 +369,7 @@ export const appStore = {
   },
   /** Fecha o modal; se o formulário está sujo, confirma antes de descartar. */
   closeModal() {
-    if (this.modalGuard?.() && !window.confirm('Descartar o que foi digitado?')) return;
+    if (this.modalGuard?.() && !window.confirm('Discard what you typed?')) return;
     this.modalGuard = null;
     this.modal = null;
   },
@@ -390,7 +390,7 @@ export const appStore = {
   },
   /** Texto da ação do botão de tema. */
   get themeAction() {
-    return this.theme === 'dark' ? 'Mudar para tema claro' : 'Mudar para tema escuro';
+    return this.theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme';
   },
   toggleWide() {
     this.wide = !this.wide;

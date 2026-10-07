@@ -115,11 +115,11 @@ def test_view_de_conexoes_tem_as_acoes_pedidas():
     inside = html[html.index(CONN_OPEN) : html.index(CONN_CLOSE)]
     for needle in (
         "connectionsView",
-        "Testar",
-        "Salvar e testar",
-        "Definir como default",
-        "Sincronizar schema",
-        "Zona de perigo",
+        "Test",
+        "Save and test",
+        "Set as default",
+        "Sync schema",
+        "Danger zone",
         "Default",
         "Remote git",
     ):
@@ -168,11 +168,11 @@ def test_pagina_de_item_tem_toc_relacoes_e_banner():
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     assert 'x-data="itemView"' in html
     needles = (
-        "Nesta página",
-        "Copiar como Markdown",
-        "Ver Markdown",
-        "Referencia",
-        "Referenciado por",
+        "On this page",
+        "Copy as Markdown",
+        "View Markdown",
+        "References",
+        "Referenced by",
     )
     for needle in needles:
         assert needle in html, needle
@@ -197,7 +197,7 @@ def test_paleta_e_atalhos():
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     assert 'x-data="palette"' in html and 'role="dialog"' in html
     pal = _js("views/palette.js")
-    for grupo in ("Recentes", "Items", "Projects e Workspaces", "Ações", "Configurações"):
+    for grupo in ("Recent", "Items", "Projects & workspaces", "Actions", "Settings"):
         assert f"'{grupo}'" in pal, grupo
     assert "/items/search" in pal
     sc = _js("shortcuts.js")
@@ -208,7 +208,7 @@ def test_paleta_e_atalhos():
 
 def test_edicao_inline_e_modais_de_criacao():
     html = (STATIC / "index.html").read_text(encoding="utf-8")
-    for needle in ("itemEditor", "newModal", "Novo item", "Novo workspace", "Novo project"):
+    for needle in ("itemEditor", "newModal", "New item", "New workspace", "New project"):
         assert needle in html, needle
     ed = _js("views/editor.js")
     assert "beforeunload" in ed and "'PUT'" in ed and "'POST'" in ed
@@ -227,7 +227,7 @@ def test_responsivo_e_estados():
     assert "Sessão expirada" not in html
     # a falha de listagem aparece também na página de Workspace, não só na lista da conexão
     assert html.count("$store.app.wsError") >= 3
-    assert "Tentar de novo" in html and 'role="alert"' in html
+    assert "Try again" in html and 'role="alert"' in html
 
 
 def test_botoes_de_acao_ficam_ao_lado_do_titulo_nao_abaixo():
@@ -276,7 +276,7 @@ def test_nenhum_arquivo_estatico_menciona_401():
 
 def test_fechar_modal_sujo_pede_confirmacao():
     assert "app.closeModal()" in _js("shortcuts.js")
-    assert "Descartar o que foi digitado?" in _js("store.js")
+    assert "Discard what you typed?" in _js("store.js")
     assert "modalGuard" in _js("views/editor.js")
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     assert html.count("close()") >= 3
@@ -288,10 +288,10 @@ def test_mapa_de_tipos_cobre_todos_os_tipos_da_api():
     util = _js("util.js")
     meta = util[util.index("export const TYPE_META") : util.index("export const TYPE_ORDER")]
     for t in (*ITEM_TYPES, "secret"):
-        assert re.search(rf"\b{t}: {{ label: '[^']+', plural: '[^']+' }}", meta), t
+        assert re.search(rf"\b{t}: {{ label: '[^']+' }}", meta), t
     labels = dict(re.findall(r"(\w+): \{ label: '([^']+)'", meta))
-    assert labels["rule"] == "Regra" and labels["insight"] == "Decisão"
-    assert labels["knowledge"] == "Aprendizado"
+    assert labels["rule"] == "Rule" and labels["insight"] == "Decision"
+    assert labels["knowledge"] == "Learning"
     assert "task" not in labels
     tokens = (STATIC / "css" / "tokens.css").read_text(encoding="utf-8")
     for t in (*ITEM_TYPES, "secret"):
@@ -313,10 +313,10 @@ def test_ui_sem_vestigios_de_aprovacao():
                 assert f.name == "editor.js" and "memory_class: 'longterm'" in line, (f.name, line)
 
 
-def test_tema_so_claro_e_escuro_com_dica_em_portugues():
+def test_tema_so_claro_e_escuro_com_dica_em_ingles():
     st = _js("store.js")
     assert "THEMES" not in st and "cycleTheme" not in st
-    assert "Mudar para tema claro" in st and "Mudar para tema escuro" in st
+    assert "Switch to light theme" in st and "Switch to dark theme" in st
     assert "prefers-color-scheme" in st
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     assert "toggleTheme()" in html and "'sun' : 'moon'" in html
@@ -329,11 +329,16 @@ def test_largura_larga_sem_teto_e_botao_oculto_quando_nao_cabe():
     assert re.search(r"@media \(max-width: \d+px\) \{ \.btn\.wide-btn \{ display: none; \} \}", css)
 
 
-def test_listas_agrupadas_por_tipo_com_filtros_e_busca():
+def test_listas_sao_planas_com_filtros_e_busca():
+    """A listagem é um único x-for sobre `visible` (sem agrupamento por tipo, sem título de
+    seção) — type filtra client-side; project/subject vão pro servidor (ver
+    test_project_e_assunto_sao_filtro...)."""
     html = (STATIC / "index.html").read_text(encoding="utf-8")
-    assert html.count('class="searchbar"') == 3 and "Todos os itens" in html
+    assert html.count('class="searchbar"') == 3 and "Todos os itens" not in html
+    assert html.count('class="item-list"') == 3
     lst = _js("views/listing.js")
-    assert "groupByType" in lst and "/items/search" in lst and "types" in lst
+    assert "groupByType" not in lst
+    assert "get visible()" in lst and "/items/search" in lst and "types" in lst
     util = _js("util.js")
     block = re.search(r"export const TYPE_META = \{(.*?)\n\};", util, re.S).group(1)
     keys = re.findall(r"^  (\w+): \{", block, re.M)
@@ -403,7 +408,7 @@ def test_telas_tem_botao_de_voltar():
     Subject -> pai; Grafo -> a página do escopo que ele mostra) — Workspace não (já
     alcançável pela sidebar e pelo breadcrumb, um botão ali seria redundante)."""
     html = (STATIC / "index.html").read_text(encoding="utf-8")
-    assert html.count('class="back-link"') == 4
+    assert html.count('class="btn ghost" :href="backHref()"') == 4
     item = _js("views/item.js")
     assert "backHref()" in item
     assert "this.item.subject_id" in item
@@ -503,7 +508,7 @@ def test_tela_de_grafo_registrada_e_acessivel_pelo_workspace():
 
 def test_grafo_tambem_acessivel_por_project_e_subject():
     html = _index()
-    assert html.count(">Ver grafo<") >= 3  # workspace, project, subject
+    assert html.count("View graph</a>") >= 3  # workspace, project, subject
     project = _js("views/project.js")
     assert "graphHref()" in project and "hrefs.projectGraph" in project
     subject = _js("views/subject.js")

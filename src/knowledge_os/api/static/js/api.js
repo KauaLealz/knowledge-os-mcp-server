@@ -46,7 +46,7 @@ async function request(method, path, { body, query } = {}) {
   try {
     res = await fetch(buildUrl(path, query), init);
   } catch {
-    throw new ApiError(0, 'Sem conexão com o servidor.');
+    throw new ApiError(0, 'No connection to the server.');
   }
   return res;
 }
