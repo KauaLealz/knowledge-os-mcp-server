@@ -198,7 +198,7 @@ class ConnectionManager:
             except (NotFoundError, ValidationError):
                 self.invalidate(cid)
                 raise
-            url = conn.get_url()
+            url = conn.index_url()
             if cid in self._engines and self._urls.get(cid) == url:
                 return self._engines[cid]
             self.invalidate(cid)
@@ -223,8 +223,8 @@ class ConnectionManager:
 
     def _open(self, connection_id: str, conn: ConnectionConfig | None = None) -> Engine:
         conn = conn or self._resolve(connection_id)
-        url = conn.get_url()
-        engine = get_dialect(conn.db_type).create_engine(url)
+        url = conn.index_url()
+        engine = get_dialect("sqlite").create_engine(url)
         try:
             init_db(engine, connection_id=connection_id, connection_name=conn.name)
             from knowledge_os.db.migrations import bootstrap_labels  # import tardio: evita ciclo

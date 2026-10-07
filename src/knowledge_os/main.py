@@ -72,16 +72,26 @@ def check_database() -> dict[str, str]:
 
 
 @mcp.tool()
-def health_check() -> dict[str, str]:
+def health_check() -> dict[str, object]:
     """Verifica a saúde do servidor MCP e do banco default.
 
     **Use quando:** Diagnosticar falhas ou confirmar que o servidor está operacional.
-    **Retorna:** {status: ok|error, database: connected | motivo, version, schema_version}.
+    **Retorna:** {status: ok|error, database: connected | motivo, version, schema_version,
+    gh_authenticated: true|false}.
     **Exemplo:** health_check()
-    **Notas:** Valida a conexão e a presença de todas as tabelas (inclusive a de busca textual).
+    **Notas:** Valida a conexão e a presença de todas as tabelas (inclusive a de busca
+    textual). `gh_authenticated` é um pré-requisito de publicação (`gh auth status`):
+    só afeta connections com `remote_url` e `review_mode="pr"`.
     """
+    from knowledge_os.services import gh_cli
+
     result = check_database()
-    return {**result, "version": __version__, "schema_version": schema_version() or ""}
+    return {
+        **result,
+        "version": __version__,
+        "schema_version": schema_version() or "",
+        "gh_authenticated": gh_cli.is_authenticated(),
+    }
 
 
 def register_all_tools() -> None:

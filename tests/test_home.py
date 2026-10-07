@@ -37,7 +37,7 @@ def test_home_vem_da_variavel_e_importar_nao_cria_diretorio(tmp_path):
     got = _probe(cwd, {"KNOWLEDGE_OS_HOME": str(home)}, drop=("MCP_DB_PATH",))
     assert Path(got["KNOWLEDGE_HOME"]) == home
     assert Path(got["cf"]) == home / "connections.json"
-    assert Path(got["DB_PATH"]) == home / "knowledge.db"
+    assert Path(got["DB_PATH"]) == home / "indexes" / "default.db"
     for k in ("ARTIFACTS_DIR", "EXPORTS_DIR", "BACKUPS_DIR"):
         assert Path(got[k]).parent == home
     assert not home.exists()
@@ -69,24 +69,18 @@ def test_ensure_home_cria_home_e_subdiretorios(tmp_path, monkeypatch):
     assert {p.name for p in home.iterdir()} == {"artifacts", "exports", "backups"}
 
 
-def test_sqlite_relativo_resolve_contra_o_home_em_qualquer_cwd(tmp_path, monkeypatch):
+def test_clone_path_e_index_url_derivam_do_id_no_home(monkeypatch, tmp_path):
     home = tmp_path / "home"
-    outro = tmp_path / "outro"
-    outro.mkdir()
-    monkeypatch.chdir(outro)
-    conn = ConnectionConfig(id="a", name="A", db_type="sqlite", path="sub/a.db")
-    assert conn.get_url() == f"sqlite:///{(home / 'sub' / 'a.db').as_posix()}"
-
-
-def test_sqlite_absoluto_nao_muda(tmp_path):
-    p = (tmp_path / "x.db").as_posix()
-    conn = ConnectionConfig(id="a", name="A", db_type="sqlite", path=p)
-    assert conn.get_url() == f"sqlite:///{p}"
+    monkeypatch.setattr(config, "REPOS_DIR", home / "repos")
+    monkeypatch.setattr(config, "INDEXES_DIR", home / "indexes")
+    conn = ConnectionConfig(id="a", name="A")
+    assert conn.clone_path() == home / "repos" / "a"
+    assert conn.index_url() == f"sqlite:///{(home / 'indexes' / 'a.db').as_posix()}"
 
 
 def test_id_default_e_reservado():
     with pytest.raises(ValueError):
-        ConnectionConfig(id="default", name="X", db_type="sqlite", path="x.db")
+        ConnectionConfig(id="default", name="X")
 
 
 def test_primeira_execucao_cria_json_so_com_o_catalogo(_isolated_home):

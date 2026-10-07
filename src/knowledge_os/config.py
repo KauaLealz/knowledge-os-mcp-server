@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import quote
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, field_validator, model_validator
 from pydantic import ValidationError as PydanticValidationError
 
 if __name__ == "__main__":
@@ -32,9 +32,9 @@ KNOWLEDGE_HOME: Path = (
 ARTIFACTS_DIR: Path = KNOWLEDGE_HOME / "artifacts"
 EXPORTS_DIR: Path = KNOWLEDGE_HOME / "exports"
 BACKUPS_DIR: Path = KNOWLEDGE_HOME / "backups"
-
-_DEFAULT_PORTS = {"postgresql": 5432, "mysql": 3306}
-_FORBIDDEN_CHARS = set("?#/\\@")
+# Clones git e índices SQLite, um por connection (inclusive o catálogo "default").
+REPOS_DIR: Path = KNOWLEDGE_HOME / "repos"
+INDEXES_DIR: Path = KNOWLEDGE_HOME / "indexes"
 
 # Id reservado do catálogo (banco padrão, virtual: não consta da lista de conexões).
 CATALOG_ID = "default"
@@ -42,7 +42,7 @@ CATALOG_ID = "default"
 
 def ensure_home() -> None:
     """Cria o home de dados e seus subdiretórios (chamado pelos pontos de entrada)."""
-    for d in (KNOWLEDGE_HOME, ARTIFACTS_DIR, EXPORTS_DIR, BACKUPS_DIR):
+    for d in (KNOWLEDGE_HOME, ARTIFACTS_DIR, EXPORTS_DIR, BACKUPS_DIR, REPOS_DIR, INDEXES_DIR):
         d.mkdir(parents=True, exist_ok=True)
 
 
@@ -50,8 +50,9 @@ def _env_flag(name: str) -> bool:
     return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-# Database
-DB_PATH: str = os.getenv("MCP_DB_PATH", str(KNOWLEDGE_HOME / "knowledge.db"))
+# Database: índice SQLite da connection "default" (catálogo). SQLCipher (DB_KEY) só se
+# aplica a ela — as demais connections não passam por criptografia nesta versão.
+DB_PATH: str = os.getenv("MCP_DB_PATH", str(KNOWLEDGE_HOME / "indexes" / "default.db"))
 DB_KEY: str | None = os.getenv("MCP_DB_KEY") or None
 # SQLCipher é usado quando há chave, ou quando solicitado via MCP_USE_SQLCIPHER.
 SQLCIPHER_REQUESTED: bool = _env_flag("MCP_USE_SQLCIPHER")
@@ -108,18 +109,18 @@ def config_error(exc: Exception) -> ConfigError:
 
 
 class ConnectionConfig(BaseModel):
-    """Uma conexão do connections.json do home (SQLite, PostgreSQL ou MySQL)."""
+    """Uma conexão do connections.json do home: um repositório git (clone local).
+
+    Sem `remote_url`, a connection é só um repositório git local (sem GitHub) — o caso da
+    connection `default` (catálogo) e de qualquer connection que o usuário queira manter
+    só local. O índice de busca (SQLite) e o clone do repositório vivem no home de dados,
+    um por connection, derivados do `id` (`clone_path`/`index_url`).
+    """
 
     id: str
     name: str
-    db_type: Literal["sqlite", "postgresql", "mysql"]
-    path: str | None = None  # SQLite
-    host: str | None = None
-    port: int | None = None
-    database: str | None = None
-    username: str | None = None
-    # Texto no connections.json (que vive no home, fora do repo). Nunca em repr/log/erro.
-    password: str | None = Field(default=None, repr=False)
+    remote_url: str | None = None
+    review_mode: Literal["direct", "pr"] = "direct"
     enabled: bool = True
     created_at: datetime | None = None
 
@@ -137,47 +138,13 @@ class ConnectionConfig(BaseModel):
             raise ValueError(f"ID '{CATALOG_ID}' is reserved")
         return v
 
-    @field_validator("port")
-    @classmethod
-    def port_valid(cls, v: int | None) -> int | None:
-        if v is not None and not 1 <= v <= 65535:
-            raise ValueError("Port must be 1-65535")
-        return v
+    def clone_path(self) -> Path:
+        """Diretório do clone local do repositório git desta connection."""
+        return REPOS_DIR / self.id
 
-    @model_validator(mode="after")
-    def shape_valid(self) -> "ConnectionConfig":
-        if self.db_type == "sqlite":
-            if not self.path:
-                raise ValueError("path é obrigatório para SQLite")
-            return self
-        if self.port is None:
-            self.port = _DEFAULT_PORTS[self.db_type]
-        for field in ("host", "database"):
-            if not getattr(self, field):
-                raise ValueError(f"{field} é obrigatório")
-        for field in ("host", "database", "username"):
-            value = getattr(self, field)
-            if value and any(ch in _FORBIDDEN_CHARS or ch.isspace() for ch in value):
-                raise ValueError(f"{field} contém caracteres inválidos (? # / \\ @ ou espaço)")
-        return self
-
-    def resolved_path(self) -> str:
-        """Path do SQLite; o relativo resolve contra o home no momento da chamada."""
-        path = Path(self.path or "").expanduser()
-        return (path if path.is_absolute() else KNOWLEDGE_HOME / path).as_posix()
-
-    def get_url(self) -> str:
-        """URL SQLAlchemy da conexão (com a senha do campo `password`)."""
-        if self.db_type == "sqlite":
-            return f"sqlite:///{self.resolved_path()}"
-        user = quote(self.username or "", safe="")
-        password = self.password or ""
-        if password:
-            userinfo = f"{user}:{quote(password, safe='')}@"
-        else:
-            userinfo = f"{user}@" if user else ""
-        scheme = "postgresql" if self.db_type == "postgresql" else "mysql+pymysql"
-        return f"{scheme}://{userinfo}{self.host}:{self.port}/{self.database}"
+    def index_url(self) -> str:
+        """URL SQLAlchemy do índice de busca (SQLite) desta connection."""
+        return f"sqlite:///{(INDEXES_DIR / f'{self.id}.db').as_posix()}"
 
 
 class ConnectionsFile(BaseModel):
@@ -266,27 +233,32 @@ class ConfigManager:
 
     @staticmethod
     def validate_connection(conn: ConnectionConfig) -> dict[str, str]:
-        """Tenta conectar e rodar SELECT 1. A senha nunca aparece na mensagem de erro.
+        """Testa o repositório git da conexão: `git ls-remote` (rápido, não clona).
 
-        Usa o engine do dialect, que tem connect_timeout: sem ele, uma porta fechada no
-        Windows segura a conexão por ~130 s em vez de falhar em segundos.
+        Sem `remote_url` não há o que testar (repositório só local): sempre "ok". O erro
+        de `ls-remote`, se houver, nunca ecoa segredo embutido na URL (token em HTTPS).
         """
-        from sqlalchemy import text
+        import subprocess
 
-        from knowledge_os.db.dialects import get_dialect, redact
+        from knowledge_os.services.secret_guard import find_secret
 
-        url = conn.get_url()
-        engine = None
+        if conn.remote_url is None:
+            return {"status": "ok", "message": "Repositório local (sem remote)"}
         try:
-            engine = get_dialect(conn.db_type).create_engine(url)
-            with engine.connect() as c:
-                c.execute(text("SELECT 1"))
+            result = subprocess.run(
+                ["git", "ls-remote", conn.remote_url],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            return {"status": "error", "message": str(exc)[:500]}
+        if result.returncode == 0:
             return {"status": "ok", "message": "Connection successful"}
-        except Exception as exc:
-            return {"status": "error", "message": redact(str(exc), url)[:500]}
-        finally:
-            if engine is not None:
-                engine.dispose()
+        stderr = result.stderr.strip()
+        kind = find_secret(stderr)
+        message = f"(saída oculta: parece conter {kind})" if kind else stderr
+        return {"status": "error", "message": message[:500]}
 
 
 if __name__ == "__main__":

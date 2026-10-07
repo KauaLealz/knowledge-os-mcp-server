@@ -1,23 +1,20 @@
 import json
-import logging
+import subprocess
 
 import pytest
 
 from knowledge_os.config import ConfigManager
-from knowledge_os.services import connection_service
 
-SECRET = "supersecret-123"
+
+def _bare_repo(tmp_path, name="remote.git"):
+    """Repositório git bare local: um remote de verdade, clonável sem rede."""
+    path = tmp_path / name
+    subprocess.run(["git", "init", "--bare", str(path)], check=True, capture_output=True)
+    return str(path)
 
 
 def _create(client, name="extra", **over):
-    body = {"name": name, "db_type": "sqlite", "path": f"{name}.db"}
-    body.update(over)
-    return client.post("/api/connections", json=body)
-
-
-def _pg(client, name="pg", **over):
-    body = {"name": name, "db_type": "postgresql", "host": "127.0.0.1", "port": 1,
-            "database": "kos", "username": "u", "password": SECRET}
+    body = {"name": name}
     body.update(over)
     return client.post("/api/connections", json=body)
 
@@ -27,15 +24,15 @@ def test_list_has_catalog_marked_default(client):
     assert r.status_code == 200
     (c,) = r.json()
     assert c["id"] == "default" and c["is_catalog"] is True and c["is_default"] is True
-    assert c["password_set"] is False and c["last_test"] is None
+    assert c["remote_url"] is None and c["last_test"] is None
 
 
 def test_create_get_list(client):
     r = _create(client)
     assert r.status_code == 201
     c = r.json()
-    assert c["name"] == "extra" and c["path"] == "extra.db" and c["enabled"] is True
-    assert c["password_set"] is False and c["is_default"] is False and c["is_catalog"] is False
+    assert c["name"] == "extra" and c["enabled"] is True
+    assert c["remote_url"] is None and c["is_default"] is False and c["is_catalog"] is False
     assert client.get(f"/api/connections/{c['id']}").json()["name"] == "extra"
     assert [x["id"] for x in client.get("/api/connections").json()] == [
         "default", c["id"]]
@@ -46,111 +43,74 @@ def test_create_duplicate_is_422(client):
     assert _create(client).status_code == 422
 
 
+def test_create_com_remote_url_e_review_mode(client, tmp_path):
+    remote = _bare_repo(tmp_path)
+    r = _create(client, name="gh", remote_url=remote, review_mode="pr")
+    assert r.status_code == 201, r.text
+    c = r.json()
+    assert c["remote_url"] == remote and c["review_mode"] == "pr"
+
+
 @pytest.mark.parametrize("extra", [
-    {"db_url": "postgresql://u:pw-embutida@h/db"},
-    {"password_env": "KOS_PW"},
+    {"db_type": "sqlite"},
+    {"db_url": "postgresql://u:pw@h/db"},
     {"qualquer": 1},
 ])
 def test_create_forbids_legacy_and_unknown_fields(client, extra):
-    r = _pg(client, **extra)
+    r = _create(client, **extra)
     assert r.status_code == 422
-    assert "pw-embutida" not in r.text and SECRET not in r.text  # 422 não ecoa a entrada
 
 
 @pytest.mark.parametrize("body", [
-    {"name": "x", "db_type": "oracle", "path": "a.db"},
-    {"name": "x", "db_type": "sqlite"},  # sem path
-    {"name": "x", "db_type": "sqlite", "path": "a.db", "host": "h"},
-    {"name": "x", "db_type": "postgresql", "host": "h"},  # sem database
-    {"name": "x", "db_type": "postgresql", "host": "u:pw@h", "database": "d"},  # URL no host
-    {"name": "x", "db_type": "mysql", "host": "h", "database": "d", "port": 70000},
-    {"name": "default", "db_type": "sqlite", "path": "a.db"},
+    {"name": "x", "review_mode": "oracle"},
+    {"name": "default"},  # nome reservado
 ])
 def test_create_invalid_is_422(client, body):
     assert client.post("/api/connections", json=body).status_code == 422
+
+
+def test_create_com_remote_inalcancavel_e_422(client):
+    r = _create(client, name="down", remote_url="https://127.0.0.1:1/nope.git")
+    assert r.status_code == 422
 
 
 def test_get_missing_is_404(client):
     assert client.get("/api/connections/nope").status_code == 404
 
 
-def test_password_is_write_only_and_stored_in_json(client):
-    r = _pg(client)
+def test_remote_url_fica_no_json(client, tmp_path):
+    remote = _bare_repo(tmp_path)
+    r = _create(client, name="gh", remote_url=remote)
     assert r.status_code == 201
     c = r.json()
-    assert c["password_set"] is True and "password" not in c
     stored = json.loads(ConfigManager.CONNECTIONS_FILE.read_text(encoding="utf-8"))
-    assert stored["connections"][0]["password"] == SECRET
-    assert SECRET not in client.get(f"/api/connections/{c['id']}").text
+    assert stored["connections"][0]["remote_url"] == remote
+    assert client.get(f"/api/connections/{c['id']}").json()["remote_url"] == remote
 
 
-def test_patch_password_semantics(client):
-    cid = _pg(client).json()["id"]
-
-    def stored():
-        data = json.loads(ConfigManager.CONNECTIONS_FILE.read_text(encoding="utf-8"))
-        return data["connections"][0]["password"]
-
-    r = client.patch(f"/api/connections/{cid}", json={"name": "renomeada"})
-    assert r.status_code == 200 and r.json()["name"] == "renomeada"
-    assert r.json()["password_set"] is True and stored() == SECRET  # ausente mantém
-
-    r = client.patch(f"/api/connections/{cid}", json={"password": "novo-valor"})
-    assert r.json()["password_set"] is True and stored() == "novo-valor"
-    assert "novo-valor" not in r.text
-
-    r = client.patch(f"/api/connections/{cid}", json={"password": None})
-    assert r.json()["password_set"] is False and stored() is None
-
-
-def _json_conn():
-    return json.loads(ConfigManager.CONNECTIONS_FILE.read_text(encoding="utf-8"))["connections"][0]
-
-
-@pytest.mark.parametrize("change", [
-    {"host": "outro"}, {"port": 5433}, {"database": "outro"}, {"username": "outro"},
-])
-def test_patch_destino_sem_senha_nova_e_422_e_nao_muda_o_json(client, change):
-    cid = _pg(client).json()["id"]
-    before = _json_conn()
-    r = client.patch(f"/api/connections/{cid}", json=change)
-    assert r.status_code == 422
-    assert "Informe a senha de novo" in r.text and SECRET not in r.text
-    assert _json_conn() == before
-
-
-def test_patch_destino_com_senha_nova_e_so_nome_mantem_a_senha(client):
-    cid = _pg(client).json()["id"]
-    r = client.patch(f"/api/connections/{cid}", json={"host": "outro", "password": "nova-123"})
-    assert r.status_code == 200 and _json_conn()["host"] == "outro"
-    assert _json_conn()["password"] == "nova-123"
-    r = client.patch(f"/api/connections/{cid}", json={"name": "so-nome", "enabled": False})
-    assert r.status_code == 200 and _json_conn()["password"] == "nova-123"
-
-
-def test_patch_mesmo_destino_sem_senha_passa(client):
-    cid = _pg(client).json()["id"]
-    r = client.patch(f"/api/connections/{cid}", json={"host": "127.0.0.1", "port": 1})
+def test_patch_name_and_enabled(client):
+    cid = _create(client).json()["id"]
+    r = client.patch(f"/api/connections/{cid}", json={"name": "renomeada", "enabled": False})
     assert r.status_code == 200
+    assert (r.json()["name"], r.json()["enabled"]) == ("renomeada", False)
 
 
-def test_patch_blank_port_falls_back_to_default(client):
-    cid = _pg(client).json()["id"]
-    r = client.patch(f"/api/connections/{cid}", json={"port": None, "password": SECRET})
-    assert r.status_code == 200 and r.json()["port"] == 5432
+def test_patch_remote_url_and_review_mode(client, tmp_path):
+    remote = _bare_repo(tmp_path)
+    cid = _create(client).json()["id"]
+    r = client.patch(f"/api/connections/{cid}", json={"remote_url": remote, "review_mode": "pr"})
+    assert r.status_code == 200
+    assert r.json()["remote_url"] == remote and r.json()["review_mode"] == "pr"
+    r = client.patch(f"/api/connections/{cid}", json={"remote_url": None})
+    assert r.status_code == 200 and r.json()["remote_url"] is None
 
 
 def test_patch_fields_and_validation(client):
     cid = _create(client).json()["id"]
-    r = client.patch(f"/api/connections/{cid}",
-                     json={"name": "renomeada", "path": "novo.db", "enabled": False})
-    assert r.status_code == 200
-    assert (r.json()["name"], r.json()["path"], r.json()["enabled"]) == (
-        "renomeada", "novo.db", False)
+    r = client.patch(f"/api/connections/{cid}", json={"name": "renomeada"})
+    assert r.status_code == 200 and r.json()["name"] == "renomeada"
     assert client.patch(f"/api/connections/{cid}",
-                        json={"host": "h"}).status_code == 422  # host não é de SQLite
-    assert client.patch(f"/api/connections/{cid}",
-                        json={"db_url": "x"}).status_code == 422
+                        json={"review_mode": "sync"}).status_code == 422
     assert client.patch("/api/connections/nope",
                         json={"name": "a"}).status_code == 404
 
@@ -207,52 +167,12 @@ def test_schema_sync_dry_run_then_apply(client):
     cid = _create(client).json()["id"]
     dry = client.post(f"/api/connections/{cid}/schema-sync?dry_run=true")
     assert dry.status_code == 200
-    assert dry.json()["dry_run"] is True and "workspaces" in dry.json()["tables_created"]
-    again = client.post(f"/api/connections/{cid}/schema-sync?dry_run=true").json()
-    assert "workspaces" in again["tables_created"]  # dry-run não gravou nada
+    assert dry.json()["dry_run"] is True
     done = client.post(f"/api/connections/{cid}/schema-sync?dry_run=false").json()
-    assert done["dry_run"] is False and done["status"] == "created"
+    assert done["dry_run"] is False and done["status"] in ("created", "up_to_date")
     final = client.post(f"/api/connections/{cid}/schema-sync?dry_run=true").json()
     assert final["status"] == "up_to_date" and final["tables_created"] == []
 
 
 def test_schema_sync_missing_is_404(client):
     assert client.post("/api/connections/nope/schema-sync").status_code == 404
-
-
-def test_secret_never_appears_anywhere(client, caplog, capsys, monkeypatch):
-    """A senha não aparece em nenhuma resposta, nem em log/stderr, nem em erro de driver."""
-    caplog.set_level(logging.DEBUG)
-    seen: list[str] = []
-
-    def call(method, url, **kw):
-        r = client.request(method, url, **kw)
-        seen.append(r.text)
-        return r
-
-    created = call("POST", "/api/connections", json={
-        "name": "pg", "db_type": "postgresql", "host": "127.0.0.1", "port": 1,
-        "database": "kos", "username": "u", "password": SECRET})
-    cid = created.json()["id"]
-    call("GET", "/api/connections")
-    call("GET", f"/api/connections/{cid}")
-    call("PATCH", f"/api/connections/{cid}", json={"password": SECRET, "host": "localhost"})
-    call("PATCH", f"/api/connections/{cid}", json={"db_url": f"postgresql://u:{SECRET}@h/d"})
-    call("POST", "/api/connections", json={"name": "z", "db_type": "sqlite", "path": "z.db",
-                                          "password": SECRET})  # 422: SQLite sem senha
-    call("POST", "/api/connections", json={"name": "y", "db_type": "mysql", "host": f"u:{SECRET}@h",
-                                          "database": "d"})
-    call("POST", f"/api/connections/{cid}/test")  # falha de conexão real
-    # um driver que ecoa a senha na mensagem de erro
-    def boom(engine):
-        raise RuntimeError(f"password authentication failed ({SECRET})")
-    monkeypatch.setattr(connection_service, "_probe", boom)
-    failed = call("POST", f"/api/connections/{cid}/test")
-    assert failed.json()["status"] == "error" and "***" in failed.json()["message"]
-    call("POST", f"/api/connections/{cid}/schema-sync?dry_run=true")
-    call("POST", f"/api/connections/{cid}/schema-sync?dry_run=false")
-    call("PUT", f"/api/connections/{cid}/default")
-
-    out, err = capsys.readouterr()
-    assert all(SECRET not in text for text in [*seen, caplog.text, out, err])
-    assert len(seen) >= 11

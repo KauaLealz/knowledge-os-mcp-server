@@ -64,31 +64,22 @@ class ItemLabelAdd(BaseModel):
 
 
 class ConnectionCreate(BaseModel):
-    """Corpo de criação: campos estruturados. `db_url`/`password_env` não existem (422)."""
+    """Corpo de criação: nome e, opcionalmente, o remote git (sem remote = repo local)."""
 
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=255)
-    db_type: Literal["sqlite", "postgresql", "mysql"]
-    path: str | None = None  # SQLite; relativo resolve contra o home
-    host: str | None = None
-    port: int | None = None
-    database: str | None = None
-    username: str | None = None
-    password: str | None = Field(default=None, repr=False)  # só escrita
+    remote_url: str | None = None
+    review_mode: Literal["direct", "pr"] = "direct"
     enabled: bool = True
 
 
 class ConnectionUpdate(BaseModel):
-    """PATCH: só o que vier muda. `password`: ausente mantém, valor substitui, null limpa."""
+    """PATCH: só o que vier muda."""
 
     model_config = ConfigDict(extra="forbid")
 
     name: str | None = Field(default=None, min_length=1, max_length=255)
-    path: str | None = None
-    host: str | None = None
-    port: int | None = None
-    database: str | None = None
-    username: str | None = None
-    password: str | None = Field(default=None, min_length=1, repr=False)
+    remote_url: str | None = None
+    review_mode: Literal["direct", "pr"] | None = None
     enabled: bool | None = None

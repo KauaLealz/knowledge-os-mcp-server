@@ -165,7 +165,8 @@ def test_cli_migrate_v2_migra_de_verdade_sem_rodar_schema_sync_antes(tmp_path):
     """
     home = tmp_path / "home"
     home.mkdir()
-    db_path = home / "knowledge.db"
+    db_path = home / "indexes" / "default.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     _write_old_schema(db_path)
 
     env = {**os.environ, "KNOWLEDGE_OS_HOME": str(home)}

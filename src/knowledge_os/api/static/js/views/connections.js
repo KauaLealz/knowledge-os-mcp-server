@@ -1,28 +1,19 @@
 // Configurações · Conexões: lista, detalhe com formulário, teste, default, schema-sync e exclusão.
-// A senha é só de escrita: vai no corpo de POST/PATCH quando preenchida e é limpa ao salvar.
-// Ela nunca é lida de volta, guardada em storage, escrita em log, toast ou URL.
+// Cada conexão é um repositório git (clone local; sem remote_url = só local). `review_mode`
+// decide como as mudanças são publicadas: direto na branch principal, ou por PR.
 import { api } from '../api.js';
 import { go, hrefs } from '../router.js';
 
 const blankForm = () => ({
   name: '',
-  db_type: 'sqlite',
-  path: '',
-  host: 'localhost',
-  port: '',
-  database: '',
-  username: '',
+  remote_url: '',
+  review_mode: 'direct',
   enabled: true,
 });
-
-const DEFAULT_PORTS = { postgresql: 5432, mysql: 3306 };
 
 export function register(Alpine) {
   Alpine.data('connectionsView', () => ({
     form: blankForm(),
-    password: '', // só escrita: nunca preenchido a partir da API
-    removePassword: false,
-    passwordSet: false,
     loading: false,
     saving: false,
     testing: false,
@@ -76,9 +67,6 @@ export function register(Alpine) {
       this.plan = null;
       this.syncMessage = null;
       this.confirmName = '';
-      this.password = '';
-      this.removePassword = false;
-      this.passwordSet = false;
       this.loading = true;
       try {
         await this.app.loadConnections();
@@ -103,15 +91,10 @@ export function register(Alpine) {
     fill(c) {
       this.form = {
         name: c.name,
-        db_type: c.db_type,
-        path: c.path || '',
-        host: c.host || '',
-        port: c.port ?? '',
-        database: c.database || '',
-        username: c.username || '',
+        remote_url: c.remote_url || '',
+        review_mode: c.review_mode || 'direct',
         enabled: c.enabled,
       };
-      this.passwordSet = !!c.password_set;
     },
 
     /** Recarrega a lista sem mexer no formulário (último teste, default, enabled). */
@@ -125,8 +108,7 @@ export function register(Alpine) {
 
     // ---- apresentação ----
     target(c) {
-      if (c.is_catalog || c.db_type === 'sqlite') return c.path || '—';
-      return `${c.host}:${c.port ?? DEFAULT_PORTS[c.db_type] ?? ''}/${c.database}`;
+      return c.remote_url || 'Repositório local (sem remote)';
     },
     dotClass(c) {
       if (!c.enabled) return 'off';
@@ -140,36 +122,26 @@ export function register(Alpine) {
     },
 
     // ---- corpo da requisição ----
-    buildBody(creating) {
+    buildBody() {
       const f = this.form;
-      const body = { name: f.name.trim(), enabled: !!f.enabled };
-      if (creating) body.db_type = f.db_type;
-      if (f.db_type === 'sqlite') {
-        body.path = f.path.trim();
-      } else {
-        body.host = f.host.trim();
-        body.port = f.port === '' || f.port === null ? null : Number(f.port);
-        body.database = f.database.trim();
-        body.username = f.username.trim() || null;
-      }
-      // Só vai quando preenchida; "remover senha" envia null; ausente mantém a atual.
-      if (this.password) body.password = this.password;
-      else if (!creating && this.removePassword) body.password = null;
-      return body;
+      return {
+        name: f.name.trim(),
+        remote_url: f.remote_url.trim() || null,
+        review_mode: f.review_mode,
+        enabled: !!f.enabled,
+      };
     },
 
-    /** Grava (POST ou PATCH) e devolve a conexão salva. Limpa o campo de senha ao final. */
+    /** Grava (POST ou PATCH) e devolve a conexão salva. */
     async persist() {
       const creating = this.isNew;
       this.error = null;
       this.saving = true;
       try {
-        const body = this.buildBody(creating);
+        const body = this.buildBody();
         const saved = creating
           ? await api('POST', '/connections', { body })
           : await api('PATCH', `/connections/${encodeURIComponent(this.sub)}`, { body });
-        this.password = '';
-        this.removePassword = false;
         await this.app.loadConnections();
         if (creating) go(hrefs.connections(saved.id));
         else this.fill(this.conn || saved);
@@ -178,7 +150,6 @@ export function register(Alpine) {
         this.error = e.message;
         return null;
       } finally {
-        this.password = '';
         this.saving = false;
       }
     },

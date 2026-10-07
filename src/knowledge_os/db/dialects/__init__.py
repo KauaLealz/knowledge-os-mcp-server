@@ -1,17 +1,13 @@
-"""Dialects de banco suportados (SQLite, MySQL, PostgreSQL)."""
+"""Dialect de banco suportado: só SQLite (um índice de busca local por connection)."""
 
-from knowledge_os.db.dialects.base import DatabaseDialect, detect_type, normalize_url, redact
-from knowledge_os.db.dialects.mysql import MySQLDialect
-from knowledge_os.db.dialects.postgresql import PostgreSQLDialect
+from knowledge_os.db.dialects.base import DatabaseDialect, detect_type, redact
 from knowledge_os.db.dialects.sqlite import SQLiteDialect
 from knowledge_os.exceptions import ValidationError
 
-DB_TYPES = ("sqlite", "mysql", "postgresql")
+DB_TYPES = ("sqlite",)
 
 _DIALECTS: dict[str, type[DatabaseDialect]] = {
     "sqlite": SQLiteDialect,
-    "mysql": MySQLDialect,
-    "postgresql": PostgreSQLDialect,
 }
 
 
@@ -28,11 +24,8 @@ def get_dialect(db_type: str) -> type[DatabaseDialect]:
 __all__ = [
     "DB_TYPES",
     "DatabaseDialect",
-    "MySQLDialect",
-    "PostgreSQLDialect",
     "SQLiteDialect",
     "detect_type",
     "get_dialect",
-    "normalize_url",
     "redact",
 ]

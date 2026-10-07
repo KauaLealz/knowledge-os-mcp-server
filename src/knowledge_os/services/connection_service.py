@@ -1,7 +1,9 @@
-"""Connection service: CRUD e teste de conexões (SQLite, MySQL, PostgreSQL).
+"""Connection service: CRUD e teste de conexões (um repositório git por connection).
 
 O cadastro é o connections.json do home. A tabela `connections` de cada banco é só o
-espelho exigido pela FK de workspaces. A senha é só de escrita: nada aqui a devolve.
+espelho exigido pela FK de workspaces. O índice de busca (SQLite) e o clone git vivem
+no home de dados, um por connection, derivados do id (`ConnectionConfig.clone_path`/
+`index_url`).
 """
 
 import logging
@@ -10,9 +12,6 @@ import time
 import uuid
 from typing import Any
 
-from sqlalchemy import Engine, text
-from sqlalchemy.engine import make_url
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from knowledge_os.config import (
@@ -23,64 +22,26 @@ from knowledge_os.config import (
     config_error,
 )
 from knowledge_os.db import session as db_session
-from knowledge_os.db.dialects import detect_type, get_dialect, normalize_url, redact
 from knowledge_os.db.models import DEFAULT_CONNECTION_ID, DEFAULT_CONNECTION_NAME, Connection
 from knowledge_os.db.schema_sync import schema_sync
 from knowledge_os.db.timeutil import utcnow
 from knowledge_os.exceptions import NotFoundError, ValidationError
 from knowledge_os.services._common import session_scope
+from knowledge_os.services.git_repo_service import GitRepoService
 
 logger = logging.getLogger(__name__)
 
-UPDATABLE_FIELDS = (
-    "name", "is_active", "path", "host", "port", "database", "username", "password",
-)
-_SERVER_FIELDS = ("host", "port", "database", "username", "password")
-# Mudar o destino com a senha guardada a enviaria a outro servidor: exige senha de novo.
-_DESTINATION_FIELDS = ("path", "host", "port", "database", "username")
-_HOST_FORBIDDEN = set("@/?# \t\r\n\\")
-_PROBE_TABLE = "_kos_connection_probe"
-_DEFAULT_PORTS = {"postgresql": 5432, "mysql": 3306}
+UPDATABLE_FIELDS = ("name", "is_active", "remote_url", "review_mode")
 _json_lock = threading.RLock()  # protege o ciclo carregar -> alterar -> gravar do JSON
 # Último teste de cada conexão: só em memória, por processo (some ao reiniciar).
 _last_tests: dict[str, dict[str, Any]] = {}
 
 
-def _probe(engine: Engine) -> None:
-    """Conecta, cria uma tabela dummy e a remove."""
-    with engine.begin() as conn:
-        conn.execute(text(f"CREATE TABLE {_PROBE_TABLE} (id INTEGER)"))
-        conn.execute(text(f"DROP TABLE {_PROBE_TABLE}"))
-
-
-def _run_probe(db_type: str, url: str) -> tuple[bool, str, int]:
-    """Testa a URL com um engine descartável. Retorna (ok, mensagem, latência_ms)."""
-    started = time.perf_counter()
-    engine: Engine | None = None
-    try:
-        engine = get_dialect(db_type).create_engine(url)
-        _probe(engine)
-        ok, message = True, "connected"
-    except SQLAlchemyError as exc:
-        ok, message = False, f"connection failed: {redact(str(exc.orig or exc), url)}"
-    except Exception as exc:  # driver ausente, URL malformada etc.
-        ok, message = False, f"connection failed: {redact(str(exc), url)}"
-    finally:
-        if engine is not None:
-            engine.dispose()
-    latency = int((time.perf_counter() - started) * 1000)
-    return ok, message[:500], latency
-
-
-def _url_of(conn: ConnectionConfig) -> str:
-    return normalize_url(conn.get_url())
-
-
-def _remember_test(connection_id: str, result: tuple[bool, str, int]) -> dict[str, Any]:
+def _remember_test(connection_id: str, result: dict[str, str], latency_ms: int) -> dict[str, Any]:
     last = {
-        "status": "ok" if result[0] else "error",
-        "message": result[1],
-        "latency_ms": result[2],
+        "status": result["status"],
+        "message": result["message"],
+        "latency_ms": latency_ms,
         "tested_at": utcnow(),
     }
     _last_tests[connection_id] = last
@@ -88,38 +49,30 @@ def _remember_test(connection_id: str, result: tuple[bool, str, int]) -> dict[st
 
 
 def _decorate(
-    row: Connection, default_id: str, *, path: str | None, password_set: bool
+    row: Connection, default_id: str, *, remote_url: str | None, review_mode: str
 ) -> Connection:
-    """Atributos transientes (não são colunas). `password_set` diz só se há senha."""
+    """Atributos transientes (não são colunas): git, não banco."""
     last = _last_tests.get(row.id)
     row.last_tested = last["tested_at"] if last else None
     row.test_result = last["message"] if last else None
-    row.password_set = password_set  # type: ignore[attr-defined]
-    row.path = path  # type: ignore[attr-defined]
+    row.remote_url = remote_url  # type: ignore[attr-defined]
+    row.review_mode = review_mode  # type: ignore[attr-defined]
     row.is_default = row.id == default_id  # type: ignore[attr-defined]
     row.last_test = last  # type: ignore[attr-defined]
     return row
 
 
-def _to_row(
-    conn: ConnectionConfig, default_id: str, result: tuple[bool, str, int] | None = None
-) -> Connection:
-    """Connection transiente (fora de qualquer sessão) para serialização. URL sem senha."""
+def _to_row(conn: ConnectionConfig, default_id: str) -> Connection:
+    """Connection transiente (fora de qualquer sessão) para serialização."""
     row = Connection(
         id=conn.id,
         name=conn.name,
-        db_type=conn.db_type,
-        db_url=db_session.redact_url(_url_of(conn)),
-        host=conn.host,
-        port=conn.port,
-        database=conn.database,
-        username=conn.username,
+        db_type="sqlite",
+        db_url=db_session.redact_url(conn.index_url()),
         is_active=conn.enabled,
         created_at=conn.created_at,
     )
-    if result:
-        _remember_test(conn.id, result)
-    return _decorate(row, default_id, path=conn.path, password_set=bool(conn.password))
+    return _decorate(row, default_id, remote_url=conn.remote_url, review_mode=conn.review_mode)
 
 
 def _load() -> ConnectionsFile:
@@ -144,34 +97,6 @@ def _is_default_row(key: str) -> bool:
     return key in (DEFAULT_CONNECTION_ID, DEFAULT_CONNECTION_NAME)
 
 
-def _clean(value: Any) -> Any:
-    """Strings aparadas; vazio vira None."""
-    if isinstance(value, str):
-        return value.strip() or None
-    return value
-
-
-def _check_shape(conn: ConnectionConfig) -> None:
-    """Campos coerentes com o tipo. As mensagens nunca ecoam valores (podem ser sensíveis)."""
-    if conn.db_type == "sqlite":
-        extra = [f for f in _SERVER_FIELDS if getattr(conn, f) is not None]
-        if extra:
-            raise ValidationError(f"Campos que não se aplicam ao SQLite: {', '.join(extra)}")
-        if not conn.path or conn.path == ":memory:":
-            raise ValidationError("A conexão SQLite precisa de um path de arquivo")
-        if "://" in conn.path:
-            raise ValidationError("path deve ser um caminho de arquivo, não uma URL")
-        return
-    if conn.path is not None:
-        raise ValidationError("path só se aplica ao SQLite")
-    if not conn.host:
-        raise ValidationError("host é obrigatório")
-    if any(ch in _HOST_FORBIDDEN for ch in conn.host):
-        raise ValidationError("host inválido: informe só o nome do servidor, sem URL ou senha")
-    if not conn.database:
-        raise ValidationError("database é obrigatório")
-
-
 def _validated_name(name: str | None) -> str:
     name = (name or "").strip()
     if not name or len(name) > 255:
@@ -182,23 +107,29 @@ def _validated_name(name: str | None) -> str:
 
 
 def _build(data: dict[str, Any]) -> ConnectionConfig:
-    """ConnectionConfig validada (tipo, porta, coerência dos campos)."""
     try:
-        conn = ConnectionConfig(**data)
+        return ConnectionConfig(**data)
     except ValueError as exc:
         raise ValidationError(f"Conexão inválida: {_errors(exc)}") from None
-    _check_shape(conn)
-    return conn
 
 
 def _errors(exc: ValueError) -> str:
-    """Resumo do erro de validação sem os valores recebidos (a senha pode estar entre eles)."""
+    """Resumo do erro de validação sem os valores recebidos."""
     errors = getattr(exc, "errors", None)
     if callable(errors):
         return "; ".join(
             f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}" for e in errors()
         )
     return "valores inválidos"
+
+
+def _test_connection(conn: ConnectionConfig) -> dict[str, Any]:
+    """Testa o repositório git (ls-remote) e cronometra. Guarda o resultado em memória."""
+    started = time.perf_counter()
+    result = ConfigManager.validate_connection(conn)
+    latency_ms = int((time.perf_counter() - started) * 1000)
+    last = _remember_test(conn.id, result, latency_ms)
+    return {k: last[k] for k in ("status", "message", "latency_ms")}
 
 
 class ConnectionService:
@@ -212,112 +143,74 @@ class ConnectionService:
             conn = s.get(Connection, DEFAULT_CONNECTION_ID)
             if conn is None:
                 raise NotFoundError(f"Conexão não encontrada: {DEFAULT_CONNECTION_ID}")
-            path = make_url(conn.db_url).database if conn.db_type == "sqlite" else None
             # cópia transiente: decorar a linha da sessão a sujaria (last_tested é coluna)
             row = Connection(
                 id=conn.id, name=conn.name, db_type=conn.db_type, db_url=conn.db_url,
-                host=conn.host, port=conn.port, database=conn.database,
-                username=conn.username, is_active=conn.is_active, created_at=conn.created_at,
-                updated_at=conn.updated_at,
+                is_active=conn.is_active, created_at=conn.created_at, updated_at=conn.updated_at,
             )
-            return _decorate(row, default_id, path=path, password_set=False)
+            return _decorate(row, default_id, remote_url=None, review_mode="direct")
 
     def create(
         self,
         name: str,
-        db_type: str,
-        db_url: str,
-        test: bool = True,
-        password: str | None = None,
-    ) -> Connection:
-        """Cria a conexão a partir de uma URL (uso das tools MCP). Com test=True testa e sincroniza.
-
-        A senha nunca vai na URL: entra em `password` (as tools MCP não a recebem).
-        """
-        get_dialect(db_type)  # valida o tipo
-        if detect_type(db_url) != db_type:
-            raise ValidationError(f"A URL não é de um banco {db_type}")
-        parsed = make_url(normalize_url(db_url))
-        if parsed.password:
-            raise ValidationError(
-                "A URL não pode conter senha: informe-a no campo password "
-                "(pela UI ou editando o connections.json)"
-            )
-        if db_type == "sqlite":
-            if not parsed.database or parsed.database == ":memory:":
-                raise ValidationError("A URL SQLite precisa de um caminho de arquivo")
-            fields: dict[str, Any] = {"path": parsed.database}
-        else:
-            if not parsed.database:
-                raise ValidationError("A URL precisa do nome do banco")
-            fields = {
-                "host": parsed.host or "localhost",
-                "port": parsed.port or _DEFAULT_PORTS[db_type],
-                "database": parsed.database,
-                "username": parsed.username,
-                "password": password or None,
-            }
-        return self.add(name, db_type, test=test, **fields)
-
-    def add(
-        self,
-        name: str,
-        db_type: str,
-        *,
-        test: bool = False,
+        remote_url: str | None = None,
+        review_mode: str = "direct",
         enabled: bool = True,
-        **fields: Any,
+        test: bool = True,
     ) -> Connection:
-        """Cria a conexão com campos estruturados (path | host, port, database, ...).
+        """Cria a connection: grava no connections.json e prepara o repositório git.
 
-        Sem `test` só grava (nada de rede): o teste é um passo à parte. ValidationError se
-        os campos são inválidos, o nome já existe ou (com test) o teste falha.
+        Na primeira vez, garante o clone (local ou do `remote_url`), o workflow de
+        validação de PRs e o CODEOWNERS (sem regras ainda — trabalho futuro). Com
+        `test=True` e `remote_url`, testa o remoto (`git ls-remote`) antes de clonar.
         """
         name = _validated_name(name)
-        get_dialect(db_type)
-        unknown = set(fields) - {"path", *_SERVER_FIELDS}
-        if unknown:
-            raise ValidationError(f"Campos desconhecidos: {', '.join(sorted(unknown))}")
-        data = {k: _clean(v) if k != "password" else (v or None) for k, v in fields.items()}
-        if db_type != "sqlite" and data.get("port") is None:
-            data["port"] = _DEFAULT_PORTS[db_type]
         conn = _build(
             {
-                **data,
                 "id": str(uuid.uuid4()),
                 "name": name,
-                "db_type": db_type,
+                "remote_url": remote_url or None,
+                "review_mode": review_mode,
                 "enabled": enabled,
                 "created_at": utcnow(),
             }
         )
-        url = _url_of(conn)
 
-        result: tuple[bool, str, int] | None = None
         with _json_lock:
             config = _load()
             if any(c.name == name for c in config.connections):
                 raise ValidationError(f"Conexão já existe: {name}")
-            if test:
-                result = _run_probe(db_type, url)
-                if not result[0]:
-                    raise ValidationError(result[1])
-                self._sync_schema(conn, url)
+            if test and conn.remote_url is not None:
+                result = ConfigManager.validate_connection(conn)
+                if result["status"] != "ok":
+                    raise ValidationError(result["message"])
+            self._provision_repo(conn)
+            self._sync_schema(conn)
             config.connections.append(conn)
             ConfigManager.save(config)
-        logger.info("Conexão criada: %s (%s)", name, db_type)
-        return _to_row(conn, config.default, result)
+        logger.info("Conexão criada: %s", name)
+        if test:
+            _test_connection(conn)
+        return _to_row(conn, config.default)
 
     @staticmethod
-    def _sync_schema(conn: ConnectionConfig, url: str) -> None:
-        """Cria o schema que falta no banco da conexão (a mesma rotina do primeiro uso)."""
-        engine = get_dialect(conn.db_type).create_engine(url)
+    def _provision_repo(conn: ConnectionConfig) -> None:
+        """Clona (ou inicializa) o repositório e garante workflow + CODEOWNERS."""
+        repo = GitRepoService(conn.clone_path(), conn.remote_url, conn.review_mode)
+        repo.ensure_clone()
+        repo.ensure_workflow()
+        repo.ensure_codeowners([])
+
+    @staticmethod
+    def _sync_schema(conn: ConnectionConfig) -> None:
+        """Cria o schema que falta no índice SQLite da connection (a mesma rotina do 1º uso)."""
+        from knowledge_os.db.dialects import get_dialect
+
+        engine = get_dialect("sqlite").create_engine(conn.index_url())
         try:
             db_session.init_db(engine, connection_id=conn.id, connection_name=conn.name)
         except Exception as exc:
-            raise ValidationError(
-                f"Falha ao sincronizar o schema: {redact(str(exc), url)}"
-            ) from None
+            raise ValidationError(f"Falha ao sincronizar o schema: {exc}") from None
         finally:
             engine.dispose()
 
@@ -338,7 +231,9 @@ class ConnectionService:
     def delete(self, connection_id: str) -> bool:
         """Remove a conexão do JSON e os workspaces do catálogo ligados a ela.
 
-        Retorna False se não existe. Dados que vivem no banco da conexão não são tocados.
+        Retorna False se não existe. O clone git e o índice SQLite NÃO são apagados:
+        são dados do usuário, e removê-los sem confirmação explícita é destrutivo
+        demais para fazer aqui — fica para uma limpeza manual ou um comando à parte.
         """
         if connection_id == DEFAULT_CONNECTION_ID:
             raise ValidationError("A conexão default não pode ser removida")
@@ -361,26 +256,21 @@ class ConnectionService:
         return True
 
     def test(self, connection_id: str) -> dict[str, Any]:
-        """Testa a conexão e guarda o resultado (em memória). Não levanta por falha de rede."""
+        """Testa a conexão (git ls-remote) e guarda o resultado (em memória).
+
+        O catálogo é sempre local (sem `remote_url`): não há o que testar.
+        """
         if _is_default_row(connection_id):
-            key = DEFAULT_CONNECTION_ID
-            # engine vivo (como em sync_schema): a db_url do espelho pode estar defasada
-            db_type = self._default_row(_load().default).db_type
-            url = db_session.get_engine(DEFAULT_CONNECTION_ID).url.render_as_string(
-                hide_password=False
-            )
-        else:
-            conn = _find(_load(), connection_id)
-            key, db_type, url = conn.id, conn.db_type, _url_of(conn)
-        result = _run_probe(db_type, url)
-        last = _remember_test(key, result)
-        return {k: last[k] for k in ("status", "message", "latency_ms")}
+            result = {"status": "ok", "message": "Repositório local (sem remote)"}
+            last = _remember_test(DEFAULT_CONNECTION_ID, result, 0)
+            return {k: last[k] for k in ("status", "message", "latency_ms")}
+        conn = _find(_load(), connection_id)
+        return _test_connection(conn)
 
     def update(self, connection_id: str, **fields: Any) -> Connection:
-        """Atualiza name, is_active (`enabled` no JSON) e os campos de conexão.
+        """Atualiza name, is_active (`enabled` no JSON), remote_url e review_mode.
 
-        Os campos ausentes ficam como estão; `password=None` limpa a senha e um valor novo a
-        substitui. ValidationError para o resto (o tipo não muda).
+        Os campos ausentes ficam como estão. ValidationError para o resto.
         """
         unknown = set(fields) - set(UPDATABLE_FIELDS)
         if unknown:
@@ -400,22 +290,11 @@ class ConnectionService:
                 if old.id == config.default and not fields["is_active"]:
                     raise ValidationError("A conexão default não pode ser desativada")
                 data["enabled"] = bool(fields["is_active"])
-            for key in ("path", "host", "port", "database", "username"):
-                if key in fields:
-                    data[key] = _clean(fields[key])
-            if "password" in fields:
-                data["password"] = fields["password"] or None
-            if old.db_type != "sqlite" and data.get("port") is None:
-                data["port"] = _DEFAULT_PORTS[old.db_type]
+            if "remote_url" in fields:
+                data["remote_url"] = fields["remote_url"] or None
+            if "review_mode" in fields and fields["review_mode"] is not None:
+                data["review_mode"] = fields["review_mode"]
             new = _build(data)
-            if (
-                old.password
-                and "password" not in fields
-                and any(getattr(new, k) != getattr(old, k) for k in _DESTINATION_FIELDS)
-            ):
-                raise ValidationError(
-                    "Informe a senha de novo ao mudar host, porta, banco ou usuário"
-                )
             config.connections = [new if c.id == old.id else c for c in config.connections]
             ConfigManager.save(config)
         db_session._connection_manager.invalidate(new.id)
@@ -438,29 +317,27 @@ class ConnectionService:
         return self.get(target)
 
     def sync_schema(self, connection_id: str, dry_run: bool = True) -> dict[str, Any]:
-        """Sincroniza o schema do banco da conexão (ou só lista, com dry_run). Inclui o catálogo."""
+        """Sincroniza o schema do índice SQLite da conexão (ou só lista, com dry_run)."""
         if _is_default_row(connection_id):
-            key, db_type, name = DEFAULT_CONNECTION_ID, "sqlite", DEFAULT_CONNECTION_NAME
+            key, name = DEFAULT_CONNECTION_ID, DEFAULT_CONNECTION_NAME
             url = db_session.get_engine(DEFAULT_CONNECTION_ID).url.render_as_string(
                 hide_password=False
             )
         else:
             conn = _find(_load(), connection_id)
-            key, db_type, name, url = conn.id, conn.db_type, conn.name, _url_of(conn)
-        engine = get_dialect(db_type).create_engine(url)
+            key, name, url = conn.id, conn.name, conn.index_url()
+        from knowledge_os.db.dialects import get_dialect
+
+        engine = get_dialect("sqlite").create_engine(url)
         try:
-            if not dry_run and db_type == "postgresql":
-                with engine.begin() as c:
-                    c.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
             result = schema_sync(engine, dry_run=dry_run)
             if not dry_run and not result["pending_manual"]:
                 db_session.ensure_connection_row(engine, key, name)
         except Exception as exc:
-            raise ValidationError(
-                f"Falha ao sincronizar o schema: {redact(str(exc), url)}"[:500]
-            ) from None
+            raise ValidationError(f"Falha ao sincronizar o schema: {exc}"[:500]) from None
         finally:
             engine.dispose()
         if not dry_run:
             db_session._connection_manager.invalidate(key)
         return {"connection_id": key, **result}
+

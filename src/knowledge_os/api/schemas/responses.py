@@ -104,17 +104,12 @@ class ConnectionTest(BaseModel):
 
 
 class ConnectionResponse(BaseModel):
-    """Conexão sem senha: só `password_set` diz se existe uma (nunca qual)."""
+    """Conexão: um repositório git (clone local; `remote_url=None` = só local)."""
 
     id: str
     name: str
-    db_type: str
-    path: str | None
-    host: str | None
-    port: int | None
-    database: str | None
-    username: str | None
-    password_set: bool
+    remote_url: str | None
+    review_mode: str
     enabled: bool
     is_default: bool
     is_catalog: bool

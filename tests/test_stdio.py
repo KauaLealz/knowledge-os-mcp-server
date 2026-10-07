@@ -54,7 +54,8 @@ def test_handshake_stdio_initialize_list_tools_health_check(server_env):
     assert (report["status"], report["database"]) == ("ok", "connected")
     assert report["version"] and report["schema_version"]
     assert list(cwd.iterdir()) == []  # nada criado no cwd
-    assert {p.name for p in home.iterdir()} >= {"connections.json", "knowledge.db"}
+    assert {p.name for p in home.iterdir()} >= {"connections.json", "indexes"}
+    assert (home / "indexes" / "default.db").exists()
 
 
 def test_stdout_so_tem_protocolo(server_env):

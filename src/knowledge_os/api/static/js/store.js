@@ -18,21 +18,16 @@ function readJson(key, fallback) {
   }
 }
 
-/** Tolerante a campos que a API ainda pode não ter. `password_set` é só um booleano. */
+/** Tolerante a campos que a API ainda pode não ter. */
 function normalizeConnection(c) {
   return {
     id: c.id,
     name: c.name || c.id,
-    db_type: c.db_type || '',
-    path: c.path ?? null,
-    host: c.host ?? null,
-    port: c.port ?? null,
-    database: c.database ?? null,
-    username: c.username ?? null,
+    remote_url: c.remote_url ?? null,
+    review_mode: c.review_mode || 'direct',
     enabled: c.enabled ?? c.is_active ?? true,
     is_default: !!c.is_default,
     is_catalog: !!c.is_catalog || c.id === 'default',
-    password_set: !!c.password_set,
     last_test: c.last_test || null,
   };
 }

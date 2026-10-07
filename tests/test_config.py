@@ -5,20 +5,21 @@ import pytest
 from knowledge_os.config import ConfigManager, ConnectionConfig, ConnectionsFile
 
 
-def test_connection_config_valid(tmp_path):
-    path = (tmp_path / "knowledge.db").as_posix()
-    conn = ConnectionConfig(id="local", name="Local", db_type="sqlite", path=path)
-    assert conn.get_url() == f"sqlite:///{path}"
+def test_connection_config_valid():
+    conn = ConnectionConfig(id="local", name="Local")
+    assert conn.remote_url is None
+    assert conn.review_mode == "direct"
+    assert conn.index_url().startswith("sqlite:///")
 
 
 def test_connection_config_id_invalid():
     with pytest.raises(ValueError):
-        ConnectionConfig(id="INVALID_ID", name="Test", db_type="sqlite", path="./db.db")
+        ConnectionConfig(id="INVALID_ID", name="Test")
 
 
-def test_connection_config_port_invalid():
+def test_connection_config_review_mode_invalido():
     with pytest.raises(ValueError):
-        ConnectionConfig(id="pg", name="PG", db_type="postgresql", port=70000)
+        ConnectionConfig(id="pg", name="PG", review_mode="sync")
 
 
 def test_connections_file_default_exists():
@@ -26,41 +27,26 @@ def test_connections_file_default_exists():
         ConnectionsFile(version="1.0", default="nonexistent", connections=[])
 
 
-def _pg(**kw):
+def _remote(**kw):
     return ConnectionConfig(
-        id="pg", name="PG", db_type="postgresql", host="h", port=5432,
-        database="d", username="u", **kw,
+        id="gh", name="GH", remote_url="https://github.com/acme/repo.git", **kw
     )
 
 
-def test_get_url_postgres_with_and_without_password():
-    assert _pg().get_url() == "postgresql://u@h:5432/d"
-    assert _pg(password="p@ss").get_url() == "postgresql://u:p%40ss@h:5432/d"
+def test_review_mode_default_e_customizavel():
+    assert _remote().review_mode == "direct"
+    assert _remote(review_mode="pr").review_mode == "pr"
 
 
-def test_password_nunca_aparece_em_repr_str_ou_erro():
-    conn = _pg(password="topsecret")
-    cfg = ConnectionsFile(default="default", connections=[conn])
-    for text in (repr(conn), str(conn), repr(cfg), str(cfg)):
-        assert "topsecret" not in text
-    bad = _pg(password="topsecret")
-    bad.port = 1  # inalcançável
-    msg = ConfigManager.validate_connection(bad)["message"]
-    assert "topsecret" not in msg
-
-
-def test_password_vai_para_o_json_e_password_env_saiu():
-    conn = _pg(password="topsecret")
-    assert conn.model_dump(mode="json")["password"] == "topsecret"
-    assert not hasattr(conn, "password_env")
-    assert "password_env" not in conn.model_dump()
-
-
-def test_get_url_mysql():
+def test_erro_do_ls_remote_nao_ecoa_credencial_embutida_na_url():
+    # Não há mais campo de senha no modelo: o remote_url pode conter credencial (HTTPS
+    # com token), que não deve vazar na mensagem do teste de conexão em caso de erro.
     conn = ConnectionConfig(
-        id="my", name="My", db_type="mysql", host="h", port=3306, database="d", username="u"
+        id="gh", name="GH",
+        remote_url="https://x-access-token:topsecret@127.0.0.1:1/acme/repo.git",
     )
-    assert conn.get_url() == "mysql+pymysql://u@h:3306/d"
+    msg = ConfigManager.validate_connection(conn)["message"]
+    assert "topsecret" not in msg
 
 
 def test_create_default_config():
@@ -83,66 +69,55 @@ def test_load_existing_config():
     assert len(loaded.connections) == len(config.connections)
 
 
-def test_validate_connection_sqlite(tmp_path):
-    conn = ConnectionConfig(
-        id="local", name="Local", db_type="sqlite", path=(tmp_path / "v.db").as_posix()
-    )
-    assert ConfigManager.validate_connection(conn)["status"] == "ok"
+def test_validate_connection_sem_remote_e_sempre_ok():
+    conn = ConnectionConfig(id="local", name="Local")
+    assert ConfigManager.validate_connection(conn) == {
+        "status": "ok", "message": "Repositório local (sem remote)"
+    }
 
 
-def test_validate_connection_error():
-    conn = ConnectionConfig(
-        id="bad", name="Bad", db_type="postgresql", host="127.0.0.1", port=1,
-        database="d", username="u",
-    )
+def test_validate_connection_error_com_remote_inalcancavel():
+    conn = ConnectionConfig(id="bad", name="Bad", remote_url="https://127.0.0.1:1/nope.git")
     assert ConfigManager.validate_connection(conn)["status"] == "error"
 
 
-def _write_json(conns):
+def test_json_a_mao_sem_campos_novos_assume_o_padrao():
     import json
 
     ConfigManager.CONNECTIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
     ConfigManager.CONNECTIONS_FILE.write_text(
-        json.dumps({"version": "1.0", "default": "default", "connections": conns}),
+        json.dumps({"version": "1.0", "default": "default",
+                    "connections": [{"id": "gh", "name": "GH"}]}),
         encoding="utf-8",
     )
-
-
-def test_json_a_mao_sem_port_assume_o_padrao():
-    _write_json([{"id": "pg", "name": "PG", "db_type": "postgresql", "host": "h",
-                  "database": "d", "username": "u"},
-                 {"id": "my", "name": "My", "db_type": "mysql", "host": "h", "database": "d"}])
     config = ConfigManager.load_or_create()
-    assert config.get_connection("pg").get_url() == "postgresql://u@h:5432/d"
-    assert config.get_connection("my").port == 3306
+    conn = config.get_connection("gh")
+    assert conn.remote_url is None and conn.review_mode == "direct"
 
 
-def test_json_com_host_ausente_aponta_conexao_e_campo_sem_vazar_senha():
+def test_json_com_review_mode_invalido_aponta_conexao_sem_vazar_dado():
+    import json
+
     from knowledge_os.exceptions import ConfigError
     from knowledge_os.services.connection_service import ConnectionService
 
-    _write_json([{"id": "pg", "name": "PG", "db_type": "postgresql",
-                  "database": "d", "username": "u", "password": "SEGREDO-123"}])
+    ConfigManager.CONNECTIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    ConfigManager.CONNECTIONS_FILE.write_text(
+        json.dumps({"version": "1.0", "default": "default",
+                    "connections": [{"id": "gh", "name": "GH", "review_mode": "sync"}]}),
+        encoding="utf-8",
+    )
     for call in (ConfigManager.load_or_create, ConnectionService().list):
         with pytest.raises(ConfigError) as err:
             call()
         msg = str(err.value)
-        assert "pg" in msg and "host" in msg
-        assert "SEGREDO" not in msg and "123" not in msg
+        assert "gh" in msg and "review_mode" in msg
         assert msg.count("connections.json inválido") == 1
 
 
-@pytest.mark.parametrize("field", ["host", "database", "username"])
-@pytest.mark.parametrize("bad", ["d?host=outro", "a#b", "a/b", "a\\b", "a@b", "a b"])
-def test_campos_rejeitam_caracteres_de_injecao(field, bad):
-    kw = {"host": "h", "database": "d", "username": "u", field: bad}
-    with pytest.raises(ValueError):
-        ConnectionConfig(id="pg", name="PG", db_type="postgresql", **kw)
-
-
-def test_sqlite_exige_path():
-    with pytest.raises(ValueError):
-        ConnectionConfig(id="s", name="S", db_type="sqlite")
+def test_sqlite_exige_nada_de_path():
+    # path/db_type não existem mais: uma connection sem remote_url é válida (repo local).
+    ConnectionConfig(id="s", name="S")
 
 
 def test_save_usa_tmp_unico_com_permissao_restrita(monkeypatch):
@@ -199,24 +174,3 @@ def test_knowledge_os_home_resolve_til_e_relativo(tmp_path):
 
     assert home_for("rel/../meu-home") == (tmp_path / "meu-home").resolve()
     assert home_for("~/kos-teste") == (Path.home() / "kos-teste").resolve()
-
-
-def test_sqlite_path_relativo_em_subpasta_cria_o_diretorio_no_home(_isolated_home):
-    from knowledge_os.services.connection_service import ConnectionService
-
-    row = ConnectionService().create("sub", "sqlite", "sqlite:///./database/x.db", test=True)
-    assert (_isolated_home / "database" / "x.db").is_file()
-    assert row.name == "sub"
-
-
-def test_sqlite_path_com_til_expande_para_o_home_do_usuario(tmp_path, monkeypatch):
-    from knowledge_os.services.connection_service import ConnectionService
-
-    fake = tmp_path / "usuario"
-    fake.mkdir()
-    monkeypatch.setenv("HOME", str(fake))
-    monkeypatch.setenv("USERPROFILE", str(fake))
-    ConnectionService().add("til", "sqlite", test=True, path="~/dados/x.db")
-    assert (fake / "dados" / "x.db").is_file()
-    conn = ConfigManager.load_or_create().connections[0]
-    assert conn.resolved_path() == (fake / "dados" / "x.db").as_posix()

@@ -19,6 +19,11 @@ from knowledge_os.config import ConfigManager  # noqa: E402
 from knowledge_os.db.dialects.sqlite import SQLiteDialect  # noqa: E402
 from knowledge_os.db.models import Base, Item, Label, Project, Tag, Workspace  # noqa: E402
 
+# DB_PATH/DB_URL (config.py) ficam presos a este home "congelado" no import — nunca ao
+# `config.KNOWLEDGE_HOME` monkeypatchado por `_isolated_home` a cada teste. Sem isso,
+# `validate_config()` falha com "Diretório do banco não existe" (indexes/ não criado).
+config.ensure_home()
+
 
 @pytest.fixture(autouse=True)
 def _isolated_home(tmp_path, monkeypatch):

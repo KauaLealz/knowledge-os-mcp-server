@@ -44,17 +44,12 @@ router = APIRouter(route_class=_SafeRoute)
 
 
 def _view(conn: Connection) -> dict[str, Any]:
-    """Serializa a conexão para a API: sem senha, sem URL."""
+    """Serializa a conexão para a API: repositório git, sem URL do índice."""
     return {
         "id": conn.id,
         "name": conn.name,
-        "db_type": conn.db_type,
-        "path": getattr(conn, "path", None),
-        "host": conn.host,
-        "port": conn.port,
-        "database": conn.database,
-        "username": conn.username,
-        "password_set": bool(getattr(conn, "password_set", False)),
+        "remote_url": getattr(conn, "remote_url", None),
+        "review_mode": getattr(conn, "review_mode", "direct"),
         "enabled": bool(conn.is_active),
         "is_default": bool(getattr(conn, "is_default", False)),
         "is_catalog": conn.id == DEFAULT_CONNECTION_ID,
@@ -70,9 +65,8 @@ def list_connections(session: Session = Depends(get_catalog_session_dep)):
 
 @router.post("/connections", status_code=status.HTTP_201_CREATED, response_model=ConnectionResponse)
 def create_connection(req: ConnectionCreate, session: Session = Depends(get_catalog_session_dep)):
-    fields = req.model_dump(exclude={"name", "db_type", "enabled"})
-    conn = ConnectionService(session).add(
-        req.name, req.db_type, enabled=req.enabled, **fields
+    conn = ConnectionService(session).create(
+        req.name, remote_url=req.remote_url, review_mode=req.review_mode, enabled=req.enabled
     )
     return _view(conn)
 

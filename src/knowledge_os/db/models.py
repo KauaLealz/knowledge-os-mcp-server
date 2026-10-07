@@ -18,7 +18,7 @@ from knowledge_os.db.timeutil import utcnow
 
 Base = declarative_base()
 
-# Connection "default": o próprio banco do catálogo (knowledge.db). Workspaces criados
+# Connection "default": o próprio banco do catálogo (indexes/default.db). Workspaces criados
 # sem connection_id (T1-T5) pertencem a ela.
 DEFAULT_CONNECTION_ID = "default"
 DEFAULT_CONNECTION_NAME = "default"

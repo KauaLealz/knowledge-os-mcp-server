@@ -739,7 +739,7 @@
               <template x-if="!sub">
                 <div>
                   <h1 class="page-title">Conexões</h1>
-                  <p class="page-lead">Bancos usados pela API e pelas tools MCP. O cadastro vive no <code>connections.json</code> do home.</p>
+                  <p class="page-lead">Repositórios git usados pela API e pelas tools MCP. O cadastro vive no <code>connections.json</code> do home.</p>
                   <div class="toolbar"><a class="btn primary" href="#/settings/connections/new"><svg class="ic"><use href="#i-plus"/></svg> Nova conexão</a></div>
                   <div class="state error" x-show="error || $store.app.connError" role="alert">
                     <svg class="logo"><use href="#logo"/></svg>
@@ -753,7 +753,7 @@
                         <span class="dot" :class="dotClass(c)" :title="lastTest(c)"></span>
                         <span class="conn-main">
                           <span class="conn-name"><b x-text="c.name"></b>
-                            <span class="chip outline" x-text="c.db_type"></span>
+                            <span class="chip outline" x-text="c.review_mode"></span>
                             <span class="chip accent" x-show="c.is_default">Default</span>
                             <span class="chip outline" x-show="c.is_catalog">Catálogo</span>
                             <span class="chip outline" x-show="!c.enabled">Desabilitada</span>
@@ -775,7 +775,7 @@
                 <div>
                   <h1 class="page-title" x-text="isNew ? 'Nova conexão' : (conn ? conn.name : 'Conexão')"></h1>
                   <p class="page-meta" x-show="conn">
-                    <span class="chip outline" x-text="conn?.db_type"></span>
+                    <span class="chip outline" x-text="conn?.review_mode"></span>
                     <span class="chip accent" x-show="conn?.is_default">Default</span>
                     <span class="chip outline" x-show="conn?.is_catalog">Catálogo (somente leitura)</span>
                   </p>
@@ -794,42 +794,16 @@
                       <div class="form-row">
                         <div class="field grow"><label for="c-name">Nome</label>
                           <input id="c-name" class="input" type="text" x-model="form.name" maxlength="255" required></div>
-                        <div class="field"><label for="c-type">Tipo</label>
-                          <select id="c-type" class="select" x-model="form.db_type" :disabled="!isNew">
-                            <option value="sqlite">SQLite</option>
-                            <option value="postgresql">PostgreSQL</option>
-                            <option value="mysql">MySQL</option>
+                        <div class="field"><label for="c-review">Modo de publicação</label>
+                          <select id="c-review" class="select" x-model="form.review_mode">
+                            <option value="direct">Direto</option>
+                            <option value="pr">Pull request</option>
                           </select></div>
                       </div>
 
-                      <div class="field" x-show="form.db_type === 'sqlite'"><label for="c-path">Arquivo</label>
-                        <input id="c-path" class="input mono" type="text" x-model="form.path" placeholder="extra.db" :required="form.db_type === 'sqlite'">
-                        <span class="form-hint-text">Caminho relativo vale a partir do home de dados; também aceita caminho absoluto.</span></div>
-
-                      <template x-if="form.db_type !== 'sqlite'">
-                        <div>
-                          <div class="form-row">
-                            <div class="field grow"><label for="c-host">Host</label>
-                              <input id="c-host" class="input" type="text" x-model="form.host" required></div>
-                            <div class="field"><label for="c-port">Porta</label>
-                              <input id="c-port" class="input num" type="number" min="1" max="65535" x-model="form.port"
-                                     :placeholder="form.db_type === 'mysql' ? '3306' : '5432'"></div>
-                          </div>
-                          <div class="form-row">
-                            <div class="field"><label for="c-db">Banco</label>
-                              <input id="c-db" class="input" type="text" x-model="form.database" required></div>
-                            <div class="field"><label for="c-user">Usuário</label>
-                              <input id="c-user" class="input" type="text" x-model="form.username" autocomplete="off"></div>
-                          </div>
-                          <div class="field"><label for="c-pass">Senha</label>
-                            <input id="c-pass" class="input" type="password" autocomplete="new-password" x-model="password"
-                                   :placeholder="passwordSet ? 'senha definida · deixe em branco para manter' : 'sem senha'"
-                                   :disabled="removePassword">
-                            <span class="chip accent" x-show="passwordSet && !password && !removePassword" style="justify-self:start">senha definida</span>
-                            <label class="check" x-show="passwordSet"><input type="checkbox" x-model="removePassword"> Remover senha</label>
-                            <span class="form-hint-text">A senha é só de escrita: fica no <code>connections.json</code> e nunca volta para esta tela.</span></div>
-                        </div>
-                      </template>
+                      <div class="field"><label for="c-remote">Remote git</label>
+                        <input id="c-remote" class="input mono" type="text" x-model="form.remote_url" placeholder="https://github.com/org/repo.git">
+                        <span class="form-hint-text">Em branco: repositório só local (sem GitHub). Clone e índice de busca vivem no home de dados.</span></div>
 
                       <label class="check"><input type="checkbox" x-model="form.enabled"> Habilitada</label>
 

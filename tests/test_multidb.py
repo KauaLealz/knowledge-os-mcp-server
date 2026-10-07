@@ -28,8 +28,8 @@ def workdir(tmp_path, monkeypatch):
 @pytest.fixture
 def two(catalog, tmp_path):  # noqa: F811
     svc = ConnectionService()
-    a = svc.create("A", "sqlite", sqlite_url(tmp_path / "a.db"))
-    b = svc.create("B", "sqlite", sqlite_url(tmp_path / "b.db"))
+    a = svc.create("A")
+    b = svc.create("B")
     return a, b
 
 
@@ -112,35 +112,25 @@ def test_delete_connection_descarta_engine(two):
         get_engine(a.id)
 
 
-def _add_json_connection(conn_id, path):
+def _add_json_connection(conn_id):
     config = ConfigManager.load_or_create()
-    config.connections.append(
-        ConnectionConfig(id=conn_id, name=conn_id, db_type="sqlite", path=path.as_posix()))
+    config.connections.append(ConnectionConfig(id=conn_id, name=conn_id))
     ConfigManager.save(config)
 
 
 def test_workspace_create_com_conexao_do_json_sem_reiniciar(catalog, tmp_path):  # noqa: F811
     get_engine()  # servidor "já no ar"
-    _add_json_connection("test_conn", tmp_path / "manual.db")  # editada à mão depois
+    _add_json_connection("test_conn")  # editada à mão depois
     ws = WorkspaceService(connection_id="test_conn").create("W")
     assert ws.connection_id == "test_conn"
-    assert (tmp_path / "manual.db").exists()
+    from knowledge_os.config import INDEXES_DIR
+
+    assert (INDEXES_DIR / "test_conn.db").exists()
     assert WorkspaceService().list() == []
 
 
-def test_url_alterada_no_json_descarta_engine_em_cache(catalog, tmp_path):  # noqa: F811
-    _add_json_connection("c", tmp_path / "um.db")
-    first = get_engine("c")
-    assert get_engine("c") is first
-    config = ConfigManager.load_or_create()
-    config.get_connection("c").path = (tmp_path / "dois.db").as_posix()
-    ConfigManager.save(config)
-    second = get_engine("c")
-    assert second is not first and second.url.database.endswith("dois.db")
-
-
 def test_conexao_desabilitada_ou_removida_do_json_e_recusada(catalog, tmp_path):  # noqa: F811
-    _add_json_connection("c", tmp_path / "x.db")
+    _add_json_connection("c")
     get_engine("c")
     config = ConfigManager.load_or_create()
     config.get_connection("c").enabled = False

@@ -87,17 +87,13 @@ def _iso(value: datetime | None) -> str | None:
 
 
 def connection_to_dict(conn: Connection) -> dict[str, Any]:
-    """Serializa uma Connection. A URL sai sem senha; `password_set` diz só se existe."""
+    """Serializa uma Connection: repositório git (clone local) + índice de busca."""
     return {
         "id": conn.id,
         "name": conn.name,
-        "db_type": conn.db_type,
         "url": make_url(conn.db_url).render_as_string(hide_password=True),
-        "host": conn.host,
-        "port": conn.port,
-        "database": conn.database,
-        "username": conn.username,
-        "password_set": bool(getattr(conn, "password_set", False)),
+        "remote_url": getattr(conn, "remote_url", None),
+        "review_mode": getattr(conn, "review_mode", "direct"),
         "is_active": bool(conn.is_active),
         "last_tested": _iso(conn.last_tested),
         "test_result": conn.test_result,

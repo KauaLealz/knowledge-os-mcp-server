@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import socket
 import sys
 
 import pytest
@@ -14,13 +13,9 @@ from tests.helpers_multidb import catalog  # noqa: F401  (fixture reaproveitada)
 from tests.test_stdio import server_env  # noqa: F401  (fixture reaproveitada)
 
 
-def _closed_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 def _write_down_default(home):
+    """`default` aponta para uma conexão com `review_mode` inválido: connections.json
+    não carrega (ConfigError), sem envolver rede — o servidor ainda precisa subir."""
     home.mkdir(parents=True, exist_ok=True)
     (home / "connections.json").write_text(
         json.dumps(
@@ -28,11 +23,7 @@ def _write_down_default(home):
                 "version": "1.0",
                 "default": "pg",
                 "connections": [
-                    {
-                        "id": "pg", "name": "PG", "db_type": "postgresql",
-                        "host": "127.0.0.1", "port": _closed_port(),
-                        "database": "d", "username": "u", "password": "segredo",
-                    }
+                    {"id": "pg", "name": "PG", "review_mode": "sync"},
                 ],
             }
         ),
@@ -82,6 +73,5 @@ def test_stdio_sobe_e_tool_sem_connection_id_da_erro_explicito(server_env):  # n
 
     broken, cat = asyncio.run(asyncio.wait_for(scenario(), timeout=60))
     assert broken.is_error
-    assert "PG" in broken.content[0].text
-    assert "segredo" not in broken.content[0].text
+    assert "pg" in broken.content[0].text
     assert not cat.is_error

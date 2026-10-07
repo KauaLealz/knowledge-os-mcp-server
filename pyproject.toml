@@ -36,13 +36,8 @@ Issues = "https://github.com/KauaLealz/knowledge-os-mcp-server/issues"
 
 [project.optional-dependencies]
 # Só para MCP_DB_KEY (SQLCipher). Sem wheel para Windows/cp312, por isso é opcional.
-postgres = ["psycopg[binary]>=3.1"]
-mysql = ["pymysql>=1.1.0"]
-all = ["psycopg[binary]>=3.1", "pymysql>=1.1.0"]
 crypto = ["sqlcipher3-binary>=0.5.0; sys_platform == 'linux'"]
 dev = [
-    "psycopg[binary]>=3.1",
-    "pymysql>=1.1.0",
     "pytest>=7.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0",

@@ -82,14 +82,16 @@ SECRET_OPEN = "<!-- Segredo · valor -->"
 SECRET_CLOSE = "<!-- /Segredo · valor -->"
 
 
-def test_campo_de_senha_so_nas_conexoes_e_no_valor_do_segredo():
+def test_campo_de_senha_so_no_valor_do_segredo():
+    # Conexões não têm mais senha (repositório git, não banco): o único campo de senha
+    # que resta na UI é o valor do segredo.
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     assert CONN_OPEN in html and CONN_CLOSE in html
     inside = html[html.index(CONN_OPEN) : html.index(CONN_CLOSE)]
     secret = html[html.index(SECRET_OPEN) : html.index(SECRET_CLOSE)]
-    assert inside.count('type="password"') == secret.count('type="password"') == 1
-    assert html.count('type="password"') == 2
-    assert 'autocomplete="new-password"' in inside
+    assert inside.count('type="password"') == 0
+    assert secret.count('type="password"') == 1
+    assert html.count('type="password"') == 1
     # o do segredo não oferece "salvar senha" no navegador nem fica num <form>
     assert 'autocomplete="off"' in secret and "data-1p-ignore" in secret
     assert "<form" not in secret
@@ -100,25 +102,12 @@ def test_campo_de_senha_so_nas_conexoes_e_no_valor_do_segredo():
 
 
 def test_senha_so_e_escrita_nunca_lida_de_volta():
+    # Nenhum arquivo JS (inclusive a view de conexões, que não lida mais com senha) fala
+    # de `password` fora de `password_set` — isso é assunto só do segredo (secret_service).
     for f in (STATIC / "js").rglob("*.js"):
         text = f.read_text(encoding="utf-8")
         mentions = re.findall(r"(?<![\w])password(?!_set)", text)
-        if f.name != "connections.js":
-            assert not mentions, f.name  # fora da view, só `password_set` aparece
-    conn = _js("views/connections.js")
-    # `.password` só em `this.password` (campo do formulário) e `body.password` (corpo enviado)
-    assert not re.findall(r"(?<!this)(?<!body)\.password(?!_)", conn)
-    assert not re.findall(r"\?\.password", conn)
-    # nunca em storage, console, toast ou URL
-    for banned in ("localStorage", "sessionStorage", "lsSet", "lsGet", "console."):
-        assert banned not in conn, banned
-    for line in conn.splitlines():
-        if "toast(" in line or "query" in line or "href" in line or "location" in line:
-            assert "password" not in line.lower(), line
-    assert not re.search(r"[?&]password=", conn)
-    # enviada só no corpo e só quando preenchida; null quando "remover senha"
-    assert "if (this.password)" in conn and "removePassword" in conn
-    assert "this.password = ''" in conn
+        assert not mentions, f.name
 
 
 def test_view_de_conexoes_tem_as_acoes_pedidas():
@@ -132,7 +121,7 @@ def test_view_de_conexoes_tem_as_acoes_pedidas():
         "Sincronizar schema",
         "Zona de perigo",
         "Default",
-        "senha definida",
+        "Remote git",
     ):
         assert needle in inside, needle
     conn = _js("views/connections.js")

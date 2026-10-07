@@ -18,8 +18,7 @@ def api(catalog, tmp_path):  # noqa: F811
 
 
 def _conn(api, name):
-    r = api.post("/api/connections", json={
-        "name": name, "db_type": "sqlite", "path": f"{name}.db"})
+    r = api.post("/api/connections", json={"name": name})
     assert r.status_code == 201, r.text
     return r.json()["id"]
 
