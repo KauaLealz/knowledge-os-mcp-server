@@ -137,7 +137,6 @@ export function register(Alpine) {
           { key: 'a-new-project', title: 'New project', sub: '', icon: 'folder', run: () => app.openModal('project') },
           { key: 'a-new-ws', title: 'New workspace', sub: '', icon: 'box', run: () => app.openModal('workspace') },
           { key: 'a-edit', title: 'Toggle Read / Edit', sub: 'e', icon: 'edit', run: () => app.toggleEdit() },
-          { key: 'a-wide', title: 'Toggle content width', sub: '', icon: 'expand', run: () => app.toggleWide() },
           { key: 'a-help', title: 'View keyboard shortcuts', sub: '?', icon: 'command', run: () => (app.helpOpen = true) },
           { key: 'a-refresh', title: 'Reload data', sub: '', icon: 'refresh', run: () => app.refresh() },
         ];

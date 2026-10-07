@@ -17,6 +17,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius); }
 ::selection { background: var(--accent-soft); }
 .ic { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+.ic.open { transform: rotate(90deg); }
 .sprite { position: absolute; }
 .logo { width: 24px; height: 24px; flex: none; }
 .logo.lg { width: 40px; height: 40px; display: block; margin: 0 0 16px; }
@@ -37,16 +38,12 @@ button { font: inherit; color: inherit; cursor: pointer; }
 }
 .topbar .spacer { flex: 1; }
 .btn.menu-btn { display: none; }
+/* Conteúdo sempre usa todo o espaço disponível (sem teto fixo de largura). */
 .page {
-  display: grid; grid-template-columns: minmax(0, var(--content-w)); gap: 56px;
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 56px;
   justify-content: center; padding: 36px 32px 120px; width: 100%;
 }
-.page.has-toc { grid-template-columns: minmax(0, var(--content-w)) var(--toc-w); }
-/* Modo largo: o conteúdo usa todo o espaço disponível (sem teto fixo). */
-.app.wide .page { grid-template-columns: minmax(0, 1fr); }
-@media (min-width: 1001px) { .app.wide .page.has-toc { grid-template-columns: minmax(0, 1fr) var(--toc-w); } }
-/* Sem espaço além da largura normal (sidebar visível ou tela estreita), o botão não faria nada. */
-@media (max-width: 1056px) { .btn.wide-btn { display: none; } }
+.page.has-toc { grid-template-columns: minmax(0, 1fr) var(--toc-w); }
 .doc { min-width: 0; }
 
 /* ===== Sidebar ===== */
@@ -90,9 +87,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .tree-row { display: flex; align-items: center; border-radius: var(--radius); }
 .tree-row:hover { background: var(--bg-hover); }
 .tree-row.active { background: var(--accent-soft); }
-.tw { width: 24px; height: 28px; display: grid; place-items: center; border: 0; background: none; color: var(--text-3); flex: none; }
-.tw .ic { transition: transform 0.12s; width: 14px; height: 14px; }
-.tw .ic.open { transform: rotate(90deg); }
+.tree-toggle { color: var(--text-3); }
+.tree-toggle .ic { width: 14px; height: 14px; transition: transform 0.12s; }
 .tree-link { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 4px 8px 4px 0; color: var(--text); font-weight: 550; font-size: 13.5px; }
 .tree-link:hover { text-decoration: none; }
 .tree-link .ic { color: var(--text-3); }
@@ -225,7 +221,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .scrim { display: none; }
 @media (max-width: 1000px) {
   .toc { display: none; }
-  .page.has-toc { grid-template-columns: minmax(0, var(--content-w)); }
+  .page.has-toc { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 768px) {
   .app { grid-template-columns: minmax(0, 1fr); }
@@ -349,7 +345,6 @@ kbd {
 }
 
 /* ===== Edição e formulários ===== */
-.page.editing { --content-w: 1180px; }
 .section-title .btn { text-transform: none; letter-spacing: 0; font-weight: 500; }
 .dd-menu.right { left: auto; right: 0; min-width: 190px; }
 .topbar .dd { position: relative; }
@@ -387,7 +382,6 @@ body { overflow-x: clip; }
   .item-actions { width: 100%; padding-top: 0; }
   .item-head .page-title, .page-head .page-title { flex-basis: 100%; }
   .page-head .toolbar { width: 100%; }
-  .page.editing { --content-w: 100%; }
   .rel-cols { grid-template-columns: minmax(0, 1fr); }
   .pager { grid-template-columns: minmax(0, 1fr); }
   .pager-a.next { grid-column: 1; }
@@ -463,7 +457,6 @@ body { overflow-x: clip; }
   font-size: 12px; font-weight: 650; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.03em;
 }
 .filter-group-title .ic { width: 14px; height: 14px; color: var(--text-3); }
-.filter-group-title .ic.open { transform: rotate(90deg); }
 .filter-group .filter-check-list, .filter-group .type-chips, .filter-group .select { margin-top: var(--sp-2); }
 .filter-check { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13.5px; color: var(--text-2); cursor: pointer; }
 .filter-check input { flex: none; }

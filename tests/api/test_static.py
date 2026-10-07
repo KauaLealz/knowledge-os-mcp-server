@@ -322,11 +322,18 @@ def test_tema_so_claro_e_escuro_com_dica_em_ingles():
     assert "toggleTheme()" in html and "'sun' : 'moon'" in html
 
 
-def test_largura_larga_sem_teto_e_botao_oculto_quando_nao_cabe():
+def test_largura_sempre_total_sem_botao_de_alternar():
+    """O modo largo (conteúdo sem teto de largura) virou o único comportamento — não tem
+    mais botão pra alternar nem estado salvo."""
     css = (STATIC / "css" / "app.css").read_text(encoding="utf-8")
     assert "1040px" not in css
-    assert ".app.wide .page { grid-template-columns: minmax(0, 1fr); }" in css
-    assert re.search(r"@media \(max-width: \d+px\) \{ \.btn\.wide-btn \{ display: none; \} \}", css)
+    assert "content-w" not in css
+    assert ".page {" in css and "grid-template-columns: minmax(0, 1fr)" in css
+    assert ".app.wide" not in css and ".btn.wide-btn" not in css
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert "wide-btn" not in html and "toggleWide" not in html
+    store = _js("store.js")
+    assert "toggleWide" not in store and "kos.wide" not in store
 
 
 def test_listas_sao_planas_com_filtros_e_busca():
@@ -783,9 +790,3 @@ def test_sidebar_mostra_subjects_na_arvore():
     sidebar = _sidebar()
     assert "p.subjects" in sidebar
 
-
-def test_sidebar_tem_atalho_de_grafo_por_workspace():
-    sidebar = _sidebar()
-    assert "hGraph" in sidebar
-    store = _js("store.js")
-    assert "hGraph(wsId)" in store and "hrefs.graph" in store

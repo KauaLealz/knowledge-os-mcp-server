@@ -62,7 +62,6 @@ export const appStore = {
 
   theme: 'light', // sempre 'light' ou 'dark' (o do sistema até o primeiro clique)
   themeChosen: false,
-  wide: false,
   drawer: false,
   expanded: {},
   recents: [],
@@ -84,7 +83,6 @@ export const appStore = {
     darkQuery?.addEventListener?.('change', () => {
       if (!this.themeChosen) this.theme = systemTheme(); // o CSS já segue o sistema
     });
-    this.wide = lsGet('kos.wide') === '1';
     this.expanded = readJson('kos.expanded', {});
     this.recents = readJson('kos.recents', []);
     this.lastHash = location.hash;
@@ -317,9 +315,6 @@ export const appStore = {
     return it ? hrefs.item(this.connId, this.route.params.ws, it.project_id, itemId) : null;
   },
   hConnections: (sub) => hrefs.connections(sub),
-  hGraph(wsId) {
-    return hrefs.graph(this.connId, wsId ?? this.route.params.ws);
-  },
 
   // ---- árvore ----
   isOpen(pjId) {
@@ -391,10 +386,6 @@ export const appStore = {
   /** Texto da ação do botão de tema. */
   get themeAction() {
     return this.theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme';
-  },
-  toggleWide() {
-    this.wide = !this.wide;
-    lsSet('kos.wide', this.wide ? '1' : '0');
   },
   toast(message, kind = 'info') {
     const id = Date.now() + Math.random();

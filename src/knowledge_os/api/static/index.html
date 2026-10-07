@@ -34,8 +34,6 @@
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></symbol>
   <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></symbol>
-  <symbol id="i-expand" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></symbol>
-  <symbol id="i-shrink" viewBox="0 0 24 24"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></symbol>
   <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></symbol>
   <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6"/></symbol>
   <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
@@ -59,7 +57,7 @@
   </div>
 
   <div class="app" x-show="!$store.app.bootError"
-       :class="{ wide: $store.app.wide, 'drawer-open': $store.app.drawer }">
+       :class="{ 'drawer-open': $store.app.drawer }">
 
     <!-- ===== Sidebar ===== -->
     <aside class="sidebar" aria-label="Navigation">
@@ -102,7 +100,7 @@
         <template x-for="w in $store.app.workspaces" :key="w.id">
           <div>
             <div class="tree-row" :class="{ active: $store.app.route.name === 'workspace' && $store.app.route.params.ws === w.id }">
-              <button class="tw" @click="$store.app.toggleWorkspace(w.id)"
+              <button class="btn icon ghost tree-toggle" @click="$store.app.toggleWorkspace(w.id)"
                       :aria-label="($store.app.isWorkspaceOpen(w.id) ? 'Collapse ' : 'Expand ') + w.name"
                       :aria-expanded="$store.app.isWorkspaceOpen(w.id)">
                 <svg class="ic" :class="{ open: $store.app.isWorkspaceOpen(w.id) }"><use href="#i-chevron"/></svg>
@@ -110,9 +108,6 @@
               <a class="tree-link" :href="$store.app.hWs(w.id)">
                 <svg class="ic"><use href="#i-box"/></svg>
                 <span class="tl-text" x-text="w.name"></span>
-              </a>
-              <a class="tw" :href="$store.app.hGraph(w.id)" :aria-label="'Graph for ' + w.name" title="Graph">
-                <svg class="ic"><use href="#i-graph"/></svg>
               </a>
             </div>
 
@@ -125,7 +120,7 @@
                   <template x-for="p in ($store.app.trees[w.id]?.projects || [])" :key="p.id">
                     <div>
                       <div class="tree-row" :class="{ active: $store.app.route.name === 'project' && $store.app.route.params.pj === p.id }">
-                        <button class="tw" @click="$store.app.toggleProject(p.id)"
+                        <button class="btn icon ghost tree-toggle" @click="$store.app.toggleProject(p.id)"
                                 :aria-label="($store.app.isOpen(p.id) ? 'Collapse ' : 'Expand ') + p.name"
                                 :aria-expanded="$store.app.isOpen(p.id)">
                           <svg class="ic" :class="{ open: $store.app.isOpen(p.id) }"><use href="#i-chevron"/></svg>
@@ -140,7 +135,7 @@
                         <template x-for="s in (p.subjects || [])" :key="s.id">
                           <div class="tree-subject">
                             <div class="tree-row">
-                              <button class="tw" @click="$store.app.toggleProject(p.id + ':' + s.id)"
+                              <button class="btn icon ghost tree-toggle" @click="$store.app.toggleProject(p.id + ':' + s.id)"
                                       :aria-label="($store.app.isOpen(p.id + ':' + s.id) ? 'Collapse ' : 'Expand ') + s.name"
                                       :aria-expanded="$store.app.isOpen(p.id + ':' + s.id)">
                                 <svg class="ic" :class="{ open: $store.app.isOpen(p.id + ':' + s.id) }"><use href="#i-chevron"/></svg>
@@ -217,11 +212,6 @@
               <svg class="ic"><use href="#i-box"/></svg><span class="grow">New workspace</span></button>
           </div>
         </div>
-        <button class="btn icon ghost wide-btn" @click="$store.app.toggleWide()" :aria-pressed="$store.app.wide"
-                :title="$store.app.wide ? 'Back to default width' : 'Use full width'"
-                :aria-label="$store.app.wide ? 'Back to default width' : 'Use full width'">
-          <svg class="ic"><use :href="'#i-' + ($store.app.wide ? 'shrink' : 'expand')"/></svg>
-        </button>
         <button class="btn icon ghost" @click="$store.app.toggleTheme()"
                 :title="$store.app.themeAction" :aria-label="$store.app.themeAction">
           <svg class="ic"><use :href="'#i-' + ($store.app.theme === 'dark' ? 'sun' : 'moon')"/></svg>
