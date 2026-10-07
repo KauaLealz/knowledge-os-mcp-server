@@ -36,12 +36,33 @@
 - **CLI:** a flag que apontava o caminho do repositório mudou de `--project` para `--repo`; a
   flag que apontava o nome do nível (era "domain") mudou de `--domain` para `--project`. Ex.:
   `knowledge-mcp link --repo . --workspace Polara --project projpro`.
+- **`item_save` em modo `pr` não devolve mais `{action, id, ...}` na hora.** Para uma
+  connection com `review_mode="pr"`, salvar um item não secreto abre (ou atualiza) um Pull
+  Request com o arquivo serializado e devolve `{status: "pending_review", pr_url}` — ou
+  `{status: "issue_opened", issue_url}` se a connection não tem permissão de push no remote
+  — em vez do formato de sempre. O índice (SQLite) só é atualizado depois que o PR for
+  mergeado e `repo(action="sync")` (ou o hook de início de sessão) puxar a mudança. Em modo
+  `direct` (padrão) o contrato não muda: publica no repositório e atualiza o índice na mesma
+  chamada. `item_delete` segue o mesmo contrato para as duas remoções (a publicação some do
+  repositório antes do índice refletir, ou fica pendente de PR).
 
 ### Adicionado
 
 - `knowledge-mcp --migrate-v2`: migração one-shot (nunca automática) de um banco com o schema
   antigo (`domains`/`domain_id`/`project_links`/`project_key`) para o novo. Faz backup antes no
   SQLite; em Postgres/MySQL avisa para tirar um snapshot externo antes de confirmar.
+- **Storage de items vira arquivo versionado no repositório da connection.** Todo item não
+  secreto salvo numa connection com repositório git configurado (`repo(action="link")` já
+  cuidava do vínculo; a connection em si é criada por `ConnectionService`) agora também vira
+  um arquivo Markdown com frontmatter YAML nesse repositório (`services/item_file.py`),
+  publicado via `services/git_repo_service.py` — commit direto na branch principal
+  (`review_mode="direct"`) ou PR/Issue de revisão (`review_mode="pr"`). O catálogo (banco
+  default, sem connection) continua só no SQLite, sem repositório git. Segredos (`type:
+  secret`) nunca são serializados para arquivo — continuam só no índice, como sempre.
+- `repo(action="sync")`: sincroniza manualmente o repositório git da connection ativa
+  (`{synced: bool}`). O hook de início de sessão (`knowledge-mcp context`) já chama isso
+  sozinho antes de montar o contexto, tolerando falha de rede ou `gh` ausente sem quebrar a
+  sessão.
 
 ### Quebra de compatibilidade
 

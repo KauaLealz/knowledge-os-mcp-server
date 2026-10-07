@@ -222,6 +222,24 @@ def _is_project(path: Path) -> bool:
     return any((p / ".git").exists() for p in (path, *path.parents))
 
 
+def _sync_connection() -> None:
+    """Puxa o que mudou no repositório git da connection ativa (sem bloquear a sessão).
+
+    Sem connection configurada (catálogo, sem repositório), não há o que sincronizar.
+    """
+    from knowledge_os.config import CATALOG_ID, ConfigManager
+    from knowledge_os.db.session import default_connection_id
+    from knowledge_os.services.git_repo_service import GitRepoService
+
+    cid = default_connection_id()
+    if cid == CATALOG_ID:
+        return
+    conn = ConfigManager.load_or_create().get_connection(cid)
+    git = GitRepoService(conn.clone_path(), conn.remote_url, conn.review_mode)
+    git.ensure_clone()
+    git.sync()
+
+
 def _context(args: argparse.Namespace) -> int:
     hook_input: dict[str, Any] = {}
     if args.hook:
@@ -239,6 +257,10 @@ def _context(args: argparse.Namespace) -> int:
     try:
         _init()
         flushed, flush_error = _flush_pending(repo.resolve())
+        try:
+            _sync_connection()
+        except Exception:  # noqa: BLE001 - sem rede, sem gh etc.: segue sem sincronizar
+            pass
         from knowledge_os.services.context_service import ContextService
 
         out = ContextService().build(target, args.paths, args.query, budget)

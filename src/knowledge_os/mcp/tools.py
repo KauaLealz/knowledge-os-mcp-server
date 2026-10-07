@@ -13,9 +13,9 @@ from typing import Any
 from fastmcp import FastMCP
 from sqlalchemy import func, select
 
-from knowledge_os.config import EXPORTS_DIR
+from knowledge_os.config import CATALOG_ID, EXPORTS_DIR, ConfigManager
 from knowledge_os.db.models import Item, Project, Workspace
-from knowledge_os.db.session import connection_id_of, get_engine, get_session
+from knowledge_os.db.session import connection_id_of, default_connection_id, get_engine, get_session
 from knowledge_os.exceptions import NotFoundError, ValidationError
 from knowledge_os.schemas.artifact_schemas import ArtifactCreate, ArtifactResponse
 from knowledge_os.schemas.item_schemas import ItemResponse, ItemSearchRequest, ItemSearchResult
@@ -24,6 +24,7 @@ from knowledge_os.schemas.relation_schemas import RelationListResponse
 from knowledge_os.schemas.workspace_schemas import WorkspaceResponse
 from knowledge_os.services.artifact_service import ArtifactService
 from knowledge_os.services.context_service import ContextService
+from knowledge_os.services.git_repo_service import GitRepoService
 from knowledge_os.services.import_export_service import ImportExportService
 from knowledge_os.services.item_service import ItemService
 from knowledge_os.services.label_service import LabelService
@@ -269,23 +270,28 @@ def repo(
     confirm_new: bool = False,
     connection_id: str | None = None,
 ) -> Any:
-    """Liga, lista ou desliga repositórios (remote do git ou caminho) de um workspace/project.
+    """Liga, lista ou desliga repositórios (remote do git ou caminho) de um workspace/project;
+    sincroniza o repositório git da connection.
 
     **Use quando:** Configurar um projeto pela primeira vez (`/plumb-setup` faz isso),
-        auditar o que já está ligado, ou desfazer um vínculo.
+        auditar o que já está ligado, desfazer um vínculo, ou puxar manualmente o que
+        mudou no repositório da connection (`action="sync"`).
     **Retorna:** link → {repo_key, workspace, project} ou, se o nome candidato parecer com
         um workspace/project já existente mas grafado diferente, {status: "candidate",
         candidate_match: {field, input, candidate}} (sem criar nada); list →
-        [{repo_key, workspace, project}]; unlink → {status: deleted, repo_key}.
+        [{repo_key, workspace, project}]; unlink → {status: deleted, repo_key}; sync →
+        {synced: bool} (true se havia algo novo e foi puxado).
     **Exemplo:** repo(action="link", repo=".") · repo(action="list", workspace="Polara") ·
-        repo(action="unlink", repo="github.com/org/antigo")
+        repo(action="unlink", repo="github.com/org/antigo") · repo(action="sync")
     **Notas:** repo aceita caminho (qualquer pasta do repo), URL do remote ou chave; a
         chave é o remote do git normalizado (ou o caminho, sem remote). workspace/project são
         criados se não existirem, a menos que o candidate_match apareça: nesse caso, repita
         a chamada com confirm_new=True para confirmar a criação (ou passe o nome exato do
         existente). Workspace e project seguem: sem workspace, o de outro repo do mesmo dono
         já ligado (senão o nome do dono no remote; sem remote, `Pessoal`); sem project, o
-        nome do repositório. Religar move o vínculo.
+        nome do repositório. Religar move o vínculo. `sync` é por connection (não por
+        repo/workspace/project): no catálogo (sem connection configurada) sempre devolve
+        {synced: false}, não há o que sincronizar.
     """
     if action == "link":
         if not repo:
@@ -302,7 +308,15 @@ def repo(
         key = svc.resolve(repo) or {}
         svc.unlink(repo)
         return {"status": "deleted", "repo_key": key.get("repo_key", repo)}
-    raise ValidationError("action deve ser link, list ou unlink")
+    if action == "sync":
+        cid = connection_id or default_connection_id()
+        if cid == CATALOG_ID:
+            return {"synced": False}
+        conn = ConfigManager.load_or_create().get_connection(cid)
+        git = GitRepoService(conn.clone_path(), conn.remote_url, conn.review_mode)
+        git.ensure_clone()
+        return {"synced": git.sync()}
+    raise ValidationError("action deve ser link, list, unlink ou sync")
 
 
 # --------------------------------------------------------------------------------------
@@ -474,6 +488,13 @@ def item_save(
         passe ao usuário para ele preencher na UI local. Usar: `knowledge-mcp run --env
         NPM_TOKEN=segredo/npm-token -- <comando>`.
     **Notas:** Um erro desfaz o lote e aponta a entrada. Conteúdo com cara de segredo é recusado.
+        Numa connection com repositório git (não o catálogo), todo item não secreto também é
+        publicado nesse repositório. Em `review_mode="direct"` (padrão), publica e atualiza o
+        índice na mesma chamada — o retorno é o de sempre. Em `review_mode="pr"`, abre (ou
+        atualiza) um Pull Request com o lote inteiro e devolve, por entrada,
+        `{status: "pending_review", pr_url}` (ou `{status: "issue_opened", issue_url}` sem
+        permissão de push) em vez de `{action, id, ...}` — o índice só reflete a mudança
+        depois que o PR for mergeado e `repo(action="sync")` (ou o hook de sessão) sincronizar.
     """
     default = None
     if repo:
@@ -493,13 +514,15 @@ def item_delete(item_id: str, connection_id: str | None = None) -> dict[str, str
     """Remove um item de vez (com tags, relações e anexos). Destrutivo.
 
     **Use quando:** O item está errado e não há histórico a preservar.
-    **Retorna:** {status: deleted, id}.
+    **Retorna:** {status: deleted, id} ou, se a connection usa modo `pr`, {status:
+        pending_review, pr_url, id} (ou {status: issue_opened, issue_url, id}) — a
+        remoção fica pendente de revisão e só sai do índice depois do PR mergeado e
+        um `repo(action="sync")`.
     **Exemplo:** item_delete(item_id="...")
     **Notas:** Para aposentar mantendo o histórico, prefira item_save com status=deprecated ou
         uma relação supersedes.
     """
-    ItemService(connection_id=connection_id).delete(item_id)
-    return {"status": "deleted", "id": item_id}
+    return ItemService(connection_id=connection_id).delete_published(item_id)
 
 
 def relation_delete(relation_id: str, connection_id: str | None = None) -> dict[str, str]:
@@ -508,9 +531,12 @@ def relation_delete(relation_id: str, connection_id: str | None = None) -> dict[
     **Use quando:** Uma relação foi criada por engano.
     **Retorna:** {status: deleted, id}.
     **Exemplo:** relation_delete(relation_id="...")
-    **Notas:** Remover um supersedes não reativa o alvo: ajuste o status com item_save.
+    **Notas:** Remover um supersedes não reativa o alvo: ajuste o status com item_save. Se a
+        connection tem repositório git em modo `direct`, o item de origem é republicado sem
+        essa relação; em modo `pr` a relação some do índice, mas a republicação pendente de
+        revisão fica para uma versão futura.
     """
-    RelationService(connection_id=connection_id).delete(relation_id)
+    RelationService(connection_id=connection_id).delete_published(relation_id)
     return {"status": "deleted", "id": relation_id}
 
 

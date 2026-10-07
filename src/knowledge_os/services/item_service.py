@@ -126,6 +126,12 @@ class ItemService:
         return GitRepoService(conn.clone_path(), conn.remote_url, conn.review_mode)
 
     @staticmethod
+    def _publish_path(s: Session, item: Item) -> str:
+        ws = s.get(Workspace, item.workspace_id)
+        pj = s.get(Project, item.project_id)
+        return item_path(ws.name, pj.name, item.key, item.id)
+
+    @staticmethod
     def _publish_path_and_content(s: Session, item: Item) -> tuple[str, str]:
         """Path relativo + conteúdo serializado do item, a partir do estado já resolvido
         na sessão (workspace/project/subject, tags, labels e relações atuais)."""
@@ -708,6 +714,41 @@ class ItemService:
             s.commit()
             logger.info("Item removido: %s", item_id)
             return True
+
+    def delete_published(self, item_id: str) -> dict[str, Any]:
+        """Remove o item, publicando a remoção no repositório git da connection primeiro
+        (se houver, e o item não for secreto).
+
+        Modo `direct`: publica a remoção do arquivo e só então apaga do índice. Modo
+        `pr`: abre PR (ou Issue) de remoção e NÃO apaga do índice ainda — o índice só
+        reflete a remoção depois do PR mergeado e um `repo(action="sync")`.
+        """
+        conn = self._connection_config()
+        git = self._git_service(conn) if conn is not None else None
+        if git is not None:
+            with self._session() as s:
+                item = s.get(Item, item_id)
+                if item is None:
+                    raise NotFoundError(f"Item não encontrado: {item_id}")
+                if item.type != "secret":
+                    path = self._publish_path(s, item)
+                    git.ensure_clone()
+                    publish = git.publish({path: None}, f"knowledge-os: remove {path}")
+                    if git.review_mode == "pr":
+                        s.rollback()
+                        if publish.status == "pending_review":
+                            return {
+                                "status": "pending_review",
+                                "pr_url": publish.pr_url,
+                                "id": item_id,
+                            }
+                        return {
+                            "status": "issue_opened",
+                            "issue_url": publish.issue_url,
+                            "id": item_id,
+                        }
+        self.delete(item_id)
+        return {"status": "deleted", "id": item_id}
 
     def get(self, item_id: str) -> Item:
         """Retorna o item completo (com content, tags e labels)."""

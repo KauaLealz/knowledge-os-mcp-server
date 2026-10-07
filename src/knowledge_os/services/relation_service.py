@@ -106,3 +106,35 @@ class RelationService:
             s.commit()
             logger.info("Relação removida: %s", relation_id)
             return True
+
+    def delete_published(self, relation_id: str) -> bool:
+        """Remove a relação e, se a connection tem repositório git em modo `direct`,
+        republica o item de origem sem essa relação (frontmatter atualizado).
+
+        Simplificação desta rodada: só o modo `direct` republica; em modo `pr` a
+        relação só sai do índice (como antes), sem abrir PR — fica para depois.
+        """
+        from knowledge_os.services.item_service import ItemService
+
+        items = ItemService(connection_id=self._connection_id)
+        with session_scope(self._session, self._connection_id) as s:
+            rel = s.get(Relation, relation_id)
+            if rel is None:
+                raise NotFoundError(f"Relação não encontrada: {relation_id}")
+            source = s.get(Item, rel.source_item_id)
+            s.delete(rel)
+            s.flush()
+            conn = items._connection_config()  # noqa: SLF001 - mesma connection, sem duplicar
+            git = items._git_service(conn) if conn is not None else None  # noqa: SLF001
+            if (
+                git is not None
+                and git.review_mode == "direct"
+                and source is not None
+                and source.type != "secret"
+            ):
+                path, content = items._publish_path_and_content(s, source)  # noqa: SLF001
+                git.ensure_clone()
+                git.publish({path: content}, f"knowledge-os: remove relação de {path}")
+            s.commit()
+            logger.info("Relação removida: %s", relation_id)
+            return True
