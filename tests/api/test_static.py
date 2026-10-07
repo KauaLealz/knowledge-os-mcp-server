@@ -466,15 +466,36 @@ def test_pagina_de_workspace_nao_mistura_itens_de_outro_workspace_no_indice():
     assert "workspace_id === ws" in ws or "workspace_id === this.app.route.params.ws" in ws
 
 
-def test_grafo_tem_layout_proprio_sem_biblioteca_e_destaca_supersedes():
+def test_grafo_usa_d3_force_zoom_drag_e_destaca_supersedes():
     graph = _js("views/graph.js")
-    # layout force-directed escrito à mão: repulsão + atração + gravidade, sem lib nova
-    assert "vendor" not in graph  # nenhuma importação de lib de terceiros para o grafo
-    for needle in ("MAX_ITER", "function layout(", "goTo(id)"):
+    for needle in (
+        "d3-force.esm.js",
+        "d3-zoom.esm.js",
+        "d3-drag.esm.js",
+        "d3-selection.esm.js",
+        "forceSimulation",
+        "forceManyBody",
+        "forceLink",
+        "forceCollide",
+        "goTo(id)",
+    ):
         assert needle in graph, needle
+    for d3lib in ("d3-force", "d3-zoom", "d3-drag", "d3-selection"):
+        vendor_path = STATIC / "vendor" / f"{d3lib}.esm.js"
+        assert vendor_path.is_file(), vendor_path
+        vendor_src = vendor_path.read_text(encoding="utf-8")
+        assert "export{" in vendor_src or "export {" in vendor_src
     html = _index()
     inside = html[html.index("<!-- Grafo") : html.index("<!-- Project -->")]
     assert "supersedes" in inside  # destaque visual distinto no CSS escopado
+
+
+def test_grafo_e_interativo_pan_zoom_arrastar():
+    graph = _js("views/graph.js")
+    assert ".call(zoomBehavior)" in graph  # roda do mouse / arrastar fundo = zoom/pan
+    assert "drag()" in graph  # arrastar um nó
+    assert "scaleExtent" in graph
+    assert "alphaTarget" in graph  # solta a simulação durante o drag, acalma no fim
 
 
 def test_grafo_nao_usa_template_x_for_dentro_de_svg():
@@ -495,7 +516,9 @@ def test_grafo_nao_usa_template_x_for_dentro_de_svg():
     assert ".innerHTML" not in graph
     assert "byId.get(e.source)" in graph
     assert "edgeClass(e)" in graph and "nodeClass(n)" in graph
-    assert "addEventListener('click'" in graph
+    # clique só conta se o nó não se mexeu entre mousedown e mouseup (senão todo drag
+    # navegaria pro item ao soltar)
+    assert "if (!moved) this.goTo(n.id)" in graph
 
 
 def test_linhas_de_item_nao_usam_icone_de_tipo():

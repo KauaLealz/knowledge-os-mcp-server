@@ -1,92 +1,19 @@
-// Grafo de relações do workspace: items como nós, relations como arestas.
-// Layout force-directed simples (repulsão + atração por aresta + gravidade leve ao
-// centro), sem biblioteca externa — SVG puro, posições calculadas de uma vez em load().
+// Grafo de relações (workspace, project ou subject — a rota decide o escopo). Física de
+// layout via d3-force, pan/zoom via d3-zoom, arrastar nó via d3-drag (bundles vendorizados
+// em vendor/, sem CDN em runtime). DOM sempre via createElementNS/setAttribute — nunca
+// atribuição direta de marcação bruta (x-html), mesma regra do resto do app (markdown.js é
+// a única exceção, com DOMPurify).
 import { api } from '../api.js';
 import { go } from '../router.js';
 import { typeClass } from '../util.js';
+import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation } from '../../vendor/d3-force.esm.js';
+import { select } from '../../vendor/d3-selection.esm.js';
+import { drag } from '../../vendor/d3-drag.esm.js';
+import { zoom } from '../../vendor/d3-zoom.esm.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
-
 const WIDTH = 900;
 const HEIGHT = 560;
-const PADDING = 26;
-const MAX_ITER = 200;
-const MOVE_EPS = 0.08; // movimento médio por nó abaixo disso: já estabilizou
-
-/** Calcula x/y de cada nó em `nodes` (mutados in-place). */
-function layout(nodes, edges) {
-  const n = nodes.length;
-  if (!n) return;
-  const cx = WIDTH / 2;
-  const cy = HEIGHT / 2;
-  const k = Math.sqrt((WIDTH * HEIGHT) / n) * 0.9; // distância ideal entre nós
-  const byId = new Map(nodes.map((d) => [d.id, d]));
-
-  for (const node of nodes) {
-    const angle = Math.random() * Math.PI * 2;
-    const r = Math.min(WIDTH, HEIGHT) / 3;
-    node.x = cx + Math.cos(angle) * r;
-    node.y = cy + Math.sin(angle) * r;
-    node.vx = 0;
-    node.vy = 0;
-  }
-
-  for (let iter = 0; iter < MAX_ITER; iter++) {
-    // Repulsão entre todo par de nós (como cargas elétricas iguais).
-    for (let i = 0; i < n; i++) {
-      for (let j = i + 1; j < n; j++) {
-        const a = nodes[i];
-        const b = nodes[j];
-        const ddx = a.x - b.x;
-        const ddy = a.y - b.y;
-        const dist = Math.sqrt(ddx * ddx + ddy * ddy) || 0.01;
-        const force = (k * k) / dist;
-        const fx = (ddx / dist) * force;
-        const fy = (ddy / dist) * force;
-        a.vx += fx;
-        a.vy += fy;
-        b.vx -= fx;
-        b.vy -= fy;
-      }
-    }
-    // Atração nas arestas (como uma mola puxando os dois lados).
-    for (const e of edges) {
-      const a = byId.get(e.source);
-      const b = byId.get(e.target);
-      if (!a || !b) continue;
-      const ddx = a.x - b.x;
-      const ddy = a.y - b.y;
-      const dist = Math.sqrt(ddx * ddx + ddy * ddy) || 0.01;
-      const force = (dist * dist) / k;
-      const fx = (ddx / dist) * force;
-      const fy = (ddy / dist) * force;
-      a.vx -= fx;
-      a.vy -= fy;
-      b.vx += fx;
-      b.vy += fy;
-    }
-    // Gravidade leve ao centro (evita que o grafo derive pra fora da viewBox) + amortecimento.
-    let moved = 0;
-    for (const node of nodes) {
-      node.vx += (cx - node.x) * 0.012;
-      node.vy += (cy - node.y) * 0.012;
-      node.vx *= 0.85;
-      node.vy *= 0.85;
-      // Sem isso, grafos com muitos nós (repulsão de cada par contra todos os outros)
-      // aceleram mais rápido do que o amortecimento segura, e todo mundo acaba
-      // empurrado pro clamp da borda — ficam grudados nos 4 cantos em vez de espalhados.
-      const speed = Math.hypot(node.vx, node.vy);
-      if (speed > k) {
-        node.vx = (node.vx / speed) * k;
-        node.vy = (node.vy / speed) * k;
-      }
-      node.x = Math.min(WIDTH - PADDING, Math.max(PADDING, node.x + node.vx));
-      node.y = Math.min(HEIGHT - PADDING, Math.max(PADDING, node.y + node.vy));
-      moved += Math.abs(node.vx) + Math.abs(node.vy);
-    }
-    if (moved / n < MOVE_EPS) break;
-  }
-}
 
 export function register(Alpine) {
   Alpine.data('graphView', () => ({
@@ -96,17 +23,33 @@ export function register(Alpine) {
     error: null,
     width: WIDTH,
     height: HEIGHT,
+    sim: null, // fora do estado reativo seria melhor, mas Alpine não reage a isto de qualquer forma
 
     get app() {
       return Alpine.store('app');
     },
 
+    /** Escopo pela rota: workspace sempre; project/subject quando a rota é mais específica. */
+    get scopeQuery() {
+      const p = this.app.route.params;
+      const q = {};
+      if (this.app.route.name === 'project-graph' || this.app.route.name === 'subject-graph') {
+        q.project_id = p.pj;
+      }
+      if (this.app.route.name === 'subject-graph') q.subject_id = p.subj;
+      return q;
+    },
+
     init() {
       this.$watch(
-        () => this.app.route.params.ws,
+        () => this.app.route.name + '|' + this.app.route.params.ws + '|' + this.app.route.params.pj + '|' + this.app.route.params.subj,
         () => this.load(),
       );
       this.load();
+    },
+
+    destroy() {
+      this.sim?.stop();
     },
 
     async load() {
@@ -114,13 +57,11 @@ export function register(Alpine) {
       if (!wsId) return;
       this.loading = true;
       this.error = null;
+      this.sim?.stop();
       try {
-        const data = await api('GET', `/workspaces/${wsId}/graph`);
-        const nodes = (data.nodes || []).map((n) => ({ ...n }));
-        const edges = data.edges || [];
-        layout(nodes, edges);
-        this.nodes = nodes;
-        this.edges = edges;
+        const data = await api('GET', `/workspaces/${wsId}/graph`, { query: this.scopeQuery });
+        this.nodes = (data.nodes || []).map((n) => ({ ...n }));
+        this.edges = (data.edges || []).map((e) => ({ ...e }));
       } catch (e) {
         this.nodes = [];
         this.edges = [];
@@ -128,10 +69,6 @@ export function register(Alpine) {
       } finally {
         this.loading = false;
       }
-    },
-
-    byId(id) {
-      return this.nodes.find((n) => n.id === id);
     },
 
     nodeClass(n) {
@@ -152,48 +89,129 @@ export function register(Alpine) {
     },
 
     /**
-     * Monta os nós/arestas do SVG via DOM de verdade (`createElementNS`), não
-     * `<template x-for>` dentro de `<svg>`: Alpine clona o conteúdo do `<template>` via
-     * `importNode`, e o parser HTML não dá o namespace SVG certo pro conteúdo de um
-     * `<template>` filho de `<svg>` — os elementos somem do fragment e o clone quebra
-     * ("parameter 1 is not of type 'Node'"). `textContent`/`setAttribute` em vez de
-     * string com `x-html`: nada de HTML bruto, mesma regra do resto do app (markdown.js é
-     * o único ponto que gera HTML, sempre via DOMPurify).
+     * Monta o SVG uma vez (createElementNS/setAttribute — nunca marcação bruta) e entrega
+     * posição/pan/zoom/arrastar pro d3: forceSimulation cuida do layout a cada tick (só
+     * atualiza atributos, não recria elementos), d3-zoom cuida de roda-pra-zoom e arrastar o
+     * fundo, d3-drag cuida de arrastar um nó (fixa a posição enquanto arrasta, solta no fim
+     * pra simulação relaxar de novo).
      */
     renderSvg(svg) {
-      // `:viewBox` via Alpine vira `viewbox` em minúsculas no HTML parser — SVG exige a
-      // grafia exata pra reconhecer o atributo de verdade. `setAttribute` preserva o case.
+      this.sim?.stop();
       svg.setAttribute('viewBox', `0 0 ${this.width} ${this.height}`);
       while (svg.firstChild) svg.removeChild(svg.firstChild);
-      const byId = new Map(this.nodes.map((n) => [n.id, n]));
-      for (const e of this.edges) {
-        const a = byId.get(e.source);
-        const b = byId.get(e.target);
-        if (!a || !b) continue;
+      if (!this.nodes.length) return;
+
+      const viewport = document.createElementNS(SVG_NS, 'g');
+      viewport.setAttribute('class', 'graph-viewport');
+      svg.appendChild(viewport);
+
+      const edgeEls = this.edges.map((e) => {
         const line = document.createElementNS(SVG_NS, 'line');
         line.setAttribute('class', this.edgeClass(e));
-        line.setAttribute('x1', a.x);
-        line.setAttribute('y1', a.y);
-        line.setAttribute('x2', b.x);
-        line.setAttribute('y2', b.y);
-        svg.appendChild(line);
+        viewport.appendChild(line);
+        return line;
+      });
+
+      // Grau (nº de arestas) de cada nó: raio e espessura do nome acompanham, como no
+      // Obsidian — um hub muito conectado chama mais atenção que uma folha solta.
+      const degree = new Map(this.nodes.map((n) => [n.id, 0]));
+      for (const e of this.edges) {
+        degree.set(e.source, (degree.get(e.source) || 0) + 1);
+        degree.set(e.target, (degree.get(e.target) || 0) + 1);
       }
-      for (const n of this.nodes) {
+      const radius = (n) => Math.min(16, 4 + Math.sqrt(degree.get(n.id) || 0) * 2.2);
+
+      const nodeEls = this.nodes.map((n) => {
         const g = document.createElementNS(SVG_NS, 'g');
         g.setAttribute('class', this.nodeClass(n));
-        g.setAttribute('transform', `translate(${n.x},${n.y})`);
-        g.addEventListener('click', () => this.goTo(n.id));
         const title = document.createElementNS(SVG_NS, 'title');
         title.textContent = n.title;
         const circle = document.createElementNS(SVG_NS, 'circle');
-        circle.setAttribute('r', '10');
+        circle.setAttribute('r', String(radius(n)));
         const text = document.createElementNS(SVG_NS, 'text');
-        text.setAttribute('x', '14');
+        text.setAttribute('x', String(radius(n) + 4));
         text.setAttribute('y', '4');
         text.textContent = this.label(n.title);
         g.append(title, circle, text);
-        svg.appendChild(g);
-      }
+        g.addEventListener('pointerenter', () => g.classList.add('hover'));
+        g.addEventListener('pointerleave', () => g.classList.remove('hover'));
+        viewport.appendChild(g);
+        return g;
+      });
+
+      const byId = new Map(this.nodes.map((n) => [n.id, n]));
+      const links = this.edges
+        .map((e) => ({ ...e, source: byId.get(e.source), target: byId.get(e.target) }))
+        .filter((e) => e.source && e.target);
+
+      const tick = () => {
+        edgeEls.forEach((line, i) => {
+          const e = links[i];
+          if (!e) return;
+          line.setAttribute('x1', e.source.x);
+          line.setAttribute('y1', e.source.y);
+          line.setAttribute('x2', e.target.x);
+          line.setAttribute('y2', e.target.y);
+        });
+        nodeEls.forEach((g, i) => {
+          const n = this.nodes[i];
+          g.setAttribute('transform', `translate(${n.x},${n.y})`);
+        });
+      };
+
+      this.sim = forceSimulation(this.nodes)
+        .force('charge', forceManyBody().strength(-160))
+        .force('link', forceLink(links).distance(70).strength(0.4))
+        .force('center', forceCenter(this.width / 2, this.height / 2))
+        .force('collide', forceCollide((n) => radius(n) + 6))
+        .on('tick', tick);
+
+      // Deixa o layout assentar de uma vez antes do primeiro desenho: o timer do d3 usa
+      // requestAnimationFrame, que o navegador pausa se a aba abrir em segundo plano — sem
+      // isso, o grafo ficaria com todos os nós empilhados até alguém olhar pra aba.
+      this.sim.stop();
+      for (let i = 0; i < 150; i++) this.sim.tick();
+      tick();
+      this.sim.stop();
+
+      // Clique abre o item; arrastar não deve contar como clique (d3-drag não distingue,
+      // então só navega se o nó não se mexeu entre mousedown e mouseup).
+      nodeEls.forEach((g, i) => {
+        const n = this.nodes[i];
+        let moved = false;
+        select(g).call(
+          drag()
+            .on('start', (event) => {
+              moved = false;
+              if (!event.active) this.sim.alphaTarget(0.3).restart();
+              n.fx = n.x;
+              n.fy = n.y;
+            })
+            .on('drag', (event) => {
+              moved = true;
+              n.fx = event.x;
+              n.fy = event.y;
+            })
+            .on('end', () => {
+              this.sim.alphaTarget(0);
+              n.fx = null;
+              n.fy = null;
+              if (!moved) this.goTo(n.id);
+            }),
+        );
+      });
+
+      // Roda do mouse = zoom; arrastar o fundo = pan. scaleExtent evita zoom absurdo.
+      // Não chama zoomBehavior.transform pra fixar o identity inicial: isso dispara
+      // selection.interrupt() por dentro do d3-zoom, que só existe depois de importar
+      // d3-transition — sem transição nenhuma rolando, o transform já nasce "sem nada"
+      // (equivalente a identity), não precisa setar explicitamente.
+      const zoomBehavior = zoom()
+        .scaleExtent([0.2, 5])
+        .on('zoom', (event) => {
+          viewport.setAttribute('transform', String(event.transform));
+        });
+      select(svg).call(zoomBehavior);
     },
   }));
 }
