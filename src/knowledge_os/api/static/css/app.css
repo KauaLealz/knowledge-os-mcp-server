@@ -142,7 +142,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* .crumbs é o próprio flex row: trilha + botão de voltar (quando tem), com o
    botão empurrado pra direita por margin-left:auto no .crumb-back. */
 .crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; color: var(--text-3); margin-bottom: var(--sp-4); }
-.crumbs a, .crumbs > span:not(.sep) {
+.crumbs a:not(.crumb-back), .crumbs > span:not(.sep) {
   max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   display: inline-block; vertical-align: bottom;
 }
@@ -182,6 +182,11 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .mini-list li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .item-list { display: grid; gap: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; margin-bottom: var(--sp-4); }
+
+/* Paginador: quantidade por página à esquerda, contagem no meio, navegação à direita. */
+.pager-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-3); margin-bottom: var(--sp-4); }
+.pager-size { display: flex; align-items: center; gap: var(--sp-2); }
+.pager-nav { display: flex; align-items: center; gap: var(--sp-2); }
 .item-row { display: block; padding: 12px 16px; color: var(--text); border-bottom: 1px solid var(--border); }
 .item-row:last-child { border-bottom: 0; }
 .item-row:hover { background: var(--bg-soft); text-decoration: none; }
@@ -443,7 +448,8 @@ body { overflow-x: clip; }
 .searchbox { position: relative; display: block; flex: 1; }
 .searchbox .ic { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-3); pointer-events: none; }
 .searchbox .input { padding-left: 32px; }
-.filter-pop { position: relative; flex: none; }
+.filter-pop { position: relative; flex: none; display: flex; }
+.filter-pop .btn.icon { height: 100%; }
 .filter-pop .btn.icon.active { border-color: var(--accent); color: var(--accent); }
 .filter-popover {
   position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; width: 280px; max-height: 70vh;

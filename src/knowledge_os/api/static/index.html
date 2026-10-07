@@ -368,14 +368,24 @@
                       </a>
                     </template>
                   </div>
-                  <div class="toolbar" x-show="!searchMode">
-                    <button class="btn icon ghost" :disabled="page <= 1 || loading" @click="prevPage()" aria-label="Previous page">
-                      <svg class="ic"><use href="#i-arrow-left"/></svg>
-                    </button>
+                  <div class="pager-bar" x-show="!searchMode">
+                    <label class="pager-size">
+                      <span class="muted" style="font-size:13px">Per page</span>
+                      <select class="select sm" x-model.number="pageSize" @change="goToPage(1)" aria-label="Items per page">
+                        <option value="25">25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                      </select>
+                    </label>
                     <span class="muted" style="font-size:13px">Page <b x-text="page"></b> of <b x-text="totalPages"></b> · <span x-text="total"></span> items</span>
-                    <button class="btn icon ghost" :disabled="page >= totalPages || loading" @click="nextPage()" aria-label="Next page">
-                      <svg class="ic"><use href="#i-arrow-right"/></svg>
-                    </button>
+                    <div class="pager-nav">
+                      <button class="btn icon ghost" :disabled="page <= 1 || loading" @click="prevPage()" aria-label="Previous page">
+                        <svg class="ic"><use href="#i-arrow-left"/></svg>
+                      </button>
+                      <button class="btn icon ghost" :disabled="page >= totalPages || loading" @click="nextPage()" aria-label="Next page">
+                        <svg class="ic"><use href="#i-arrow-right"/></svg>
+                      </button>
+                    </div>
                   </div>
                   <div class="state" x-show="filtering && !visible.length && !searching && !searchError">
                     <svg class="logo"><use href="#logo"/></svg>
@@ -569,14 +579,24 @@
                       </a>
                     </template>
                   </div>
-                  <div class="toolbar" x-show="!searchMode">
-                    <button class="btn icon ghost" :disabled="page <= 1 || loading" @click="prevPage()" aria-label="Previous page">
-                      <svg class="ic"><use href="#i-arrow-left"/></svg>
-                    </button>
+                  <div class="pager-bar" x-show="!searchMode">
+                    <label class="pager-size">
+                      <span class="muted" style="font-size:13px">Per page</span>
+                      <select class="select sm" x-model.number="pageSize" @change="goToPage(1)" aria-label="Items per page">
+                        <option value="25">25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                      </select>
+                    </label>
                     <span class="muted" style="font-size:13px">Page <b x-text="page"></b> of <b x-text="totalPages"></b> · <span x-text="total"></span> items</span>
-                    <button class="btn icon ghost" :disabled="page >= totalPages || loading" @click="nextPage()" aria-label="Next page">
-                      <svg class="ic"><use href="#i-arrow-right"/></svg>
-                    </button>
+                    <div class="pager-nav">
+                      <button class="btn icon ghost" :disabled="page <= 1 || loading" @click="prevPage()" aria-label="Previous page">
+                        <svg class="ic"><use href="#i-arrow-left"/></svg>
+                      </button>
+                      <button class="btn icon ghost" :disabled="page >= totalPages || loading" @click="nextPage()" aria-label="Next page">
+                        <svg class="ic"><use href="#i-arrow-right"/></svg>
+                      </button>
+                    </div>
                   </div>
                   <div class="state" x-show="filtering && !visible.length && !searching && !searchError">
                     <svg class="logo"><use href="#logo"/></svg>
@@ -679,14 +699,24 @@
                       </a>
                     </template>
                   </div>
-                  <div class="toolbar" x-show="!searchMode">
-                    <button class="btn icon ghost" :disabled="page <= 1 || loading" @click="prevPage()" aria-label="Previous page">
-                      <svg class="ic"><use href="#i-arrow-left"/></svg>
-                    </button>
+                  <div class="pager-bar" x-show="!searchMode">
+                    <label class="pager-size">
+                      <span class="muted" style="font-size:13px">Per page</span>
+                      <select class="select sm" x-model.number="pageSize" @change="goToPage(1)" aria-label="Items per page">
+                        <option value="25">25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                      </select>
+                    </label>
                     <span class="muted" style="font-size:13px">Page <b x-text="page"></b> of <b x-text="totalPages"></b> · <span x-text="total"></span> items</span>
-                    <button class="btn icon ghost" :disabled="page >= totalPages || loading" @click="nextPage()" aria-label="Next page">
-                      <svg class="ic"><use href="#i-arrow-right"/></svg>
-                    </button>
+                    <div class="pager-nav">
+                      <button class="btn icon ghost" :disabled="page <= 1 || loading" @click="prevPage()" aria-label="Previous page">
+                        <svg class="ic"><use href="#i-arrow-left"/></svg>
+                      </button>
+                      <button class="btn icon ghost" :disabled="page >= totalPages || loading" @click="nextPage()" aria-label="Next page">
+                        <svg class="ic"><use href="#i-arrow-right"/></svg>
+                      </button>
+                    </div>
                   </div>
                   <div class="state" x-show="filtering && !visible.length && !searching && !searchError">
                     <svg class="logo"><use href="#logo"/></svg>
