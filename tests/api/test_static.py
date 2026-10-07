@@ -518,60 +518,68 @@ def test_grafo_abre_item_sem_depender_do_indice_da_sidebar():
     clique no nó não abrir nada. O próprio nó do grafo já traz project_id; usa direto."""
     graph = _js("views/graph.js")
     assert "goTo(n) {" in graph
-    assert "hrefs.item(this.app.connId, this.app.route.params.ws, n.project_id, n.id)" in graph
+    assert "hrefs.item(this.app.connId, ws, n.project_id, n.id)" in graph
     assert "hItemById" not in graph
 
 
-def test_grafo_do_workspace_agrupa_por_project_e_assunto():
+def test_grafo_project_e_assunto_sao_nos_proprios_ligados_por_aresta_de_hierarquia():
+    """Tentamos antes contorno desenhado ao redor do grupo + legenda separada (texto
+    flutuando perto do cluster sempre descolava de grupos pequenos, três rodadas de ajuste
+    fino nunca convergiram de verdade). A virada: project e assunto são nós do PRÓPRIO
+    grafo — um quadrado por project, um triângulo por grupo de assunto — ligados aos itens
+    por uma aresta de hierarquia. A física já clusteriza sozinha a partir dela: não precisa
+    de grade nominal, força de agrupamento à parte, contorno nem legenda."""
     graph = _js("views/graph.js")
-    assert "forceX" in graph and "forceY" in graph
-    assert "projectKey" in graph and "subjectKey" in graph
-    assert "n.subject_id" in graph
-    assert "n.project_name" in graph and "n.subject_name" in graph
-
-
-def test_grafo_do_workspace_agrupa_em_hierarquia_project_depois_assunto():
-    """Cada project vira uma região maior (força fraca 'x-project'/'y-project'); os
-    assuntos daquele project formam sub-regiões dentro dela (força mais forte
-    'x-subject'/'y-subject') — não um grid achatado de project+assunto lado a lado. Item
-    sem assunto cai no próprio balde "Sem assunto", não se mistura com quem tem assunto."""
-    graph = _js("views/graph.js")
-    assert "force('x-project'" in graph and "force('y-project'" in graph
-    assert "force('x-subject'" in graph and "force('y-subject'" in graph
+    assert "gcluster-label" not in graph
+    assert "legendProjects" not in graph and "addShape" not in graph
+    assert "hierarchyNodesAndEdges()" in graph
+    assert "kind: 'project'" in graph and "kind: 'subject'" in graph
+    assert "kind: 'hierarchy'" in graph
+    assert "function hueOf(id)" in graph  # cor do nó, não de um contorno
+    # forma por tipo de nó: quadrado (project), triângulo (assunto), círculo (item, como já era)
+    assert "document.createElementNS(SVG_NS, 'rect')" in graph
+    assert "document.createElementNS(SVG_NS, 'polygon')" in graph
+    assert "document.createElementNS(SVG_NS, 'circle')" in graph
+    # "Sem assunto" só vira nó quando o project tem 2+ grupos; com 1 só, redundante
     assert "'Sem assunto'" in graph
-    # grafo de um project só: nível de project seria redundante, agrupa direto por assunto
-    assert "scope === 'project-graph'" in graph
+    assert "p.buckets.size >= 2" in graph
+    # clicar no nó de project/assunto abre a página dele, não a de um item
+    assert "hrefs.project(this.app.connId, ws, n.project_id)" in graph
+    assert "hrefs.subject(this.app.connId, ws, n.project_id, n.subject_id)" in graph
+
+    css = (STATIC / "css" / "app.css").read_text(encoding="utf-8") + (
+        STATIC / "index.html"
+    ).read_text(encoding="utf-8")
+    assert "graph-legend" not in css
+    assert "gedge-hierarchy" in css
 
 
-def test_grafo_identifica_grupo_por_contorno_e_cor_nao_por_texto_flutuante():
-    """Tentamos texto flutuando perto do grupo (rótulo "galáxia/planeta/país"): a física
-    podia arrastar um grupo pequeno pra longe de onde o texto nominal ficaria, descolando
-    o nome do que ele nomeava — e ajustar a distância entre rótulos nunca convergia (três
-    rodadas de ajuste fino, sempre sobrando um caso de sobreposição). A troca: um contorno
-    (retângulo) desenhado DEPOIS que a simulação assenta, ao redor de onde os nós do grupo
-    realmente pararam — por definição nunca descola — e o nome de cada cor mora na legenda
-    (HTML comum, fora da física: nunca compete por espaço com o layout do grafo)."""
+def test_grafo_de_um_project_so_pula_o_no_de_project_redundante():
+    """No grafo de um project só (aberto a partir da página do project), um nó de project
+    repetiria a própria página corrente — só os nós de assunto (se o project tiver 2+
+    grupos) entram, ligados direto nos itens."""
     graph = _js("views/graph.js")
-    assert "gcluster-label" not in graph  # o texto flutuante por cluster saiu de vez
-    assert "function hueOf(id)" in graph
-    assert "colorMaps()" in graph
-    assert "get legendProjects()" in graph and "get legendSubjects()" in graph
-    assert "const addShape = (cls, ns, hue, light, pad, rx) =>" in graph
-    # contorno calculado a partir do bbox dos nós já assentados (nunca da célula nominal)
-    tick_idx = graph.index("this.sim.stop();\n      for (let i = 0; i < 150")
-    bbox_uses_node_xy_idx = graph.index("if (n.x < minX) minX = n.x;")
-    shape_idx = graph.index("const addShape = (cls")
-    assert tick_idx < bbox_uses_node_xy_idx < shape_idx
-    # contorno entra no DOM antes de nó/linha (pintura em ordem de documento) — fica atrás,
-    # nunca cobre um nó
-    insert_idx = graph.index("viewport.insertBefore(rect, viewport.firstChild)")
-    nodes_idx = graph.index("const nodeEls = this.nodes.map")
-    assert nodes_idx < insert_idx
+    assert "scope === 'graph'" in graph
+    assert "scope !== 'graph' && scope !== 'project-graph'" in graph
+    assert "scope === 'graph' ? projectNodeId : null" in graph
 
-    html = _index()
-    assert 'class="graph-legend"' in html
-    assert "legendProjects" in html and "legendSubjects" in html
-    assert "legend-square" in html and "legend-triangle" in html
+
+def test_grafo_rotulo_e_camada_propria_nunca_coberto_por_outro_no():
+    """Nó (forma) e rótulo (texto) são dois elementos separados, em duas camadas: todas as
+    formas primeiro, todos os rótulos depois — por ordem de pintura do SVG, uma forma nunca
+    fica por cima do texto de um nó vizinho, não importa quão perto os dois fiquem. Só uma
+    aresta pode passar por baixo de um rótulo (regra do usuário: "a única coisa que pode
+    sobrepor são as arestas")."""
+    graph = _js("views/graph.js")
+    shapes_idx = graph.index("const nodeEls = allNodes.map")
+    labels_idx = graph.index("const labelEls = allNodes.map")
+    assert shapes_idx < labels_idx
+    # projeto/assunto maiores que o teto do item (16): nunca devem parecer menores
+    assert "RADIUS = { project: 26, subject: 20 }" in graph
+    css = (STATIC / "css" / "app.css").read_text(encoding="utf-8") + (
+        STATIC / "index.html"
+    ).read_text(encoding="utf-8")
+    assert ".glabel {" in css and ".glabel-project, .glabel-subject {" in css
 
 
 def test_grafo_nao_usa_template_x_for_dentro_de_svg():
