@@ -13,6 +13,7 @@ interpolação de string em comando.
 import re
 import subprocess
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -239,14 +240,23 @@ class GitRepoService:
         self._run(["commit", "-m", message])
         return self._run(["rev-parse", "HEAD"]).stdout.strip()
 
-    def _push_with_retry(self, branch: str) -> None:
+    def _push_with_retry(self, branch: str, rewrite: Callable[[], str | None]) -> str | None:
+        """Tenta publicar `branch`; em rejeição (non-fast-forward), descarta o commit local
+        (`reset --hard` pro que o remote tem agora) e chama `rewrite()` de novo.
+
+        Não usa `rebase`: como o publisher só escreve um conjunto conhecido de arquivos (não
+        faz merge de texto de verdade), reescrever por cima do estado novo do remote é seguro
+        e, ao contrário do rebase, nunca entra em conflito — um conflito de merge deixaria o
+        clone parado em "rebasing", quebrando qualquer publish seguinte na mesma connection.
+        """
+        sha = rewrite()
         deadline = time.monotonic() + _PUSH_RETRY_BUDGET_S
         wait = _PUSH_RETRY_FIRST_WAIT_S
         last_error: GitError | None = None
         while True:
             result = self._run(["push", "origin", branch], check=False)
             if result.returncode == 0:
-                return
+                return sha
             stderr_lower = result.stderr.lower()
             if not any(marker in stderr_lower for marker in _NON_FAST_FORWARD_MARKERS):
                 raise GitError(f"Falha em 'git push': {result.stderr.strip()}")
@@ -256,7 +266,8 @@ class GitRepoService:
             time.sleep(wait)
             wait = min(wait * 2, _PUSH_RETRY_MAX_WAIT_S)
             self._run(["fetch", "origin", branch])
-            self._run(["rebase", f"origin/{branch}"])
+            self._run(["reset", "--hard", f"origin/{branch}"])
+            sha = rewrite()
 
     def publish(
         self,
@@ -276,10 +287,15 @@ class GitRepoService:
 
     def _publish_direct(self, files: dict[str, str | None], message: str) -> PublishResult:
         branch = self._main_branch()
-        self._write_files(files)
-        sha = self._commit(message)
+
+        def rewrite() -> str | None:
+            self._write_files(files)
+            return self._commit(message)
+
         if self._has_remote():
-            self._push_with_retry(branch)
+            sha = self._push_with_retry(branch, rewrite)
+        else:
+            sha = rewrite()
         return PublishResult(status="published", commit_sha=sha)
 
     def _publish_pr(
@@ -289,8 +305,6 @@ class GitRepoService:
         branch = f"item/{_slugify(branch_hint or message)}"
         self._run(["checkout", "-b", branch], check=False)
         self._run(["checkout", branch])
-        self._write_files(files)
-        self._commit(message)
 
         owner_repo = self._owner_repo()
         access = gh_cli.has_push_access(owner_repo) if owner_repo else None
@@ -299,7 +313,11 @@ class GitRepoService:
             issue_url = gh_cli.issue_create(owner_repo, message, self._issue_body(files, message))
             return PublishResult(status="issue_opened", issue_url=issue_url)
 
-        self._push_with_retry(branch)
+        def rewrite() -> str | None:
+            self._write_files(files)
+            return self._commit(message)
+
+        self._push_with_retry(branch, rewrite)
         pr_url = gh_cli.pr_create(
             self.clone_path, message, self._issue_body(files, message), base=base_branch
         )

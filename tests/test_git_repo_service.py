@@ -294,6 +294,38 @@ def _env():
     return {**os.environ, "PYTHONPATH": str(ROOT / "src")}
 
 
+def test_push_rejeitado_no_mesmo_arquivo_nao_trava_o_clone_em_rebase(tmp_path, bare_repo):
+    """Dois publishes concorrentes no MESMO arquivo (conteúdo diferente): o antigo código
+    fazia `rebase` depois do fetch, que entra em conflito de merge de verdade (mesma linha)
+    e deixa o clone parado em "rebasing", quebrando qualquer publish seguinte — mesmo de um
+    arquivo totalmente diferente. O retry precisa resolver sem merge de texto: descarta o que
+    está pendente localmente e reescreve o arquivo por cima do que o remote tem agora.
+    """
+    a = GitRepoService(clone_path=tmp_path / "a", remote_url=str(bare_repo), review_mode="direct")
+    a.ensure_clone()
+    b = GitRepoService(clone_path=tmp_path / "b", remote_url=str(bare_repo), review_mode="direct")
+    b.ensure_clone()
+
+    # A publica primeiro e vence a corrida.
+    result_a = a.publish({"item.md": "versao de A"}, "A escreve item.md")
+    assert result_a.status == "published"
+
+    # B ainda está no commit anterior: seu push é rejeitado (non-fast-forward) e o retry
+    # precisa lidar com o MESMO path mudado nos dois lados, sem travar o clone.
+    result_b = b.publish({"item.md": "versao de B"}, "B escreve item.md")
+    assert result_b.status == "published"
+
+    # O clone de B não pode ficar preso num rebase pendente: um publish seguinte, de um
+    # arquivo totalmente diferente, tem que funcionar normalmente.
+    result_b2 = b.publish({"outro.md": "outro conteudo"}, "B escreve outro.md")
+    assert result_b2.status == "published"
+
+    check = tmp_path / "check"
+    _git(tmp_path, "clone", "-q", str(bare_repo), str(check))
+    assert (check / "item.md").read_text(encoding="utf-8") == "versao de B"
+    assert (check / "outro.md").read_text(encoding="utf-8") == "outro conteudo"
+
+
 def test_dois_processos_publicam_push_concorrente_com_retry(tmp_path, bare_repo):
     """Dois processos reais, pré-clonados do mesmo commit, publicam ao mesmo tempo.
 
