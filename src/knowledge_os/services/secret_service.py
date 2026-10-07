@@ -34,7 +34,7 @@ def fill_url(item: Item, connection_id: str | None = None) -> str:
         conn = DEFAULT_CONNECTION_ID
     conn = quote(conn, safe="")
     return (f"http://127.0.0.1:{UI_DEFAULT_PORT}/ui/#/c/{conn}/w/{item.workspace_id}"
-            f"/d/{item.project_id}/i/{item.id}")
+            f"/p/{item.project_id}/i/{item.id}")
 
 
 class SecretService:
