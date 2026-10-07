@@ -408,7 +408,7 @@ def test_telas_tem_botao_de_voltar():
     Subject -> pai; Grafo -> a página do escopo que ele mostra) — Workspace não (já
     alcançável pela sidebar e pelo breadcrumb, um botão ali seria redundante)."""
     html = (STATIC / "index.html").read_text(encoding="utf-8")
-    assert html.count('class="btn ghost" :href="backHref()"') == 4
+    assert html.count('class="crumb-back" :href="backHref()"') == 4
     item = _js("views/item.js")
     assert "backHref()" in item
     assert "this.item.subject_id" in item

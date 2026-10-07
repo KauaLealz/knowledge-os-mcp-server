@@ -205,7 +205,7 @@
         <div class="spacer"></div>
         <div class="dd" x-data="dropdown" @click.outside="close()" @keydown.escape.window="close()">
           <button class="btn" @click="toggle()" :aria-expanded="open" aria-haspopup="menu">
-            <svg class="ic"><use href="#i-plus"/></svg> Novo
+            <svg class="ic"><use href="#i-plus"/></svg> New
           </button>
           <div class="dd-menu right" x-show="open" x-cloak role="menu">
             <button class="dd-item" role="menuitem" :disabled="!$store.app.route.params.ws" @click="close(); $store.app.openModal('item')">
@@ -320,9 +320,9 @@
                         </div>
                         <div class="filter-group">
                           <div class="filter-group-title">Type</div>
-                          <div class="type-chips" role="group" aria-label="Filtrar por tipo">
+                          <div class="type-chips" role="group" aria-label="Filter by type"
                             <button class="tchip" :class="{ on: !filters.types.length }" :aria-pressed="!filters.types.length" @click="clearTypes()">
-                              Todos <span class="n" x-show="!searchMode" x-text="items.length"></span>
+                              All <span class="n" x-show="!searchMode" x-text="items.length"></span>
                             </button>
                             <template x-for="c in chipTypes" :key="c.type">
                               <button class="tchip" :class="[$tc(c.type), { on: filters.types.includes(c.type) }]"
@@ -340,7 +340,7 @@
                             <option value="recent">Most recent</option>
                           </select>
                         </div>
-                        <button class="btn ghost sm" x-show="filtering" @click="clearFilters()">Limpar filtros</button>
+                        <button class="btn ghost sm" x-show="filtering" @click="clearFilters()">Clear filters</button>
                       </div>
                     </div>
                   </div>
@@ -420,10 +420,10 @@
                 </template>
                 <span class="sep" x-show="$store.app.route.params.subj">/</span>
                 <span>Graph</span>
+                <a class="crumb-back" :href="backHref()"><svg class="ic"><use href="#i-arrow-left"/></svg> Back</a>
               </nav>
               <div class="page-head">
                 <h1 class="page-title">Relationship graph</h1>
-                <div class="toolbar"><a class="btn ghost" :href="backHref()"><svg class="ic"><use href="#i-arrow-left"/></svg> Back</a></div>
               </div>
               <div class="state" x-show="loading">
                 <svg class="logo"><use href="#logo"/></svg>
@@ -437,7 +437,7 @@
               </div>
               <div class="state" x-show="!loading && !error && !nodes.length">
                 <svg class="logo"><use href="#logo"/></svg>
-                <h3>Sem itens</h3>
+                <h3>No items</h3>
                 <p>This scope has no items to show in the graph yet.</p>
               </div>
 
@@ -494,11 +494,11 @@
                     <a :href="$store.app.hConn()" x-text="$store.app.connName"></a><span class="sep">/</span>
                     <a :href="$store.app.hWs()" x-text="$store.app.workspace?.name"></a><span class="sep">/</span>
                     <span x-text="$store.app.project.name"></span>
+                    <a class="crumb-back" :href="backHref()"><svg class="ic"><use href="#i-arrow-left"/></svg> Back</a>
                   </nav>
                   <div class="page-head">
                     <h1 class="page-title" x-text="$store.app.project.name"></h1>
                     <div class="toolbar">
-                      <a class="btn ghost" :href="backHref()"><svg class="ic"><use href="#i-arrow-left"/></svg> Back</a>
                       <a class="btn" :href="graphHref()"><svg class="ic"><use href="#i-command"/></svg> View graph</a>
                       <button class="btn primary" @click="$store.app.openModal('item')"><svg class="ic"><use href="#i-plus"/></svg> New item</button>
                     </div>
@@ -527,9 +527,9 @@
                         </div>
                         <div class="filter-group">
                           <div class="filter-group-title">Type</div>
-                          <div class="type-chips" role="group" aria-label="Filtrar por tipo">
+                          <div class="type-chips" role="group" aria-label="Filter by type"
                             <button class="tchip" :class="{ on: !filters.types.length }" :aria-pressed="!filters.types.length" @click="clearTypes()">
-                              Todos <span class="n" x-show="!searchMode" x-text="items.length"></span>
+                              All <span class="n" x-show="!searchMode" x-text="items.length"></span>
                             </button>
                             <template x-for="c in chipTypes" :key="c.type">
                               <button class="tchip" :class="[$tc(c.type), { on: filters.types.includes(c.type) }]"
@@ -547,7 +547,7 @@
                             <option value="recent">Most recent</option>
                           </select>
                         </div>
-                        <button class="btn ghost sm" x-show="filtering" @click="clearFilters()">Limpar filtros</button>
+                        <button class="btn ghost sm" x-show="filtering" @click="clearFilters()">Clear filters</button>
                       </div>
                     </div>
                   </div>
@@ -616,11 +616,11 @@
                     <a :href="$store.app.hWs()" x-text="$store.app.workspace?.name"></a><span class="sep">/</span>
                     <a :href="$store.app.hProject($store.app.route.params.pj)" x-text="$store.app.project?.name"></a><span class="sep">/</span>
                     <span x-text="$store.app.subject.name"></span>
+                    <a class="crumb-back" :href="backHref()"><svg class="ic"><use href="#i-arrow-left"/></svg> Back</a>
                   </nav>
                   <div class="page-head">
                     <h1 class="page-title" x-text="$store.app.subject.name"></h1>
                     <div class="toolbar">
-                      <a class="btn ghost" :href="backHref()"><svg class="ic"><use href="#i-arrow-left"/></svg> Back</a>
                       <a class="btn" :href="graphHref()"><svg class="ic"><use href="#i-command"/></svg> View graph</a>
                     </div>
                   </div>
@@ -637,9 +637,9 @@
                       <div class="filter-popover" x-show="open" x-cloak x-transition @click.outside="open = false">
                         <div class="filter-group">
                           <div class="filter-group-title">Type</div>
-                          <div class="type-chips" role="group" aria-label="Filtrar por tipo">
+                          <div class="type-chips" role="group" aria-label="Filter by type"
                             <button class="tchip" :class="{ on: !filters.types.length }" :aria-pressed="!filters.types.length" @click="clearTypes()">
-                              Todos <span class="n" x-show="!searchMode" x-text="items.length"></span>
+                              All <span class="n" x-show="!searchMode" x-text="items.length"></span>
                             </button>
                             <template x-for="c in chipTypes" :key="c.type">
                               <button class="tchip" :class="[$tc(c.type), { on: filters.types.includes(c.type) }]"
@@ -657,7 +657,7 @@
                             <option value="recent">Most recent</option>
                           </select>
                         </div>
-                        <button class="btn ghost sm" x-show="filtering" @click="clearFilters()">Limpar filtros</button>
+                        <button class="btn ghost sm" x-show="filtering" @click="clearFilters()">Clear filters</button>
                       </div>
                     </div>
                   </div>
@@ -710,7 +710,7 @@
               <div class="state error" x-show="!$store.app.subject && !$store.app.treeLoading" role="alert">
                 <svg class="logo"><use href="#logo"/></svg>
                 <h3>Subject not found</h3>
-                <p>Ele pode ter sido removido.</p>
+                <p>It may have been removed.</p>
                 <a class="btn" :href="$store.app.hProject($store.app.route.params.pj)">Back to project</a>
               </div>
             </div></div>
@@ -729,12 +729,12 @@
                       <a :href="$store.app.hWs()" x-text="$store.app.workspace?.name"></a><span class="sep">/</span>
                       <a :href="$store.app.hProject(item.project_id)" x-text="projectName"></a><span class="sep">/</span>
                       <span x-text="item.title"></span>
+                      <a class="crumb-back" :href="backHref()"><svg class="ic"><use href="#i-arrow-left"/></svg> Back</a>
                     </nav>
 
                     <div class="item-head">
                       <h1 class="page-title" x-text="item.title"></h1>
                       <div class="item-actions">
-                        <a class="btn ghost" :href="backHref()"><svg class="ic"><use href="#i-arrow-left"/></svg> Back</a>
                         <button class="btn" @click="$store.app.toggleEdit()" title="Shortcut: e">
                           <svg class="ic"><use :href="'#i-' + ($store.app.route.params.edit ? 'eye' : 'edit')"/></svg>
                           <span x-text="$store.app.route.params.edit ? 'Read' : 'Edit'"></span> <kbd>e</kbd>
@@ -745,7 +745,7 @@
                         </button>
                         <button class="btn danger" x-show="!$store.app.route.params.edit" :disabled="deleting" @click="remove()">
                           <svg class="ic"><use href="#i-x"/></svg>
-                          <span x-text="confirmingDelete ? 'Confirmar: excluir' : 'Excluir'"></span>
+                          <span x-text="confirmingDelete ? 'Confirm: delete' : 'Delete'"></span>
                         </button>
                       </div>
                     </div>
@@ -755,10 +755,10 @@
                     <!-- Segredo · valor -->
                     <template x-if="item.type === 'secret' && !$store.app.route.params.edit">
                       <section class="card secret-box" x-data="secretForm(item, (u) => applyUpdate(u))">
-                        <div class="card-title"><span x-text="item.has_value ? 'Valor definido' : 'Sem valor'"></span></div>
+                        <div class="card-title"><span x-text="item.has_value ? 'Value set' : 'No value'"></span></div>
                         <p class="secret-note">The value is encrypted on this machine and never shown again. The agent only uses it by running <code>knowledge-mcp run</code>, without seeing the value.</p>
                         <div class="secret-form">
-                          <input class="input" type="password" autocomplete="off" data-1p-ignore data-lpignore="true" spellcheck="false" aria-label="Valor do segredo"
+                          <input class="input" type="password" autocomplete="off" data-1p-ignore data-lpignore="true" spellcheck="false" aria-label="Secret value"
                                  x-show="!multiline" @keydown.enter.prevent="save()"
                                  :placeholder="item.has_value ? 'New value (replaces current)' : 'Paste the value here'" x-model="value">
                           <textarea class="input mono" rows="6" autocomplete="off" data-1p-ignore data-lpignore="true" spellcheck="false" aria-label="Secret value (multiple lines)"
@@ -777,7 +777,7 @@
                       <span class="tbadge lg" :class="$tc(item.type)"><span class="tdot" aria-hidden="true"></span><span x-text="$tlabel(item.type)"></span></span>
                       <template x-for="t in item.tags" :key="'t' + t"><span class="chip outline" x-text="'#' + t"></span></template>
                       <template x-for="l in item.labels" :key="'l' + l"><span class="chip accent" x-text="l"></span></template>
-                      <span class="muted" style="font-size:12.5px" :title="fullDate(item.updated_at)" x-text="'atualizado ' + $ago(item.updated_at)"></span>
+                      <span class="muted" style="font-size:12.5px" :title="fullDate(item.updated_at)" x-text="'updated ' + $ago(item.updated_at)"</span>
                     </div>
 
                     <template x-if="!$store.app.route.params.edit && item.type !== 'secret'">
@@ -818,7 +818,7 @@
                           <span class="grow"></span>
                           <button class="btn" @click="$store.app.toggleEdit()">Close editor</button>
                           <button class="btn primary" :disabled="!dirty || saving" @click="save()">
-                            <span x-text="saving ? 'Salvando…' : 'Salvar'"></span> <kbd x-text="$store.app.isMac ? '⌘ S' : 'Ctrl S'"></kbd>
+                            <span x-text="saving ? 'Saving…' : 'Save'"></span> <kbd x-text="$store.app.isMac ? '⌘ S' : 'Ctrl S'"></kbd>
                           </button>
                         </div>
                       </div>
