@@ -197,10 +197,10 @@ export function register(Alpine) {
 
     // ---- derivados ----
     get projectName() {
-      return this.app.tree?.projects.find((p) => p.id === this.item?.project_id)?.name || '';
+      return this.app.tree?.projects?.find((p) => p.id === this.item?.project_id)?.name || '';
     },
     get siblings() {
-      return this.app.tree?.projects.find((p) => p.id === this.item?.project_id)?.items || [];
+      return this.app.tree?.projects?.find((p) => p.id === this.item?.project_id)?.items || [];
     },
     get prev() {
       const i = this.siblings.findIndex((s) => s.id === this.item?.id);

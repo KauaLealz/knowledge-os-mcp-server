@@ -216,7 +216,7 @@ export const appStore = {
       const data = await api('GET', `/workspaces/${wsId}/tree`);
       if (this.treeWs !== wsId) return;
       const index = {};
-      for (const p of data.projects) {
+      for (const p of data.projects || []) {
         for (const it of p.items) {
           index[it.id] = { ...it, project_id: p.id, project_name: p.name, workspace_id: wsId };
         }
@@ -246,7 +246,7 @@ export const appStore = {
     return this.workspaces.find((w) => w.id === this.route.params.ws) || null;
   },
   get project() {
-    return this.tree?.projects.find((p) => p.id === this.route.params.pj) || null;
+    return this.tree?.projects?.find((p) => p.id === this.route.params.pj) || null;
   },
   get connName() {
     return this.connections.find((c) => c.id === this.connId)?.name || this.connId || '—';

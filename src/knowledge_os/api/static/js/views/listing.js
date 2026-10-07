@@ -137,7 +137,7 @@ export function listingMixin(Alpine) {
     },
     /** Project do item: a busca devolve o nome; a listagem só o id (resolvido pela árvore). */
     where(it) {
-      return it.project || this.app.tree?.projects.find((p) => p.id === it.project_id)?.name || '';
+      return it.project || this.app.tree?.projects?.find((p) => p.id === it.project_id)?.name || '';
     },
   };
 }
