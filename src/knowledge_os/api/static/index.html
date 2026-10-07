@@ -297,9 +297,11 @@
                         <svg class="ic"><use href="#i-filter"/></svg>
                       </button>
                       <div class="filter-popover" x-show="open" x-cloak x-transition @click.outside="open = false">
-                        <div class="filter-group" x-show="projectFilterOptions.length">
-                          <div class="filter-group-title">Project</div>
-                          <div class="filter-check-list">
+                        <div class="filter-group" x-show="projectFilterOptions.length" x-data="{ open: false }">
+                          <button type="button" class="filter-group-title" @click="open = !open" :aria-expanded="open">
+                            Project <svg class="ic" :class="{ open }"><use href="#i-chevron"/></svg>
+                          </button>
+                          <div class="filter-check-list" x-show="open">
                             <template x-for="p in projectFilterOptions" :key="p.id">
                               <label class="filter-check">
                                 <input type="checkbox" :checked="filters.projectIds.includes(p.id)" @change="toggleProjectFilter(p.id)">
@@ -308,9 +310,11 @@
                             </template>
                           </div>
                         </div>
-                        <div class="filter-group" x-show="subjectFilterOptions.length">
-                          <div class="filter-group-title">Subject</div>
-                          <div class="filter-check-list">
+                        <div class="filter-group" x-show="subjectFilterOptions.length" x-data="{ open: false }">
+                          <button type="button" class="filter-group-title" @click="open = !open" :aria-expanded="open">
+                            Subject <svg class="ic" :class="{ open }"><use href="#i-chevron"/></svg>
+                          </button>
+                          <div class="filter-check-list" x-show="open">
                             <template x-for="s in subjectFilterOptions" :key="s.id">
                               <label class="filter-check">
                                 <input type="checkbox" :checked="filters.subjectIds.includes(s.id)" @change="toggleSubjectFilter(s.id)">
@@ -319,12 +323,11 @@
                             </template>
                           </div>
                         </div>
-                        <div class="filter-group">
-                          <div class="filter-group-title">Type</div>
-                          <div class="type-chips" role="group" aria-label="Filter by type"
-                            <button class="tchip" :class="{ on: !filters.types.length }" :aria-pressed="!filters.types.length" @click="clearTypes()">
-                              All <span class="n" x-show="!searchMode" x-text="items.length"></span>
-                            </button>
+                        <div class="filter-group" x-data="{ open: false }">
+                          <button type="button" class="filter-group-title" @click="open = !open" :aria-expanded="open">
+                            Type <svg class="ic" :class="{ open }"><use href="#i-chevron"/></svg>
+                          </button>
+                          <div class="type-chips" role="group" aria-label="Filter by type" x-show="open">
                             <template x-for="c in chipTypes" :key="c.type">
                               <button class="tchip" :class="[$tc(c.type), { on: filters.types.includes(c.type) }]"
                                       :aria-pressed="filters.types.includes(c.type)" @click="toggleType(c.type)">
@@ -334,9 +337,11 @@
                             </template>
                           </div>
                         </div>
-                        <div class="filter-group">
-                          <div class="filter-group-title">Sort</div>
-                          <select class="select sm" x-model="sort" aria-label="Sort">
+                        <div class="filter-group" x-data="{ open: false }">
+                          <button type="button" class="filter-group-title" @click="open = !open" :aria-expanded="open">
+                            Sort <svg class="ic" :class="{ open }"><use href="#i-chevron"/></svg>
+                          </button>
+                          <select class="select sm" x-show="open" x-model="sort" aria-label="Sort">
                             <option value="title">Alphabetical</option>
                             <option value="recent">Most recent</option>
                           </select>
@@ -525,9 +530,11 @@
                         <svg class="ic"><use href="#i-filter"/></svg>
                       </button>
                       <div class="filter-popover" x-show="open" x-cloak x-transition @click.outside="open = false">
-                        <div class="filter-group" x-show="subjectFilterOptions.length">
-                          <div class="filter-group-title">Subject</div>
-                          <div class="filter-check-list">
+                        <div class="filter-group" x-show="subjectFilterOptions.length" x-data="{ open: false }">
+                          <button type="button" class="filter-group-title" @click="open = !open" :aria-expanded="open">
+                            Subject <svg class="ic" :class="{ open }"><use href="#i-chevron"/></svg>
+                          </button>
+                          <div class="filter-check-list" x-show="open">
                             <template x-for="s in subjectFilterOptions" :key="s.id">
                               <label class="filter-check">
                                 <input type="checkbox" :checked="filters.subjectIds.includes(s.id)" @change="toggleSubjectFilter(s.id)">
@@ -536,12 +543,11 @@
                             </template>
                           </div>
                         </div>
-                        <div class="filter-group">
-                          <div class="filter-group-title">Type</div>
-                          <div class="type-chips" role="group" aria-label="Filter by type"
-                            <button class="tchip" :class="{ on: !filters.types.length }" :aria-pressed="!filters.types.length" @click="clearTypes()">
-                              All <span class="n" x-show="!searchMode" x-text="items.length"></span>
-                            </button>
+                        <div class="filter-group" x-data="{ open: false }">
+                          <button type="button" class="filter-group-title" @click="open = !open" :aria-expanded="open">
+                            Type <svg class="ic" :class="{ open }"><use href="#i-chevron"/></svg>
+                          </button>
+                          <div class="type-chips" role="group" aria-label="Filter by type" x-show="open">
                             <template x-for="c in chipTypes" :key="c.type">
                               <button class="tchip" :class="[$tc(c.type), { on: filters.types.includes(c.type) }]"
                                       :aria-pressed="filters.types.includes(c.type)" @click="toggleType(c.type)">
@@ -551,9 +557,11 @@
                             </template>
                           </div>
                         </div>
-                        <div class="filter-group">
-                          <div class="filter-group-title">Sort</div>
-                          <select class="select sm" x-model="sort" aria-label="Sort">
+                        <div class="filter-group" x-data="{ open: false }">
+                          <button type="button" class="filter-group-title" @click="open = !open" :aria-expanded="open">
+                            Sort <svg class="ic" :class="{ open }"><use href="#i-chevron"/></svg>
+                          </button>
+                          <select class="select sm" x-show="open" x-model="sort" aria-label="Sort">
                             <option value="title">Alphabetical</option>
                             <option value="recent">Most recent</option>
                           </select>
@@ -656,12 +664,11 @@
                         <svg class="ic"><use href="#i-filter"/></svg>
                       </button>
                       <div class="filter-popover" x-show="open" x-cloak x-transition @click.outside="open = false">
-                        <div class="filter-group">
-                          <div class="filter-group-title">Type</div>
-                          <div class="type-chips" role="group" aria-label="Filter by type"
-                            <button class="tchip" :class="{ on: !filters.types.length }" :aria-pressed="!filters.types.length" @click="clearTypes()">
-                              All <span class="n" x-show="!searchMode" x-text="items.length"></span>
-                            </button>
+                        <div class="filter-group" x-data="{ open: false }">
+                          <button type="button" class="filter-group-title" @click="open = !open" :aria-expanded="open">
+                            Type <svg class="ic" :class="{ open }"><use href="#i-chevron"/></svg>
+                          </button>
+                          <div class="type-chips" role="group" aria-label="Filter by type" x-show="open">
                             <template x-for="c in chipTypes" :key="c.type">
                               <button class="tchip" :class="[$tc(c.type), { on: filters.types.includes(c.type) }]"
                                       :aria-pressed="filters.types.includes(c.type)" @click="toggleType(c.type)">
@@ -671,9 +678,11 @@
                             </template>
                           </div>
                         </div>
-                        <div class="filter-group">
-                          <div class="filter-group-title">Sort</div>
-                          <select class="select sm" x-model="sort" aria-label="Sort">
+                        <div class="filter-group" x-data="{ open: false }">
+                          <button type="button" class="filter-group-title" @click="open = !open" :aria-expanded="open">
+                            Sort <svg class="ic" :class="{ open }"><use href="#i-chevron"/></svg>
+                          </button>
+                          <select class="select sm" x-show="open" x-model="sort" aria-label="Sort">
                             <option value="title">Alphabetical</option>
                             <option value="recent">Most recent</option>
                           </select>

@@ -147,9 +147,6 @@ export function listingMixin(Alpine) {
       const cur = this.filters.types;
       this.filters.types = cur.includes(t) ? cur.filter((x) => x !== t) : [...cur, t];
     },
-    clearTypes() {
-      this.filters.types = [];
-    },
     clearFilters() {
       this.filters.q = '';
       this.filters.types = [];
