@@ -390,6 +390,13 @@ def test_tela_de_grafo_registrada_e_acessivel_pelo_workspace():
     assert "graphHref()" in ws and "hrefs.graph" in ws
 
 
+def test_pagina_de_workspace_nao_mistura_itens_de_outro_workspace_no_indice():
+    """itemIndex é global (acumula várias gavetas abertas ao mesmo tempo na sidebar) — a
+    página de Workspace tem que filtrar por workspace_id antes de contar/listar recentes."""
+    ws = _js("views/workspace.js")
+    assert "workspace_id === ws" in ws or "workspace_id === this.app.route.params.ws" in ws
+
+
 def test_grafo_tem_layout_proprio_sem_biblioteca_e_destaca_supersedes():
     graph = _js("views/graph.js")
     # layout force-directed escrito à mão: repulsão + atração + gravidade, sem lib nova

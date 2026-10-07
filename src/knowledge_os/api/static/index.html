@@ -120,7 +120,7 @@
               </template>
               <template x-if="$store.app.trees[w.id]">
                 <div>
-                  <template x-for="p in $store.app.trees[w.id].projects" :key="p.id">
+                  <template x-for="p in ($store.app.trees[w.id]?.projects || [])" :key="p.id">
                     <div>
                       <div class="tree-row" :class="{ active: $store.app.route.name === 'project' && $store.app.route.params.pj === p.id }">
                         <button class="tw" @click="$store.app.toggleProject(p.id)"
@@ -171,7 +171,7 @@
                       </div>
                     </div>
                   </template>
-                  <div class="tree-empty" x-show="!$store.app.trees[w.id].projects.length">Este workspace ainda não tem projects.</div>
+                  <div class="tree-empty" x-show="!($store.app.trees[w.id]?.projects?.length)">Este workspace ainda não tem projects.</div>
                 </div>
               </template>
               <div class="tree-empty" x-show="$store.app.treeErrorWs[w.id]" x-text="$store.app.treeErrorWs[w.id]"></div>

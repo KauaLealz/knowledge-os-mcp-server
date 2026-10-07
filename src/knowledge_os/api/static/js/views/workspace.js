@@ -18,15 +18,19 @@ export function register(Alpine) {
           this.loadItems();
           this.initListing();
         },
+        /** Itens deste workspace no índice global (que acumula vários workspaces ao mesmo tempo). */
+        get indexed() {
+          const ws = this.app.route.params.ws;
+          return Object.values(this.app.itemIndex).filter((it) => it.workspace_id === ws);
+        },
         /** Itens mais recentemente atualizados do workspace. */
         get recent() {
-          const all = Object.values(this.app.itemIndex);
-          return all
+          return this.indexed
             .sort((a, b) => (parseDate(b.updated_at)?.getTime() || 0) - (parseDate(a.updated_at)?.getTime() || 0))
             .slice(0, 6);
         },
         get totalItems() {
-          return Object.keys(this.app.itemIndex).length;
+          return this.indexed.length;
         },
         /** Link para a tela de grafo deste workspace. */
         graphHref() {
