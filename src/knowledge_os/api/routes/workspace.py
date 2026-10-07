@@ -12,8 +12,11 @@ from knowledge_os.api.deps import get_artifacts_dir, get_connection_id, get_sess
 from knowledge_os.api.routes._helpers import get_or_404
 from knowledge_os.api.schemas.requests import WorkspaceCreate, WorkspaceUpdate
 from knowledge_os.api.schemas.responses import (
+    GraphEdge,
+    GraphNode,
     TreeItem,
     TreeProject,
+    WorkspaceGraph,
     WorkspaceResponse,
     WorkspaceStats,
     WorkspaceTree,
@@ -21,6 +24,7 @@ from knowledge_os.api.schemas.responses import (
 from knowledge_os.db.models import Item, Project, Workspace
 from knowledge_os.exceptions import ValidationError
 from knowledge_os.services.import_export_service import ImportExportService
+from knowledge_os.services.relation_service import RelationService
 from knowledge_os.services.workspace_service import WorkspaceService
 
 router = APIRouter()
@@ -118,8 +122,13 @@ def workspace_tree(id: str, session: Session = Depends(get_session_dep)):
     ).all()
     rows = session.execute(
         select(
-            Item.id, Item.project_id, Item.title, Item.type, Item.memory_class,
-            Item.confidence, Item.updated_at,
+            Item.id,
+            Item.project_id,
+            Item.title,
+            Item.type,
+            Item.memory_class,
+            Item.confidence,
+            Item.updated_at,
         )
         .where(Item.workspace_id == id)
         .order_by(Item.title, Item.id)
@@ -129,19 +138,50 @@ def workspace_tree(id: str, session: Session = Depends(get_session_dep)):
         if row.project_id in by_project:
             by_project[row.project_id].append(
                 TreeItem(
-                    id=row.id, title=row.title, type=row.type, memory_class=row.memory_class,
-                    confidence=row.confidence, updated_at=row.updated_at,
+                    id=row.id,
+                    title=row.title,
+                    type=row.type,
+                    memory_class=row.memory_class,
+                    confidence=row.confidence,
+                    updated_at=row.updated_at,
                 )
             )
     return WorkspaceTree(
         projects=[
             TreeProject(
-                id=d.id, name=d.name, description=d.description,
-                item_count=len(by_project[d.id]), items=by_project[d.id],
+                id=d.id,
+                name=d.name,
+                description=d.description,
+                item_count=len(by_project[d.id]),
+                items=by_project[d.id],
             )
             for d in projects
         ]
     )
+
+
+@router.get("/workspaces/{id}/graph", response_model=WorkspaceGraph)
+def workspace_graph(id: str, session: Session = Depends(get_session_dep)):
+    """Nós = items do workspace; arestas = Relation entre dois items do workspace."""
+    get_or_404(session, Workspace, id, "Workspace")
+    rows = session.execute(
+        select(Item.id, Item.title, Item.type, Item.project_id, Item.status).where(
+            Item.workspace_id == id
+        )
+    ).all()
+    nodes = [
+        GraphNode(id=r.id, title=r.title, type=r.type, project_id=r.project_id, status=r.status)
+        for r in rows
+    ]
+    edges = [
+        GraphEdge(
+            source=rel.source_item_id,
+            target=rel.target_item_id,
+            relation_type=rel.relation_type,
+        )
+        for rel in RelationService(session).list_for_workspace(id)
+    ]
+    return WorkspaceGraph(nodes=nodes, edges=edges)
 
 
 @router.post("/workspaces/{id}/export")

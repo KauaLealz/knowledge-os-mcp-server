@@ -1,4 +1,5 @@
 // Página de Workspace: projects, itens recentes e todos os itens agrupados por tipo.
+import { hrefs } from '../router.js';
 import { parseDate } from '../util.js';
 import { listingMixin, mix } from './listing.js';
 
@@ -26,6 +27,10 @@ export function register(Alpine) {
         },
         get totalItems() {
           return Object.keys(this.app.itemIndex).length;
+        },
+        /** Link para a tela de grafo deste workspace. */
+        graphHref() {
+          return hrefs.graph(this.app.connId, this.app.route.params.ws);
         },
         previewItems(p) {
           return p.items.slice(0, 3);

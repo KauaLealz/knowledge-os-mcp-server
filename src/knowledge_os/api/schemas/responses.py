@@ -18,6 +18,8 @@ __all__ = [
     "ConnectionTest",
     "SchemaSyncResponse",
     "ConnectionTestResponse",
+    "GraphEdge",
+    "GraphNode",
     "ItemResponse",
     "ItemSearchResult",
     "LabelResponse",
@@ -28,6 +30,7 @@ __all__ = [
     "TagResponse",
     "TreeItem",
     "TreeProject",
+    "WorkspaceGraph",
     "WorkspaceResponse",
     "WorkspaceStats",
     "WorkspaceTree",
@@ -58,6 +61,29 @@ class TreeProject(BaseModel):
 
 class WorkspaceTree(BaseModel):
     projects: list[TreeProject]
+
+
+class GraphNode(BaseModel):
+    """Nó do grafo: um item do workspace."""
+
+    id: str
+    title: str
+    type: str
+    project_id: str
+    status: str
+
+
+class GraphEdge(BaseModel):
+    """Aresta do grafo: uma Relation entre dois items do workspace."""
+
+    source: str
+    target: str
+    relation_type: str
+
+
+class WorkspaceGraph(BaseModel):
+    nodes: list[GraphNode]
+    edges: list[GraphEdge]
 
 
 class ProjectStats(BaseModel):

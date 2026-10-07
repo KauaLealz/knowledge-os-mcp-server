@@ -261,6 +261,8 @@
                     <span>criado <b x-text="$ago($store.app.workspace.created_at)"></b></span>
                   </div>
 
+                  <div class="toolbar"><a class="btn" :href="graphHref()">Ver grafo</a></div>
+
                   <div class="filterbar">
                     <label class="searchbox">
                       <svg class="ic"><use href="#i-search"/></svg>
@@ -381,6 +383,61 @@
                 <p>Ele pode ter sido removido ou pertencer a outra conexão.</p>
                 <a class="btn" :href="$store.app.hConn()">Ver workspaces</a>
               </div>
+            </div></div>
+          </template>
+
+          <!-- Grafo -->
+          <template x-if="$store.app.route.name === 'graph'">
+            <div class="page" x-data="graphView"><div class="doc">
+              <nav class="crumbs">
+                <a :href="$store.app.hConn()" x-text="$store.app.connName"></a><span class="sep">/</span>
+                <a :href="$store.app.hWs()" x-text="$store.app.workspace?.name"></a><span class="sep">/</span>
+                <span>Grafo</span>
+              </nav>
+              <h1 class="page-title">Grafo de relações</h1>
+              <p class="page-lead">Nós são os itens do workspace; arestas são as relações entre eles. Clique num nó para abrir o item.</p>
+
+              <div class="state" x-show="loading">
+                <svg class="logo"><use href="#logo"/></svg>
+                <h3>Carregando grafo…</h3>
+              </div>
+              <div class="state error" x-show="error" role="alert">
+                <svg class="logo"><use href="#logo"/></svg>
+                <h3>Não foi possível carregar o grafo</h3>
+                <p x-text="error"></p>
+                <button class="btn" @click="load()">Tentar de novo</button>
+              </div>
+              <div class="state" x-show="!loading && !error && !nodes.length">
+                <svg class="logo"><use href="#logo"/></svg>
+                <h3>Sem itens</h3>
+                <p>Este workspace ainda não tem itens para mostrar no grafo.</p>
+              </div>
+
+              <template x-if="!loading && !error && nodes.length">
+                <svg class="graph-svg" :viewBox="'0 0 ' + width + ' ' + height" xmlns="http://www.w3.org/2000/svg">
+                  <template x-for="e in edges" :key="e.source + '>' + e.target + '|' + e.relation_type">
+                    <line :class="edgeClass(e)"
+                          :x1="byId(e.source)?.x" :y1="byId(e.source)?.y"
+                          :x2="byId(e.target)?.x" :y2="byId(e.target)?.y"></line>
+                  </template>
+                  <template x-for="n in nodes" :key="n.id">
+                    <g :class="nodeClass(n)" :transform="'translate(' + n.x + ',' + n.y + ')'" @click="goTo(n.id)">
+                      <title x-text="n.title"></title>
+                      <circle r="10"></circle>
+                      <text x="14" y="4" x-text="label(n.title)"></text>
+                    </g>
+                  </template>
+                </svg>
+              </template>
+
+              <style>
+                .graph-svg { width: 100%; height: auto; max-height: 70vh; border: 1px solid var(--border); border-radius: 8px; }
+                .gnode { cursor: pointer; }
+                .gnode circle { fill: var(--tc, var(--text-2)); stroke: var(--bg); stroke-width: 2px; }
+                .gnode text { font: 10px var(--font); fill: var(--text); pointer-events: none; }
+                .gedge { stroke: var(--border-strong); stroke-width: 1.5px; }
+                .gedge.supersedes { stroke: var(--t-rule); stroke-width: 2px; stroke-dasharray: 5 3; }
+              </style>
             </div></div>
           </template>
 

@@ -23,6 +23,8 @@ export function parseHash(hash = location.hash) {
   if (seg[2] !== 'w' || !seg[3]) return { name: 'notfound', params };
   params.ws = seg[3];
   if (seg.length === 4) return { name: 'workspace', params };
+  // Segmento "graph": grafo de relações do workspace, sem id próprio (irmão de "p").
+  if (seg[4] === 'graph' && seg.length === 5) return { name: 'graph', params };
   // Segmento "p" (project): era "d" (domain) antes do rename; "pj" evita colidir com "ws".
   if (seg[4] !== 'p' || !seg[5]) return { name: 'notfound', params };
   params.pj = seg[5];
@@ -37,6 +39,7 @@ export function parseHash(hash = location.hash) {
 export const hrefs = {
   conn: (c) => `#/c/${enc(c)}`,
   ws: (c, w) => `#/c/${enc(c)}/w/${enc(w)}`,
+  graph: (c, w) => `#/c/${enc(c)}/w/${enc(w)}/graph`,
   project: (c, w, p) => `#/c/${enc(c)}/w/${enc(w)}/p/${enc(p)}`,
   item: (c, w, p, i) => `#/c/${enc(c)}/w/${enc(w)}/p/${enc(p)}/i/${enc(i)}`,
   edit: (c, w, p, i) => `#/c/${enc(c)}/w/${enc(w)}/p/${enc(p)}/i/${enc(i)}/edit`,

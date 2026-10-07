@@ -28,9 +28,7 @@ class RelationService:
     Se `session` não for informada, cada operação abre uma sessão própria.
     """
 
-    def __init__(
-        self, session: Session | None = None, connection_id: str | None = None
-    ) -> None:
+    def __init__(self, session: Session | None = None, connection_id: str | None = None) -> None:
         self._session = session
         self._connection_id = connection_id
 
@@ -65,6 +63,22 @@ class RelationService:
                 s.expunge(rel)
             logger.info("Relação criada: %s %s %s", source_item_id, relation_type, target_item_id)
             return rel
+
+    def list_for_workspace(self, workspace_id: str) -> list[Relation]:
+        """Lista relações cujos dois items (source e target) pertencem ao workspace."""
+        with session_scope(self._session, self._connection_id) as s:
+            item_ids = select(Item.id).where(Item.workspace_id == workspace_id)
+            rows = list(
+                s.scalars(
+                    select(Relation)
+                    .where(Relation.source_item_id.in_(item_ids))
+                    .where(Relation.target_item_id.in_(item_ids))
+                    .order_by(Relation.created_at, Relation.id)
+                )
+            )
+            if self._session is None:
+                s.expunge_all()
+            return rows
 
     def list(self, item_id: str) -> list[Relation]:
         """Lista relações em que o item é source ou target."""

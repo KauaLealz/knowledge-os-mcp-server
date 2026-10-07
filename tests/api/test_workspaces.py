@@ -78,8 +78,9 @@ def test_export_import_roundtrip(client, mk):
     assert r.headers["content-type"] == "application/zip"
     zip_bytes = r.content
     client.delete(f"/api/workspaces/{ws['id']}")
-    r = client.post("/api/workspaces/import",
-                    files={"file": ("ws.zip", zip_bytes, "application/zip")})
+    r = client.post(
+        "/api/workspaces/import", files={"file": ("ws.zip", zip_bytes, "application/zip")}
+    )
     assert r.status_code == 201, r.text
     assert r.json()["name"] == "WS"
     new_id = r.json()["id"]
@@ -91,8 +92,9 @@ def test_export_missing_is_404(client):
 
 
 def test_import_invalid_zip_is_422(client):
-    r = client.post("/api/workspaces/import",
-                    files={"file": ("x.zip", b"not a zip", "application/zip")})
+    r = client.post(
+        "/api/workspaces/import", files={"file": ("x.zip", b"not a zip", "application/zip")}
+    )
     assert r.status_code == 422
 
 
@@ -111,12 +113,59 @@ def test_tree(client, mk):
     assert [d["item_count"] for d in projects] == [1, 0, 2]
     zeta_items = projects[2]["items"]
     assert [i["title"] for i in zeta_items] == ["A item", "B item"]
-    assert set(zeta_items[0]) == {
-        "id", "title", "type", "memory_class", "confidence", "updated_at"
-    }
+    assert set(zeta_items[0]) == {"id", "title", "type", "memory_class", "confidence", "updated_at"}
     assert zeta_items[0]["confidence"] == 40
     assert projects[1]["items"] == []
 
 
 def test_tree_missing_is_404(client):
     assert client.get("/api/workspaces/nope/tree").status_code == 404
+
+
+def test_graph(client, mk):
+    ws = mk.ws("Graph")
+    p = mk.project(ws["id"], "P")
+    a = mk.item(ws["id"], p["id"], "A")
+    b = mk.item(ws["id"], p["id"], "B")
+    c = mk.item(ws["id"], p["id"], "C")  # sem relação: ainda aparece como nó
+    r = client.post(
+        "/api/relations",
+        json={"source_item_id": a["id"], "target_item_id": b["id"], "relation_type": "supersedes"},
+    )
+    assert r.status_code == 201, r.text
+
+    resp = client.get(f"/api/workspaces/{ws['id']}/graph")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert {n["id"] for n in data["nodes"]} == {a["id"], b["id"], c["id"]}
+    node_a = next(n for n in data["nodes"] if n["id"] == a["id"])
+    assert set(node_a) == {"id", "title", "type", "project_id", "status"}
+    assert len(data["edges"]) == 1
+    edge = data["edges"][0]
+    assert edge["source"] == a["id"]
+    assert edge["target"] == b["id"]
+    assert edge["relation_type"] == "supersedes"
+
+
+def test_graph_missing_is_404(client):
+    assert client.get("/api/workspaces/nope/graph").status_code == 404
+
+
+def test_graph_ignores_relation_pointing_outside_workspace(client, mk):
+    ws1, p1, item1 = mk.tree()
+    ws2 = mk.ws("Other")
+    p2 = mk.project(ws2["id"], "P2")
+    item2 = mk.item(ws2["id"], p2["id"], "Other item")
+    r = client.post(
+        "/api/relations",
+        json={
+            "source_item_id": item1["id"],
+            "target_item_id": item2["id"],
+            "relation_type": "related_to",
+        },
+    )
+    assert r.status_code == 201, r.text
+
+    resp = client.get(f"/api/workspaces/{ws1['id']}/graph")
+    assert resp.status_code == 200
+    assert resp.json()["edges"] == []

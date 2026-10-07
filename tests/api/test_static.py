@@ -25,6 +25,7 @@ ASSETS = [
     "js/views/listing.js",
     "js/markdown.js",
     "js/views/item.js",
+    "js/views/graph.js",
     "js/views/palette.js",
     "js/shortcuts.js",
     "js/views/editor.js",
@@ -84,8 +85,8 @@ SECRET_CLOSE = "<!-- /Segredo · valor -->"
 def test_campo_de_senha_so_nas_conexoes_e_no_valor_do_segredo():
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     assert CONN_OPEN in html and CONN_CLOSE in html
-    inside = html[html.index(CONN_OPEN):html.index(CONN_CLOSE)]
-    secret = html[html.index(SECRET_OPEN):html.index(SECRET_CLOSE)]
+    inside = html[html.index(CONN_OPEN) : html.index(CONN_CLOSE)]
+    secret = html[html.index(SECRET_OPEN) : html.index(SECRET_CLOSE)]
     assert inside.count('type="password"') == secret.count('type="password"') == 1
     assert html.count('type="password"') == 2
     assert 'autocomplete="new-password"' in inside
@@ -122,10 +123,16 @@ def test_senha_so_e_escrita_nunca_lida_de_volta():
 
 def test_view_de_conexoes_tem_as_acoes_pedidas():
     html = (STATIC / "index.html").read_text(encoding="utf-8")
-    inside = html[html.index(CONN_OPEN):html.index(CONN_CLOSE)]
+    inside = html[html.index(CONN_OPEN) : html.index(CONN_CLOSE)]
     for needle in (
-        "connectionsView", "Testar", "Salvar e testar", "Definir como default",
-        "Sincronizar schema", "Zona de perigo", "Default", "senha definida",
+        "connectionsView",
+        "Testar",
+        "Salvar e testar",
+        "Definir como default",
+        "Sincronizar schema",
+        "Zona de perigo",
+        "Default",
+        "senha definida",
     ):
         assert needle in inside, needle
     conn = _js("views/connections.js")
@@ -172,7 +179,11 @@ def test_pagina_de_item_tem_toc_relacoes_e_banner():
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     assert 'x-data="itemView"' in html
     needles = (
-        "Nesta página", "Copiar como Markdown", "Ver Markdown", "Referencia", "Referenciado por",
+        "Nesta página",
+        "Copiar como Markdown",
+        "Ver Markdown",
+        "Referencia",
+        "Referenciado por",
     )
     for needle in needles:
         assert needle in html, needle
@@ -256,12 +267,11 @@ def test_fechar_modal_sujo_pede_confirmacao():
     assert html.count("close()") >= 3
 
 
-
 def test_mapa_de_tipos_cobre_todos_os_tipos_da_api():
     from knowledge_os.schemas.item_schemas import ITEM_TYPES
 
     util = _js("util.js")
-    meta = util[util.index("export const TYPE_META"):util.index("export const TYPE_ORDER")]
+    meta = util[util.index("export const TYPE_META") : util.index("export const TYPE_ORDER")]
     for t in (*ITEM_TYPES, "secret"):
         assert re.search(rf"\b{t}: {{ label: '[^']+', plural: '[^']+' }}", meta), t
     labels = dict(re.findall(r"(\w+): \{ label: '([^']+)'", meta))
@@ -313,7 +323,13 @@ def test_listas_agrupadas_por_tipo_com_filtros_e_busca():
     block = re.search(r"export const TYPE_META = \{(.*?)\n\};", util, re.S).group(1)
     keys = re.findall(r"^  (\w+): \{", block, re.M)
     assert keys[:7] == [
-        "rule", "insight", "procedure", "pattern", "knowledge", "context", "artifact",
+        "rule",
+        "insight",
+        "procedure",
+        "pattern",
+        "knowledge",
+        "context",
+        "artifact",
     ]
     assert "task" not in keys
 
@@ -322,7 +338,6 @@ def test_paleta_busca_em_todos_os_workspaces_com_ate_20_resultados():
     pal = _js("views/palette.js")
     assert "REMOTE_LIMIT = 20" in pal and "workspace_id: ws" not in pal
     assert "r.workspace_id" in pal and "r.project_id" in pal
-
 
 
 # ---- identidade visual: logo única, sprite coerente, tipos sem ícone ----
@@ -365,6 +380,37 @@ def test_sprite_sem_orfaos_e_sem_referencias_quebradas():
     assert not (refs - ids), f"referências quebradas: {sorted(refs - ids)}"
     assert not (ids - refs), f"símbolos órfãos: {sorted(ids - refs)}"
     assert not re.search(r"<svg[^>]*style=", body)  # tamanhos e cores por classe CSS
+
+
+def test_rota_de_grafo_existe_no_router():
+    router = _js("router.js")
+    assert "graph: (c, w) =>" in router
+    assert "seg[4] === 'graph'" in router and "name: 'graph'" in router
+
+
+def test_tela_de_grafo_registrada_e_acessivel_pelo_workspace():
+    html = _index()
+    assert 'x-data="graphView"' in html
+    assert "route.name === 'graph'" in html
+    assert "graphHref()" in html
+    main = _js("main.js")
+    assert "registerGraph" in main and "views/graph.js" in main
+    ws = _js("views/workspace.js")
+    assert "graphHref()" in ws and "hrefs.graph" in ws
+
+
+def test_grafo_tem_layout_proprio_sem_biblioteca_e_destaca_supersedes():
+    graph = _js("views/graph.js")
+    # layout force-directed escrito à mão: repulsão + atração + gravidade, sem lib nova
+    assert "vendor" not in graph  # nenhuma importação de lib de terceiros para o grafo
+    for needle in ("MAX_ITER", "function layout(", "goTo(id)"):
+        assert needle in graph, needle
+    html = _index()
+    inside = html[html.index("<!-- Grafo -->") : html.index("<!-- Project -->")]
+    assert "byId(e.source)" in inside
+    assert "edgeClass(e)" in inside and "nodeClass(n)" in inside
+    assert "supersedes" in inside  # destaque visual distinto no CSS escopado
+    assert '@click="goTo(n.id)"' in inside
 
 
 def test_linhas_de_item_nao_usam_icone_de_tipo():
