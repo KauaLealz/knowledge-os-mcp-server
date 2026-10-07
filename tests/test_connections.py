@@ -1,7 +1,9 @@
 """Testes do CRUD de Connection (service + modelo). O cadastro é o connections.json."""
 
+import itertools
 import os
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -23,8 +25,24 @@ def workdir(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def svc(catalog):  # noqa: F811
-    return ConnectionService()
+def svc(catalog, tmp_path):  # noqa: F811
+    """`create()` sem `path` ganha uma pasta nova em tmp_path — os testes deste arquivo
+    exercitam name/remote_url/review_mode, não o path em si (ver test_connection_service_path.py).
+    """
+    real = ConnectionService()
+    counter = itertools.count()
+
+    class _Svc:
+        def __getattr__(self, attr):
+            return getattr(real, attr)
+
+        def create(self, name, path=None, **kwargs):
+            if path is None:
+                path = tmp_path / f"repo-{next(counter)}"
+                Path(path).mkdir(parents=True, exist_ok=True)
+            return real.create(name, str(path), **kwargs)
+
+    return _Svc()
 
 
 def _bare_repo(tmp_path, name="remote.git"):
@@ -48,7 +66,9 @@ def test_connection_create_grava_no_json_e_prepara_o_repo(svc):
     assert (saved.clone_path() / ".git").is_dir()
     import sqlite3
 
-    index_path = saved.clone_path().parent.parent / "indexes" / f"{saved.id}.db"
+    from knowledge_os.config import INDEXES_DIR
+
+    index_path = INDEXES_DIR / f"{saved.id}.db"
     with sqlite3.connect(index_path) as db:
         tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"workspaces", "items", "connections"} <= tables

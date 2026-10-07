@@ -10,8 +10,8 @@ from fastapi.staticfiles import StaticFiles
 
 from knowledge_os import __version__
 from knowledge_os.api.routes import (
-    artifact,
     connection,
+    fs,
     item,
     label,
     project,
@@ -104,8 +104,8 @@ for _module, _tag in (
     (relation, "relations"),
     (tag, "tags"),
     (label, "labels"),
-    (artifact, "artifacts"),
     (connection, "connections"),
+    (fs, "fs"),
 ):
     app.include_router(_module.router, prefix="/api", tags=[_tag])
 

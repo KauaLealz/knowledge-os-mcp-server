@@ -1,13 +1,11 @@
-"""Dependências FastAPI: conexão, engine, sessão e diretório de artifacts."""
+"""Dependências FastAPI: conexão, engine e sessão."""
 
 from collections.abc import Iterator
-from pathlib import Path
 
 from fastapi import Depends, Header
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
-from knowledge_os.config import ARTIFACTS_DIR
 from knowledge_os.db.models import DEFAULT_CONNECTION_ID
 from knowledge_os.db.session import (
     check_connection,
@@ -35,11 +33,6 @@ def get_engine_dep(connection_id: str = Depends(get_connection_id)) -> Engine:
 def get_catalog_engine_dep() -> Engine:
     """Engine do catálogo: as rotas de conexões não seguem o X-Connection-Id."""
     return get_engine(DEFAULT_CONNECTION_ID)
-
-
-def get_artifacts_dir() -> Path:
-    """Diretório onde os arquivos de artifact são gravados."""
-    return ARTIFACTS_DIR
 
 
 def get_session_dep(engine: Engine = Depends(get_engine_dep)) -> Iterator[Session]:

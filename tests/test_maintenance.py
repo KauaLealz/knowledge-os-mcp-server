@@ -13,7 +13,7 @@ import pytest
 from sqlalchemy import create_engine, inspect, text
 
 from knowledge_os import config
-from knowledge_os.db.models import Artifact, Item, ItemTag, Tag
+from knowledge_os.db.models import Item, ItemTag, Tag
 from knowledge_os.db.schema_sync import _add_column, schema_sync
 from knowledge_os.db.session import create_db_engine, get_session
 from knowledge_os.services import maintenance
@@ -102,8 +102,6 @@ def test_run_daily_apaga_ephemeral_com_ttl_vencido(db, monkeypatch):
     s.add(tag)
     s.flush()
     s.add(ItemTag(item_id=velho.id, tag_id="t"))
-    s.add(Artifact(id="a", item_id=velho.id, filename="f", file_path="p", mime_type="x/y",
-                   file_size=1))
     s.commit()
     s.close()
     assert maintenance.run_daily(now)["expired"] == 1

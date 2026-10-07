@@ -10,6 +10,7 @@ import logging
 import threading
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -26,7 +27,7 @@ from knowledge_os.db.models import DEFAULT_CONNECTION_ID, DEFAULT_CONNECTION_NAM
 from knowledge_os.db.schema_sync import schema_sync
 from knowledge_os.db.timeutil import utcnow
 from knowledge_os.exceptions import NotFoundError, ValidationError
-from knowledge_os.services._common import session_scope
+from knowledge_os.services._common import refuse_home_source, session_scope
 from knowledge_os.services.git_repo_service import GitRepoService
 
 logger = logging.getLogger(__name__)
@@ -49,7 +50,12 @@ def _remember_test(connection_id: str, result: dict[str, str], latency_ms: int) 
 
 
 def _decorate(
-    row: Connection, default_id: str, *, remote_url: str | None, review_mode: str
+    row: Connection,
+    default_id: str,
+    *,
+    remote_url: str | None,
+    review_mode: str,
+    path: str | None = None,
 ) -> Connection:
     """Atributos transientes (não são colunas): git, não banco."""
     last = _last_tests.get(row.id)
@@ -57,6 +63,7 @@ def _decorate(
     row.test_result = last["message"] if last else None
     row.remote_url = remote_url  # type: ignore[attr-defined]
     row.review_mode = review_mode  # type: ignore[attr-defined]
+    row.path = path  # type: ignore[attr-defined]
     row.is_default = row.id == default_id  # type: ignore[attr-defined]
     row.last_test = last  # type: ignore[attr-defined]
     return row
@@ -72,7 +79,28 @@ def _to_row(conn: ConnectionConfig, default_id: str) -> Connection:
         is_active=conn.enabled,
         created_at=conn.created_at,
     )
-    return _decorate(row, default_id, remote_url=conn.remote_url, review_mode=conn.review_mode)
+    return _decorate(
+        row, default_id, remote_url=conn.remote_url, review_mode=conn.review_mode, path=conn.path
+    )
+
+
+def _validated_path(path: str) -> str:
+    """Pasta local do repositório: absoluta, fora do home de dados.
+
+    Não precisa existir ainda (`ensure_clone` cria); se existir, precisa ser uma pasta
+    (nunca um arquivo).
+    """
+    raw = (path or "").strip()
+    if not raw:
+        raise ValidationError("path é obrigatório")
+    candidate = Path(raw).expanduser()
+    if not candidate.is_absolute():
+        raise ValidationError(f"path deve ser absoluto: {raw}")
+    if candidate.exists() and not candidate.is_dir():
+        raise ValidationError(f"path não é uma pasta: {raw}")
+    refuse_home_source(candidate)
+    resolved = candidate.resolve() if candidate.exists() else candidate
+    return str(resolved)
 
 
 def _load() -> ConnectionsFile:
@@ -117,9 +145,7 @@ def _errors(exc: ValueError) -> str:
     """Resumo do erro de validação sem os valores recebidos."""
     errors = getattr(exc, "errors", None)
     if callable(errors):
-        return "; ".join(
-            f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}" for e in errors()
-        )
+        return "; ".join(f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}" for e in errors())
     return "valores inválidos"
 
 
@@ -145,30 +171,41 @@ class ConnectionService:
                 raise NotFoundError(f"Conexão não encontrada: {DEFAULT_CONNECTION_ID}")
             # cópia transiente: decorar a linha da sessão a sujaria (last_tested é coluna)
             row = Connection(
-                id=conn.id, name=conn.name, db_type=conn.db_type, db_url=conn.db_url,
-                is_active=conn.is_active, created_at=conn.created_at, updated_at=conn.updated_at,
+                id=conn.id,
+                name=conn.name,
+                db_type=conn.db_type,
+                db_url=conn.db_url,
+                is_active=conn.is_active,
+                created_at=conn.created_at,
+                updated_at=conn.updated_at,
             )
             return _decorate(row, default_id, remote_url=None, review_mode="direct")
 
     def create(
         self,
         name: str,
+        path: str,
         remote_url: str | None = None,
         review_mode: str = "direct",
         enabled: bool = True,
         test: bool = True,
     ) -> Connection:
-        """Cria a connection: grava no connections.json e prepara o repositório git.
+        """Cria a connection numa pasta local: grava no connections.json e prepara o
+        repositório git nela.
 
-        Na primeira vez, garante o clone (local ou do `remote_url`), o workflow de
+        `path` é uma pasta existente, fora do home de dados — já um repositório git (usado
+        como está) ou uma pasta comum (`git init` nela, preservando o que já tiver dentro).
+        Com `remote_url`, `path` vira o destino do clone. Garante também o workflow de
         validação de PRs e o CODEOWNERS (sem regras ainda — trabalho futuro). Com
         `test=True` e `remote_url`, testa o remoto (`git ls-remote`) antes de clonar.
         """
         name = _validated_name(name)
+        resolved_path = _validated_path(path)
         conn = _build(
             {
                 "id": str(uuid.uuid4()),
                 "name": name,
+                "path": resolved_path,
                 "remote_url": remote_url or None,
                 "review_mode": review_mode,
                 "enabled": enabled,
@@ -180,6 +217,8 @@ class ConnectionService:
             config = _load()
             if any(c.name == name for c in config.connections):
                 raise ValidationError(f"Conexão já existe: {name}")
+            if any(c.path == resolved_path for c in config.connections):
+                raise ValidationError(f"Já existe uma conexão nesse path: {resolved_path}")
             if test and conn.remote_url is not None:
                 result = ConfigManager.validate_connection(conn)
                 if result["status"] != "ok":
@@ -340,4 +379,3 @@ class ConnectionService:
         if not dry_run:
             db_session._connection_manager.invalidate(key)
         return {"connection_id": key, **result}
-

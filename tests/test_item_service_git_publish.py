@@ -53,7 +53,11 @@ ENTRY = {
 class TestItemSaveDirect:
     def test_publica_arquivo_no_remote_e_atualiza_indice(self, bare_repo, tmp_path):
         conn = ConnectionService().create(
-            "Direta", remote_url=str(bare_repo), review_mode="direct", test=False
+            "Direta",
+            str(tmp_path / "Direta"),
+            remote_url=str(bare_repo),
+            review_mode="direct",
+            test=False,
         )
         svc = ItemService(connection_id=conn.id)
 
@@ -75,7 +79,11 @@ class TestItemSaveDirect:
 
     def test_segredo_nunca_passa_pelo_git(self, bare_repo, tmp_path):
         conn = ConnectionService().create(
-            "DiretaSecret", remote_url=str(bare_repo), review_mode="direct", test=False
+            "DiretaSecret",
+            str(tmp_path / "DiretaSecret"),
+            remote_url=str(bare_repo),
+            review_mode="direct",
+            test=False,
         )
         svc = ItemService(connection_id=conn.id)
 
@@ -102,7 +110,11 @@ class TestItemSaveDirect:
 
     def test_update_republica_conteudo_novo(self, bare_repo, tmp_path):
         conn = ConnectionService().create(
-            "DiretaUpdate", remote_url=str(bare_repo), review_mode="direct", test=False
+            "DiretaUpdate",
+            str(tmp_path / "DiretaUpdate"),
+            remote_url=str(bare_repo),
+            review_mode="direct",
+            test=False,
         )
         svc = ItemService(connection_id=conn.id)
         svc.save([dict(ENTRY)])
@@ -118,7 +130,11 @@ class TestItemSaveDirect:
 class TestItemSavePr:
     def test_pr_nao_toca_indice_e_devolve_pending_review(self, bare_repo, tmp_path):
         conn = ConnectionService().create(
-            "ComPR", remote_url=str(bare_repo), review_mode="pr", test=False
+            "ComPR",
+            str(tmp_path / "ComPR"),
+            remote_url=str(bare_repo),
+            review_mode="pr",
+            test=False,
         )
         svc = ItemService(connection_id=conn.id)
 
@@ -156,7 +172,11 @@ class TestItemSavePr:
         `GitRepoService.sync()`, o item ainda não está no índice (a reindexação pelo
         conteúdo do git fica fora deste lote) — mas o arquivo já está na main."""
         conn = ConnectionService().create(
-            "ComPRSync", remote_url=str(bare_repo), review_mode="pr", test=False
+            "ComPRSync",
+            str(tmp_path / "ComPRSync"),
+            remote_url=str(bare_repo),
+            review_mode="pr",
+            test=False,
         )
         svc = ItemService(connection_id=conn.id)
         with (
@@ -179,7 +199,11 @@ class TestRepoSync:
         from knowledge_os.config import ConfigManager
 
         conn = ConnectionService().create(
-            "ParaSync", remote_url=str(bare_repo), review_mode="direct", test=False
+            "ParaSync",
+            str(tmp_path / "ParaSync"),
+            remote_url=str(bare_repo),
+            review_mode="direct",
+            test=False,
         )
         clone_path = ConfigManager.load_or_create().get_connection(conn.id).clone_path()
 
@@ -201,7 +225,11 @@ class TestRepoSync:
 class TestItemDeletePublished:
     def test_direct_remove_arquivo_e_indice(self, bare_repo, tmp_path):
         conn = ConnectionService().create(
-            "DiretaDelete", remote_url=str(bare_repo), review_mode="direct", test=False
+            "DiretaDelete",
+            str(tmp_path / "DiretaDelete"),
+            remote_url=str(bare_repo),
+            review_mode="direct",
+            test=False,
         )
         svc = ItemService(connection_id=conn.id)
         item_id = svc.save([dict(ENTRY)])[0]["id"]
@@ -219,7 +247,11 @@ class TestItemDeletePublished:
         from knowledge_os.config import ConfigManager
 
         conn = ConnectionService().create(
-            "PRDelete", remote_url=str(bare_repo), review_mode="direct", test=False
+            "PRDelete",
+            str(tmp_path / "PRDelete"),
+            remote_url=str(bare_repo),
+            review_mode="direct",
+            test=False,
         )
         item_id = ItemService(connection_id=conn.id).save([dict(ENTRY)])[0]["id"]
 
@@ -247,7 +279,11 @@ class TestItemDeletePublished:
 class TestRelationDeletePublished:
     def test_direct_republica_item_sem_a_relacao(self, bare_repo, tmp_path):
         conn = ConnectionService().create(
-            "DiretaRel", remote_url=str(bare_repo), review_mode="direct", test=False
+            "DiretaRel",
+            str(tmp_path / "DiretaRel"),
+            remote_url=str(bare_repo),
+            review_mode="direct",
+            test=False,
         )
         svc = ItemService(connection_id=conn.id)
         saved = svc.save(

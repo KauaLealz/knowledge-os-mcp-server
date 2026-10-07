@@ -64,6 +64,34 @@ class RelationService:
             logger.info("Relação criada: %s %s %s", source_item_id, relation_type, target_item_id)
             return rel
 
+    def create_published(
+        self, source_item_id: str, target_item_id: str, relation_type: str
+    ) -> Relation:
+        """Cria a relação e, se a connection tem repositório git em modo `direct`, republica
+        o item de origem com ela (frontmatter atualizado) — simétrico a `delete_published`.
+
+        Simplificação desta rodada: só o modo `direct` republica; em modo `pr` a relação
+        só entra no índice (como antes), sem abrir PR — fica para depois.
+        """
+        from knowledge_os.services.item_service import ItemService
+
+        rel = self.create(source_item_id, target_item_id, relation_type)
+        items = ItemService(connection_id=self._connection_id)
+        with session_scope(self._session, self._connection_id) as s:
+            source = s.get(Item, source_item_id)
+            conn = items._connection_config()  # noqa: SLF001 - mesma connection, sem duplicar
+            git = items._git_service(conn) if conn is not None else None  # noqa: SLF001
+            if (
+                git is not None
+                and git.review_mode == "direct"
+                and source is not None
+                and source.type != "secret"
+            ):
+                path, content = items._publish_path_and_content(s, source)  # noqa: SLF001
+                git.ensure_clone()
+                git.publish({path: content}, f"knowledge-os: adiciona relação de {path}")
+        return rel
+
     def list_for_workspace(self, workspace_id: str) -> list[Relation]:
         """Lista relações cujos dois items (source e target) pertencem ao workspace."""
         with session_scope(self._session, self._connection_id) as s:

@@ -24,13 +24,11 @@ logger = logging.getLogger(__name__)
 
 MIN_DB_KEY_LENGTH = 16
 
-# Home de dados: connections.json, banco catálogo, artifacts, exports e backups.
+# Home de dados: connections.json, banco catálogo e backups de schema.
 # As constantes são lidas no import; o diretório só é criado em ensure_home().
 KNOWLEDGE_HOME: Path = (
     Path(os.getenv("KNOWLEDGE_OS_HOME") or Path.home() / ".knowledge-os").expanduser().resolve()
 )
-ARTIFACTS_DIR: Path = KNOWLEDGE_HOME / "artifacts"
-EXPORTS_DIR: Path = KNOWLEDGE_HOME / "exports"
 BACKUPS_DIR: Path = KNOWLEDGE_HOME / "backups"
 # Clones git e índices SQLite, um por connection (inclusive o catálogo "default").
 REPOS_DIR: Path = KNOWLEDGE_HOME / "repos"
@@ -42,7 +40,7 @@ CATALOG_ID = "default"
 
 def ensure_home() -> None:
     """Cria o home de dados e seus subdiretórios (chamado pelos pontos de entrada)."""
-    for d in (KNOWLEDGE_HOME, ARTIFACTS_DIR, EXPORTS_DIR, BACKUPS_DIR, REPOS_DIR, INDEXES_DIR):
+    for d in (KNOWLEDGE_HOME, BACKUPS_DIR, REPOS_DIR, INDEXES_DIR):
         d.mkdir(parents=True, exist_ok=True)
 
 
@@ -111,14 +109,19 @@ def config_error(exc: Exception) -> ConfigError:
 class ConnectionConfig(BaseModel):
     """Uma conexão do connections.json do home: um repositório git (clone local).
 
-    Sem `remote_url`, a connection é só um repositório git local (sem GitHub) — o caso da
-    connection `default` (catálogo) e de qualquer connection que o usuário queira manter
-    só local. O índice de busca (SQLite) e o clone do repositório vivem no home de dados,
-    um por connection, derivados do `id` (`clone_path`/`index_url`).
+    `path` é a pasta local do repositório, indicada pelo usuário na criação — já um
+    repositório git (usado como está) ou uma pasta comum (`git init` nela). Sem
+    `remote_url`, a connection é só esse repositório local (sem GitHub). O índice de
+    busca (SQLite) vive no home de dados, derivado do `id` (`index_url`).
+
+    `path` é opcional só por compatibilidade com connections.json gravados antes dessa
+    pasta ser escolhida pelo usuário — nelas o clone cai no home de dados, derivado do
+    `id` (comportamento antigo). Toda connection nova exige `path` (`ConnectionService.create`).
     """
 
     id: str
     name: str
+    path: str | None = None
     remote_url: str | None = None
     review_mode: Literal["direct", "pr"] = "direct"
     enabled: bool = True
@@ -139,8 +142,8 @@ class ConnectionConfig(BaseModel):
         return v
 
     def clone_path(self) -> Path:
-        """Diretório do clone local do repositório git desta connection."""
-        return REPOS_DIR / self.id
+        """Diretório do repositório git desta connection."""
+        return Path(self.path) if self.path else REPOS_DIR / self.id
 
     def index_url(self) -> str:
         """URL SQLAlchemy do índice de busca (SQLite) desta connection."""

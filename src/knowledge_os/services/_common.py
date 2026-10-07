@@ -19,40 +19,36 @@ EXPORT_VERSION = "1.0"
 
 
 def purge_item_links(s: Session, item_ids: list[str]) -> None:
-    """Apaga o que referencia os itens (tags, labels, relações, anexos) antes de removê-los.
+    """Apaga o que referencia os itens (tags, labels, relações) antes de removê-los.
 
-    Com foreign_keys=ON no SQLite, remover workspace ou project com itens que têm tags, anexos
+    Com foreign_keys=ON no SQLite, remover workspace ou project com itens que têm tags
     ou relações falhava por chave estrangeira: o cascade do ORM só cobre a tabela items.
     """
     from sqlalchemy import delete
 
-    from knowledge_os.db.models import Artifact, ItemLabel, ItemTag, Relation, SecretValue
+    from knowledge_os.db.models import ItemLabel, ItemTag, Relation, SecretValue
 
     if not item_ids:
         return
     s.execute(delete(ItemTag).where(ItemTag.item_id.in_(item_ids)))
     s.execute(delete(ItemLabel).where(ItemLabel.item_id.in_(item_ids)))
-    s.execute(delete(Relation).where(
-        Relation.source_item_id.in_(item_ids) | Relation.target_item_id.in_(item_ids)))
-    s.execute(delete(Artifact).where(Artifact.item_id.in_(item_ids)))
+    s.execute(
+        delete(Relation).where(
+            Relation.source_item_id.in_(item_ids) | Relation.target_item_id.in_(item_ids)
+        )
+    )
     s.execute(delete(SecretValue).where(SecretValue.item_id.in_(item_ids)))
 
 
-def refuse_home_source(path: Path, *, allow_under: Path | None = None) -> None:
+def refuse_home_source(path: Path) -> None:
     """ValidationError se o caminho (resolvido, seguindo symlinks) está dentro do home de dados.
 
-    Protege connections.json (senhas) de leitura por attach/import. `allow_under` abre uma
-    exceção para um subdiretório do home (ex.: EXPORTS_DIR). O home é lido na chamada.
+    Protege connections.json (senhas) e os índices SQLite de virar pasta de uma connection
+    nova. O home é lido na chamada.
     """
     resolved = path.resolve()
-    if not resolved.is_relative_to(config.KNOWLEDGE_HOME.resolve()):
-        return
-    if allow_under is not None and resolved.is_relative_to(allow_under.resolve()):
-        return
-    raise ValidationError(
-        "Origem dentro do home de dados não é permitida"
-        + (f" (só {allow_under.name}/ para ZIPs de import)" if allow_under else "")
-    )
+    if resolved.is_relative_to(config.KNOWLEDGE_HOME.resolve()):
+        raise ValidationError("Caminho dentro do home de dados não é permitido")
 
 
 @contextmanager

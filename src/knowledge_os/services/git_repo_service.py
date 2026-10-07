@@ -174,9 +174,18 @@ class GitRepoService:
         result = self._run(["remote"], check=False)
         return "origin" in result.stdout.split()
 
+    def is_git_repo(self) -> bool:
+        """True se `clone_path` já é a raiz de um repositório git."""
+        if not self.clone_path.is_dir():
+            return False
+        result = self._run(["rev-parse", "--is-inside-work-tree"], check=False)
+        return result.returncode == 0 and result.stdout.strip() == "true"
+
     def ensure_clone(self) -> Path:
-        """Clona na primeira vez; sem `remote_url`, `git init` local. Idempotente."""
-        if self.clone_path.exists() and any(self.clone_path.iterdir()):
+        """Clona na primeira vez; sem `remote_url`, `git init` local (preserva arquivos já
+        existentes na pasta). Idempotente — se já é um repositório git, não mexe.
+        """
+        if self.clone_path.exists() and self.is_git_repo():
             return self.clone_path
         self.clone_path.mkdir(parents=True, exist_ok=True)
         if self.remote_url is not None:

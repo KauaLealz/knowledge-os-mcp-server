@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parent.parent
 PROBE = (
     "import json, knowledge_os.config as c;"
     "print(json.dumps({k: str(getattr(c, k)) for k in "
-    "('KNOWLEDGE_HOME','ARTIFACTS_DIR','EXPORTS_DIR','BACKUPS_DIR','DB_PATH')}"
+    "('KNOWLEDGE_HOME','BACKUPS_DIR','REPOS_DIR','INDEXES_DIR','DB_PATH')}"
     " | {'cf': str(c.ConfigManager.CONNECTIONS_FILE)}))"
 )
 
@@ -38,7 +38,7 @@ def test_home_vem_da_variavel_e_importar_nao_cria_diretorio(tmp_path):
     assert Path(got["KNOWLEDGE_HOME"]) == home
     assert Path(got["cf"]) == home / "connections.json"
     assert Path(got["DB_PATH"]) == home / "indexes" / "default.db"
-    for k in ("ARTIFACTS_DIR", "EXPORTS_DIR", "BACKUPS_DIR"):
+    for k in ("BACKUPS_DIR", "REPOS_DIR", "INDEXES_DIR"):
         assert Path(got[k]).parent == home
     assert not home.exists()
     assert list(cwd.iterdir()) == []
@@ -62,11 +62,11 @@ def test_mcp_db_path_continua_sendo_override(tmp_path):
 def test_ensure_home_cria_home_e_subdiretorios(tmp_path, monkeypatch):
     home = tmp_path / "novo"
     monkeypatch.setattr(config, "KNOWLEDGE_HOME", home)
-    monkeypatch.setattr(config, "ARTIFACTS_DIR", home / "artifacts")
-    monkeypatch.setattr(config, "EXPORTS_DIR", home / "exports")
     monkeypatch.setattr(config, "BACKUPS_DIR", home / "backups")
+    monkeypatch.setattr(config, "REPOS_DIR", home / "repos")
+    monkeypatch.setattr(config, "INDEXES_DIR", home / "indexes")
     config.ensure_home()
-    assert {p.name for p in home.iterdir()} == {"artifacts", "exports", "backups"}
+    assert {p.name for p in home.iterdir()} == {"backups", "repos", "indexes"}
 
 
 def test_clone_path_e_index_url_derivam_do_id_no_home(monkeypatch, tmp_path):

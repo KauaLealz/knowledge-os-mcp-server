@@ -4,7 +4,6 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-from knowledge_os.schemas.artifact_schemas import ArtifactResponse
 from knowledge_os.schemas.item_schemas import ItemResponse, ItemSearchResult
 from knowledge_os.schemas.label_schemas import LabelResponse
 from knowledge_os.schemas.project_schemas import ProjectResponse
@@ -13,7 +12,6 @@ from knowledge_os.schemas.tag_schemas import TagResponse
 from knowledge_os.schemas.workspace_schemas import WorkspaceResponse
 
 __all__ = [
-    "ArtifactResponse",
     "ConnectionResponse",
     "ConnectionTest",
     "SchemaSyncResponse",
@@ -128,6 +126,7 @@ class ConnectionResponse(BaseModel):
 
     id: str
     name: str
+    path: str | None
     remote_url: str | None
     review_mode: str
     enabled: bool

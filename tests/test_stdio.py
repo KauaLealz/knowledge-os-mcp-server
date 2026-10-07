@@ -14,7 +14,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 ROOT = Path(__file__).resolve().parent.parent
-EXPECTED_TOOLS = 14
+EXPECTED_TOOLS = 33
 
 
 @pytest.fixture

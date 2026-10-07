@@ -225,23 +225,6 @@ class Relation(Base):
     )
 
 
-class Artifact(Base):
-    """Artifact: arquivo anexado a um item."""
-    __tablename__ = "artifacts"
-
-    id = Column(String(36), primary_key=True)
-    item_id = Column(String(36), ForeignKey("items.id"), nullable=False)
-    filename = Column(String(255), nullable=False)
-    file_path = Column(String(1024), nullable=False)  # Relativo a ARTIFACTS_DIR
-    file_size = Column(Integer, nullable=False)
-    mime_type = Column(String(100), nullable=True)
-    created_at = Column(DateTime, default=utcnow)
-
-    __table_args__ = (
-        Index("idx_artifact_item", "item_id"),
-    )
-
-
 class SecretValue(Base):
     """Marcador de presença de valor de um item `secret`: existe linha = segredo tem valor.
 

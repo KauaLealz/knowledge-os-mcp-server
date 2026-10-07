@@ -1,14 +1,10 @@
 """Rotas de workspaces."""
 
-import shutil
-import tempfile
-from pathlib import Path
-
-from fastapi import APIRouter, Depends, Response, UploadFile, status
+from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from knowledge_os.api.deps import get_artifacts_dir, get_connection_id, get_session_dep
+from knowledge_os.api.deps import get_connection_id, get_session_dep
 from knowledge_os.api.routes._helpers import get_or_404
 from knowledge_os.api.schemas.requests import WorkspaceCreate, WorkspaceUpdate
 from knowledge_os.api.schemas.responses import (
@@ -24,7 +20,6 @@ from knowledge_os.api.schemas.responses import (
 )
 from knowledge_os.db.models import Item, Project, Subject, Workspace
 from knowledge_os.exceptions import ValidationError
-from knowledge_os.services.import_export_service import ImportExportService
 from knowledge_os.services.relation_service import RelationService
 from knowledge_os.services.workspace_service import WorkspaceService
 
@@ -45,22 +40,6 @@ def create_workspace(
     cid: str = Depends(get_connection_id),
 ):
     return WorkspaceService(session, cid).create(req.name, req.description)
-
-
-@router.post(
-    "/workspaces/import", status_code=status.HTTP_201_CREATED, response_model=WorkspaceResponse
-)
-def import_workspace(
-    file: UploadFile,
-    session: Session = Depends(get_session_dep),
-    artifacts_dir: Path = Depends(get_artifacts_dir),
-    cid: str = Depends(get_connection_id),
-):
-    with tempfile.TemporaryDirectory() as tmp:
-        zip_path = Path(tmp) / "import.zip"
-        with zip_path.open("wb") as out:
-            shutil.copyfileobj(file.file, out)
-        return ImportExportService(session, artifacts_dir, cid).import_workspace(str(zip_path))
 
 
 @router.get("/workspaces/{id}", response_model=WorkspaceResponse)
@@ -238,18 +217,3 @@ def workspace_graph(
         for rel in RelationService(session).list_for_items([r.id for r in rows])
     ]
     return WorkspaceGraph(nodes=nodes, edges=edges)
-
-
-@router.post("/workspaces/{id}/export")
-def export_workspace(
-    id: str,
-    session: Session = Depends(get_session_dep),
-    artifacts_dir: Path = Depends(get_artifacts_dir),
-) -> Response:
-    ws = get_or_404(session, Workspace, id, "Workspace")
-    data = ImportExportService(session, artifacts_dir).export_workspace(id)
-    return Response(
-        content=data,
-        media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="workspace-{ws.id}.zip"'},
-    )

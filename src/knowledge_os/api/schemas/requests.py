@@ -64,11 +64,13 @@ class ItemLabelAdd(BaseModel):
 
 
 class ConnectionCreate(BaseModel):
-    """Corpo de criação: nome e, opcionalmente, o remote git (sem remote = repo local)."""
+    """Corpo de criação: nome, a pasta local do repositório e, opcionalmente, o remote git
+    (sem remote = repo só local, nessa pasta)."""
 
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=255)
+    path: str = Field(min_length=1)
     remote_url: str | None = None
     review_mode: Literal["direct", "pr"] = "direct"
     enabled: bool = True

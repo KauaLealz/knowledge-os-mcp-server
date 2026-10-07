@@ -1,4 +1,4 @@
-"""Ferramentas MCP ponta a ponta, pelo protocolo (cliente em memória): os 13 tools de tools.py
+"""Ferramentas MCP ponta a ponta, pelo protocolo (cliente em memória): os tools de tools.py
 (mais health_check, registrado à parte em main.py — não entra no fixture `server`)."""
 
 import asyncio
@@ -49,10 +49,15 @@ def test_nomes_e_documentacao(server):
 
     tools_ = asyncio.run(names())
     assert set(tools_) == {
-        "workspace", "project", "subject", "repo",
+        "workspace_list", "workspace_create", "workspace_rename", "workspace_merge",
+        "workspace_delete",
+        "project_list", "project_create", "project_rename", "project_merge", "project_delete",
+        "subject_list", "subject_create", "subject_rename", "subject_merge", "subject_delete",
+        "repo",
         "context_get", "item_search", "item_get", "item_save",
-        "item_delete", "relation_delete", "vocabulary",
-        "artifact", "backup",
+        "item_delete", "relation_create", "relation_delete",
+        "tag_list", "tag_create", "tag_delete", "label_list", "label_create", "label_delete",
+        "connection_create", "connection_list", "connection_delete",
     }
     for name, doc in tools_.items():
         assert "**Use quando:**" in doc and "**Retorna:**" in doc, name
@@ -136,67 +141,58 @@ def test_item_save_modos_e_erros(server):
     assert "não ligado" in fails(server, "item_search", query="x", repo="github.com/o/n")
 
 
-def test_administracao(server, tmp_path):
+def test_administracao(server):
     saved = call(server, "item_save", items=[
         {"workspace": "W", "project": "D", "key": "a", **RULE, "title": "A", "tags": ["x"]},
         {"workspace": "W", "project": "D", "key": "b", **RULE, "title": "B",
          "relations": [{"type": "related_to", "target": "a"}]},
     ])
-    tree = call(server, "workspace", action="list")
+    tree = call(server, "workspace_list")
     assert tree == [{"name": "W", "description": None, "items": 2, "projects": 1}]
-    assert call(server, "project", action="list", workspace="W") == [{"name": "D", "items": 2}]
+    assert call(server, "project_list", workspace="W") == [{"name": "D", "items": 2}]
 
-    assert {"x"} <= {t["name"] for t in call(server, "vocabulary", kind="tags")}
-    lab = call(server, "vocabulary", kind="labels", action="create", name="lgpd")
-    assert call(server, "vocabulary", kind="labels", action="delete", id=lab["id"])["status"]
-
-    src = tmp_path / "diagrama.txt"
-    src.write_text("caixas e setas", encoding="utf-8")
-    art = call(server, "artifact", action="attach", item_id=saved[0]["id"], file_path=str(src))
-    (item_a,) = call(server, "item_get", ids=[saved[0]["id"]])
-    assert item_a["artifacts"][0]["filename"] == "diagrama.txt"
-    assert call(server, "artifact", action="get", artifact_id=art["id"])["content_base64"]
+    assert {"x"} <= {t["name"] for t in call(server, "tag_list")}
+    lab = call(server, "label_create", name="lgpd")
+    assert call(server, "label_delete", id=lab["id"])["status"]
 
     (item_b,) = call(server, "item_get", ids=[saved[1]["id"]])
     rel_id = item_b["relations"][0]["id"]
     assert call(server, "relation_delete", relation_id=rel_id)["status"] == "deleted"
 
-    zip_path = call(server, "backup", action="export", workspace="W")["file_path"]
-    preview = call(server, "workspace", action="delete", name="W")
+    created = call(server, "relation_create", source_item_id=saved[0]["id"],
+                   target_item_id=saved[1]["id"], relation_type="related_to")
+    assert created["relation_type"] == "related_to"
+
+    preview = call(server, "workspace_delete", name="W")
     assert preview == {"status": "preview", "would_delete": {"workspace": "W", "projects": 1,
                                                             "items": 2}}
-    assert call(server, "workspace", action="list")  # nada apagado sem confirm
-    call(server, "workspace", action="delete", name="W", confirm=True)
-    assert call(server, "workspace", action="list") == []
-    restored = call(server, "backup", action="import", file_path=zip_path)
-    assert restored["name"] == "W" and call(server, "workspace", action="list")[0]["items"] == 2
-
-    victim = call(server, "item_search", query="A", workspace="W")[0]["id"]
-    assert call(server, "item_delete", item_id=victim)["status"] == "deleted"
+    assert call(server, "workspace_list")  # nada apagado sem confirm
+    call(server, "workspace_delete", name="W", confirm=True)
+    assert call(server, "workspace_list") == []
 
 
 def test_workspace_project_subject_rename_e_merge(server):
     call(server, "item_save", items=[
         {"workspace": "src-ws", "project": "src-pj", "key": "a", **RULE, "title": "A"},
     ])
-    call(server, "workspace", action="create", name="tgt-ws")
+    call(server, "workspace_create", name="tgt-ws")
 
-    renamed_pj = call(server, "project", action="rename", workspace="src-ws",
+    renamed_pj = call(server, "project_rename", workspace="src-ws",
                       name="src-pj", new_name="pj2")
     assert renamed_pj["name"] == "pj2"
 
-    renamed_sj = call(server, "subject", action="create", workspace="src-ws", project="pj2",
+    renamed_sj = call(server, "subject_create", workspace="src-ws", project="pj2",
                       name="s1")
     assert renamed_sj["name"] == "s1"
-    renamed_sj2 = call(server, "subject", action="rename", workspace="src-ws", project="pj2",
+    renamed_sj2 = call(server, "subject_rename", workspace="src-ws", project="pj2",
                        name="s1", new_name="s2")
     assert renamed_sj2["name"] == "s2"
 
-    result = call(server, "workspace", action="merge", source="src-ws", target="tgt-ws")
+    result = call(server, "workspace_merge", source="src-ws", target="tgt-ws")
     assert result == {"merged_projects": 1, "renamed_collisions": 0}
-    assert [p["name"] for p in call(server, "project", action="list", workspace="tgt-ws")] == \
+    assert [p["name"] for p in call(server, "project_list", workspace="tgt-ws")] == \
         ["pj2"]
-    assert fails(server, "workspace", action="rename", name="nao-existe", new_name="x")
+    assert fails(server, "workspace_rename", name="nao-existe", new_name="x")
 
 
 def test_subject_delete_preview_nao_apaga_item(server):
@@ -204,11 +200,11 @@ def test_subject_delete_preview_nao_apaga_item(server):
         {"workspace": "W", "project": "D", "key": "a", **RULE, "title": "A",
          "subject": "assunto-x"},
     ])
-    preview = call(server, "subject", action="delete", workspace="W", project="D",
+    preview = call(server, "subject_delete", workspace="W", project="D",
                    name="assunto-x")
     assert preview == {"status": "preview", "would_delete": {"subject": "assunto-x",
                                                               "items_sem_assunto": 1}}
-    deleted = call(server, "subject", action="delete", workspace="W", project="D",
+    deleted = call(server, "subject_delete", workspace="W", project="D",
                    name="assunto-x", confirm=True)
     assert deleted["status"] == "deleted"
     (item,) = call(server, "item_get", keys=["a"], workspace="W", project="D")
@@ -216,7 +212,7 @@ def test_subject_delete_preview_nao_apaga_item(server):
 
 
 def test_repo_list_unlink_e_candidate_match(server):
-    call(server, "workspace", action="create", name="AI8")
+    call(server, "workspace_create", name="AI8")
     out = call(server, "repo", action="link", repo="path:/tmp/ai8-repo-x", workspace="ai8",
                project="algo")
     assert out == {"status": "candidate",

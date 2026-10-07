@@ -75,13 +75,3 @@ def test_stats_missing_is_404(client):
     assert client.get("/api/projects/nope/stats").status_code == 404
 
 
-def test_export(client, mk):
-    _, dm, _ = mk.tree()
-    r = client.post(f"/api/projects/{dm['id']}/export")
-    assert r.status_code == 200
-    assert r.headers["content-type"] == "application/zip"
-    assert r.content[:2] == b"PK"
-
-
-def test_export_missing_is_404(client):
-    assert client.post("/api/projects/nope/export").status_code == 404

@@ -71,31 +71,6 @@ def test_stats_missing_is_404(client):
     assert client.get("/api/workspaces/nope/stats").status_code == 404
 
 
-def test_export_import_roundtrip(client, mk):
-    ws, _, _ = mk.tree()
-    r = client.post(f"/api/workspaces/{ws['id']}/export")
-    assert r.status_code == 200
-    assert r.headers["content-type"] == "application/zip"
-    zip_bytes = r.content
-    client.delete(f"/api/workspaces/{ws['id']}")
-    r = client.post(
-        "/api/workspaces/import", files={"file": ("ws.zip", zip_bytes, "application/zip")}
-    )
-    assert r.status_code == 201, r.text
-    assert r.json()["name"] == "WS"
-    new_id = r.json()["id"]
-    assert client.get(f"/api/workspaces/{new_id}/stats").json()["items"] == 1
-
-
-def test_export_missing_is_404(client):
-    assert client.post("/api/workspaces/nope/export").status_code == 404
-
-
-def test_import_invalid_zip_is_422(client):
-    r = client.post(
-        "/api/workspaces/import", files={"file": ("x.zip", b"not a zip", "application/zip")}
-    )
-    assert r.status_code == 422
 
 
 def test_tree(client, mk):

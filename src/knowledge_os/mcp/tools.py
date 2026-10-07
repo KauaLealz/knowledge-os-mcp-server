@@ -1,35 +1,28 @@
-"""Ferramentas MCP do Knowledge OS: 14 ferramentas, sem conceito de perfil.
+"""Ferramentas MCP do Knowledge OS: uma função por operação (sem `action=` agrupando).
 
-Antes havia dois perfis (`agent` com 6 ferramentas, `all` com todas): o perfil foi
-removido — todo cliente MCP vê as mesmas 14 ferramentas. `workspace`/`project`/`subject`
-e `repo` usam `action=` para agrupar create/list/rename/merge/delete (ou link/list/unlink)
-numa única ferramenta cada, em vez de uma função por operação.
+Exceção: `repo` ainda agrupa link/list/unlink/sync por `action=` — é usado por um volume
+grande de automação existente (hook de sessão, `/plumb-setup`, fila offline) e manter o
+nome/assinatura evita uma quebra de compatibilidade ampla demais para esta rodada.
 """
 
-import base64
-from datetime import datetime
 from typing import Any
 
 from fastmcp import FastMCP
 from sqlalchemy import func, select
 
-from knowledge_os.config import CATALOG_ID, EXPORTS_DIR, ConfigManager
-from knowledge_os.db.models import Item, Project, Workspace
+from knowledge_os.config import CATALOG_ID, ConfigManager
+from knowledge_os.db.models import DEFAULT_CONNECTION_ID, Item, Project, Workspace
 from knowledge_os.db.session import connection_id_of, default_connection_id, get_engine, get_session
 from knowledge_os.exceptions import NotFoundError, ValidationError
-from knowledge_os.schemas.artifact_schemas import ArtifactCreate, ArtifactResponse
 from knowledge_os.schemas.item_schemas import ItemResponse, ItemSearchRequest, ItemSearchResult
-from knowledge_os.schemas.project_schemas import ProjectResponse
 from knowledge_os.schemas.relation_schemas import RelationListResponse
-from knowledge_os.schemas.workspace_schemas import WorkspaceResponse
-from knowledge_os.services.artifact_service import ArtifactService
+from knowledge_os.services.connection_service import ConnectionService
 from knowledge_os.services.context_service import ContextService
 from knowledge_os.services.git_repo_service import GitRepoService
-from knowledge_os.services.import_export_service import ImportExportService
 from knowledge_os.services.item_service import ItemService
 from knowledge_os.services.label_service import LabelService
 from knowledge_os.services.project_service import ProjectService
-from knowledge_os.services.relation_service import RelationService
+from knowledge_os.services.relation_service import RELATION_TYPES, RelationService
 from knowledge_os.services.repo_service import RepoService
 from knowledge_os.services.secret_service import SecretService
 from knowledge_os.services.subject_service import SubjectService
@@ -40,7 +33,7 @@ MAX_GET = 20
 
 
 # --------------------------------------------------------------------------------------
-# 1-3. workspace / project / subject: CRUD + rename + merge, por action=
+# workspace / project / subject: uma função por operação (list/create/rename/merge/delete)
 # --------------------------------------------------------------------------------------
 
 
@@ -59,11 +52,20 @@ def _location_tree(workspace: str | None, connection_id: str | None) -> list[dic
         )
         out = []
         for ws in workspaces:
-            projects = list(session.scalars(
-                select(Project).where(Project.workspace_id == ws.id).order_by(Project.name)))
+            projects = list(
+                session.scalars(
+                    select(Project).where(Project.workspace_id == ws.id).order_by(Project.name)
+                )
+            )
             rows = [{"name": d.name, "items": counts.get(d.id, 0)} for d in projects]
-            out.append({"workspace": ws.name, "description": ws.description,
-                        "items": sum(r["items"] for r in rows), "projects": rows})
+            out.append(
+                {
+                    "workspace": ws.name,
+                    "description": ws.description,
+                    "items": sum(r["items"] for r in rows),
+                    "projects": rows,
+                }
+            )
     finally:
         session.close()
     if workspace and not out:
@@ -71,194 +73,272 @@ def _location_tree(workspace: str | None, connection_id: str | None) -> list[dic
     return out
 
 
-def workspace(
-    action: str,
-    name: str | None = None,
-    new_name: str | None = None,
-    source: str | None = None,
-    target: str | None = None,
-    description: str | None = None,
-    confirm: bool = False,
-    connection_id: str | None = None,
-) -> Any:
-    """Workspace = contexto de trabalho (empresa, cliente, Pessoal, Global).
+def workspace_list(name: str | None = None, connection_id: str | None = None) -> Any:
+    """Lista workspaces (contexto de trabalho: empresa, cliente, Pessoal, Global).
 
-    **Use quando:** Organizar, renomear, unificar ou remover workspaces.
-    **Retorna:** list → [{name, description, projects, items}]; create → {id, name,
-        description}; rename → {id, name}; merge → {merged_projects, renamed_collisions};
-        delete sem confirm → {status: preview, would_delete}; com confirm →
+    **Use quando:** Ver o que já existe antes de criar ou organizar.
+    **Retorna:** [{name, description, projects, items}].
+    **Exemplo:** workspace_list()
+    """
+    rows = _location_tree(name, connection_id)
+    return [
+        {
+            "name": r["workspace"],
+            "description": r["description"],
+            "projects": len(r["projects"]),
+            "items": r["items"],
+        }
+        for r in rows
+    ]
+
+
+def workspace_create(
+    name: str, description: str | None = None, connection_id: str | None = None
+) -> Any:
+    """Cria um workspace (contexto de trabalho: empresa, cliente, Pessoal, Global).
+
+    **Use quando:** Criar um novo contexto de trabalho.
+    **Retorna:** {id, name, description}.
+    **Exemplo:** workspace_create(name="Polara")
+    """
+    row = WorkspaceService(connection_id=connection_id).create(name, description)
+    return {"id": row.id, "name": row.name, "description": row.description}
+
+
+def workspace_rename(name: str, new_name: str, connection_id: str | None = None) -> Any:
+    """Renomeia um workspace.
+
+    **Use quando:** Corrigir ou atualizar o nome de um workspace.
+    **Retorna:** {id, name}.
+    **Exemplo:** workspace_rename(name="polara", new_name="Polara")
+    """
+    row = WorkspaceService(connection_id=connection_id).rename(name, new_name)
+    return {"id": row.id, "name": row.name}
+
+
+def workspace_merge(source: str, target: str, connection_id: str | None = None) -> Any:
+    """Unifica dois workspaces: move os projects de `source` para `target` (projects
+    homônimos são mesclados por nome, não duplicados) e apaga `source`.
+
+    **Use quando:** Unificar dois workspaces que acabaram duplicados.
+    **Retorna:** {merged_projects, renamed_collisions}.
+    **Exemplo:** workspace_merge(source="Polara Antiga", target="Polara")
+    """
+    return WorkspaceService(connection_id=connection_id).merge(source, target)
+
+
+def workspace_delete(name: str, confirm: bool = False, connection_id: str | None = None) -> Any:
+    """Remove um workspace de vez.
+
+    **Use quando:** Remover um workspace que não serve mais.
+    **Retorna:** sem `confirm` → {status: preview, would_delete}; com `confirm=True` →
         {status: deleted, ...}.
-    **Exemplo:** workspace(action="list") · workspace(action="create", name="Polara") ·
-        workspace(action="rename", name="polara", new_name="Polara") ·
-        workspace(action="merge", source="Polara Antiga", target="Polara") ·
-        workspace(action="delete", name="Teste", confirm=True)
-    **Notas:** merge move os projects de source para target (projects homônimos são
-        mesclados por nome, não duplicados) e apaga source. delete sem confirm só mostra
-        o preview; chame de novo com confirm=True para apagar de vez.
+    **Exemplo:** workspace_delete(name="Teste", confirm=True)
+    **Notas:** Sem `confirm`, só mostra o preview; chame de novo com `confirm=True` para
+        apagar de vez.
     """
     svc = WorkspaceService(connection_id=connection_id)
-    if action == "list":
-        rows = _location_tree(name, connection_id)
-        return [{"name": r["workspace"], "description": r["description"],
-                  "projects": len(r["projects"]), "items": r["items"]} for r in rows]
-    if action == "create":
-        if not name:
-            raise ValidationError("create exige name")
-        row = svc.create(name, description)
-        return {"id": row.id, "name": row.name, "description": row.description}
-    if action == "rename":
-        if not name or not new_name:
-            raise ValidationError("rename exige name e new_name")
-        row = svc.rename(name, new_name)
-        return {"id": row.id, "name": row.name}
-    if action == "merge":
-        if not source or not target:
-            raise ValidationError("merge exige source e target")
-        return svc.merge(source, target)
-    if action == "delete":
-        if not name:
-            raise ValidationError("delete exige name")
-        preview = _location_tree(name, connection_id)[0]
-        would = {"workspace": name, "projects": len(preview["projects"]),
-                 "items": preview["items"]}
-        if not confirm:
-            return {"status": "preview", "would_delete": would}
-        svc.delete(name)
-        return {"status": "deleted", **would}
-    raise ValidationError("action deve ser list, create, rename, merge ou delete")
+    if not name:
+        raise ValidationError("delete exige name")
+    preview = _location_tree(name, connection_id)[0]
+    would = {"workspace": name, "projects": len(preview["projects"]), "items": preview["items"]}
+    if not confirm:
+        return {"status": "preview", "would_delete": would}
+    svc.delete(name)
+    return {"status": "deleted", **would}
 
 
-def project(
-    action: str,
-    workspace: str,
-    name: str | None = None,
-    new_name: str | None = None,
-    source: str | None = None,
-    target: str | None = None,
-    description: str | None = None,
-    confirm: bool = False,
-    connection_id: str | None = None,
+def project_list(workspace: str, connection_id: str | None = None) -> Any:
+    """Lista os projects de um workspace (project = o repositório dentro do workspace;
+    `Geral` guarda o que vale para todos).
+
+    **Use quando:** Ver o que já existe antes de criar ou organizar.
+    **Retorna:** [{name, items}].
+    **Exemplo:** project_list(workspace="Polara")
+    """
+    return _location_tree(workspace, connection_id)[0]["projects"]
+
+
+def project_create(
+    workspace: str, name: str, description: str | None = None, connection_id: str | None = None
 ) -> Any:
-    """Project = o repositório dentro de um workspace (`Geral` guarda o que vale para todos).
+    """Cria um project dentro de um workspace.
 
-    **Use quando:** Organizar, renomear, unificar ou remover projects de um workspace.
-    **Retorna:** list → [{name, items}]; create → {id, name, description}; rename →
-        {id, name}; merge → {merged_items, merged_subjects}; delete sem confirm →
-        {status: preview, would_delete}; com confirm → {status: deleted, ...}.
-    **Exemplo:** project(action="list", workspace="Polara") · project(action="create",
-        workspace="Polara", name="projpro") · project(action="merge", workspace="Polara",
-        source="projpro-old", target="projpro")
-    **Notas:** `workspace` é sempre obrigatório (nome ou id). merge move os items de source
-        para target (subjects homônimos mesclados por nome) e apaga source.
+    **Use quando:** Organizar um novo repositório dentro do workspace.
+    **Retorna:** {id, name, description}.
+    **Exemplo:** project_create(workspace="Polara", name="projpro")
     """
     ws_id = WorkspaceService(connection_id=connection_id).get(workspace).id
-    svc = ProjectService(connection_id=connection_id)
-    if action == "list":
-        rows = _location_tree(workspace, connection_id)[0]["projects"]
-        return rows
-    if action == "create":
-        if not name:
-            raise ValidationError("create exige name")
-        row = svc.create(ws_id, name, description)
-        return {"id": row.id, "name": row.name, "description": row.description}
-    if action == "rename":
-        if not name or not new_name:
-            raise ValidationError("rename exige name e new_name")
-        row = svc.rename(ws_id, name, new_name)
-        return {"id": row.id, "name": row.name}
-    if action == "merge":
-        if not source or not target:
-            raise ValidationError("merge exige source e target")
-        return svc.merge(ws_id, source, target)
-    if action == "delete":
-        if not name:
-            raise ValidationError("delete exige name")
-        preview = _location_tree(workspace, connection_id)[0]
-        match = [d for d in preview["projects"] if d["name"] == name]
-        if not match:
-            raise NotFoundError(f"Project não encontrado: {name}")
-        would = {"project": name, "items": match[0]["items"]}
-        if not confirm:
-            return {"status": "preview", "would_delete": would}
-        svc.delete(ws_id, name)
-        return {"status": "deleted", **would}
-    raise ValidationError("action deve ser list, create, rename, merge ou delete")
+    row = ProjectService(connection_id=connection_id).create(ws_id, name, description)
+    return {"id": row.id, "name": row.name, "description": row.description}
 
 
-def subject(
-    action: str,
-    workspace: str,
-    project: str,
-    name: str | None = None,
-    new_name: str | None = None,
-    source: str | None = None,
-    target: str | None = None,
-    description: str | None = None,
-    confirm: bool = False,
-    connection_id: str | None = None,
+def project_rename(
+    workspace: str, name: str, new_name: str, connection_id: str | None = None
 ) -> Any:
-    """Subject = assunto opcional que agrupa items dentro de um project.
+    """Renomeia um project.
 
-    **Use quando:** Organizar, renomear, unificar ou remover subjects de um project.
-    **Retorna:** list → [{name, items}]; create → {id, name, description}; rename →
-        {id, name}; merge → {merged_items}; delete sem confirm → {status: preview,
-        would_delete: {items_sem_assunto}}; com confirm → {status: deleted}.
-    **Exemplo:** subject(action="list", workspace="Polara", project="app") ·
-        subject(action="create", workspace="Polara", project="app", name="pagamentos")
-    **Notas:** `workspace`+`project` são sempre obrigatórios. delete nunca apaga item, só
-        desvincula (subject_id = None); o preview mostra quantos items ficariam sem assunto.
+    **Use quando:** Corrigir ou atualizar o nome de um project.
+    **Retorna:** {id, name}.
+    **Exemplo:** project_rename(workspace="Polara", name="projpro", new_name="ProjPro")
+    """
+    ws_id = WorkspaceService(connection_id=connection_id).get(workspace).id
+    row = ProjectService(connection_id=connection_id).rename(ws_id, name, new_name)
+    return {"id": row.id, "name": row.name}
+
+
+def project_merge(
+    workspace: str, source: str, target: str, connection_id: str | None = None
+) -> Any:
+    """Unifica dois projects do mesmo workspace: move os items de `source` para `target`
+    (subjects homônimos mesclados por nome) e apaga `source`.
+
+    **Use quando:** Unificar dois projects que acabaram duplicados.
+    **Retorna:** {merged_items, merged_subjects}.
+    **Exemplo:** project_merge(workspace="Polara", source="projpro-old", target="projpro")
+    """
+    ws_id = WorkspaceService(connection_id=connection_id).get(workspace).id
+    return ProjectService(connection_id=connection_id).merge(ws_id, source, target)
+
+
+def project_delete(
+    workspace: str, name: str, confirm: bool = False, connection_id: str | None = None
+) -> Any:
+    """Remove um project de vez.
+
+    **Use quando:** Remover um project que não serve mais.
+    **Retorna:** sem `confirm` → {status: preview, would_delete}; com `confirm=True` →
+        {status: deleted, ...}.
+    **Exemplo:** project_delete(workspace="Polara", name="Teste", confirm=True)
+    """
+    if not name:
+        raise ValidationError("delete exige name")
+    preview = _location_tree(workspace, connection_id)[0]
+    match = [d for d in preview["projects"] if d["name"] == name]
+    if not match:
+        raise NotFoundError(f"Project não encontrado: {name}")
+    would = {"project": name, "items": match[0]["items"]}
+    if not confirm:
+        return {"status": "preview", "would_delete": would}
+    ws_id = WorkspaceService(connection_id=connection_id).get(workspace).id
+    ProjectService(connection_id=connection_id).delete(ws_id, name)
+    return {"status": "deleted", **would}
+
+
+def subject_list(workspace: str, project: str, connection_id: str | None = None) -> Any:
+    """Lista os subjects de um project (subject = assunto opcional que agrupa items).
+
+    **Use quando:** Ver o que já existe antes de criar ou organizar.
+    **Retorna:** [{name, items}].
+    **Exemplo:** subject_list(workspace="Polara", project="app")
     """
     ws_id = WorkspaceService(connection_id=connection_id).get(workspace).id
     pj_id = ProjectService(connection_id=connection_id).get(ws_id, project).id
     svc = SubjectService(connection_id=connection_id)
-    if action == "list":
-        session = get_session(get_engine(connection_id) if connection_id else get_engine())
-        try:
-            counts = dict(
-                session.execute(
-                    select(Item.subject_id, func.count())
-                    .where(Item.project_id == pj_id)
-                    .group_by(Item.subject_id)
-                ).all()
-            )
-        finally:
-            session.close()
-        return [{"name": s.name, "items": counts.get(s.id, 0)} for s in svc.list(pj_id)]
-    if action == "create":
-        if not name:
-            raise ValidationError("create exige name")
-        row = svc.create(pj_id, name, description)
-        return {"id": row.id, "name": row.name, "description": row.description}
-    if action == "rename":
-        if not name or not new_name:
-            raise ValidationError("rename exige name e new_name")
-        row = svc.rename(pj_id, name, new_name)
-        return {"id": row.id, "name": row.name}
-    if action == "merge":
-        if not source or not target:
-            raise ValidationError("merge exige source e target")
-        return svc.merge(pj_id, source, target)
-    if action == "delete":
-        if not name:
-            raise ValidationError("delete exige name")
-        sj = svc.get(pj_id, name)
-        session = get_session(get_engine(connection_id) if connection_id else get_engine())
-        try:
-            orphaned = session.scalar(
-                select(func.count()).select_from(Item).where(Item.subject_id == sj.id)
-            )
-        finally:
-            session.close()
-        if not confirm:
-            return {"status": "preview", "would_delete": {"subject": name,
-                                                            "items_sem_assunto": orphaned}}
-        svc.delete(pj_id, name)
-        return {"status": "deleted", "subject": name, "items_sem_assunto": orphaned}
-    raise ValidationError("action deve ser list, create, rename, merge ou delete")
+    session = get_session(get_engine(connection_id) if connection_id else get_engine())
+    try:
+        counts = dict(
+            session.execute(
+                select(Item.subject_id, func.count())
+                .where(Item.project_id == pj_id)
+                .group_by(Item.subject_id)
+            ).all()
+        )
+    finally:
+        session.close()
+    return [{"name": s.name, "items": counts.get(s.id, 0)} for s in svc.list(pj_id)]
+
+
+def subject_create(
+    workspace: str,
+    project: str,
+    name: str,
+    description: str | None = None,
+    connection_id: str | None = None,
+) -> Any:
+    """Cria um subject dentro de um project.
+
+    **Use quando:** Agrupar items relacionados dentro de um project.
+    **Retorna:** {id, name, description}.
+    **Exemplo:** subject_create(workspace="Polara", project="app", name="pagamentos")
+    """
+    ws_id = WorkspaceService(connection_id=connection_id).get(workspace).id
+    pj_id = ProjectService(connection_id=connection_id).get(ws_id, project).id
+    row = SubjectService(connection_id=connection_id).create(pj_id, name, description)
+    return {"id": row.id, "name": row.name, "description": row.description}
+
+
+def subject_rename(
+    workspace: str, project: str, name: str, new_name: str, connection_id: str | None = None
+) -> Any:
+    """Renomeia um subject.
+
+    **Use quando:** Corrigir ou atualizar o nome de um subject.
+    **Retorna:** {id, name}.
+    **Exemplo:** subject_rename(workspace="Polara", project="app", name="pagamentos",
+        new_name="Pagamentos")
+    """
+    ws_id = WorkspaceService(connection_id=connection_id).get(workspace).id
+    pj_id = ProjectService(connection_id=connection_id).get(ws_id, project).id
+    row = SubjectService(connection_id=connection_id).rename(pj_id, name, new_name)
+    return {"id": row.id, "name": row.name}
+
+
+def subject_merge(
+    workspace: str, project: str, source: str, target: str, connection_id: str | None = None
+) -> Any:
+    """Unifica dois subjects do mesmo project: move os items de `source` para `target` e
+    apaga `source`.
+
+    **Use quando:** Unificar dois subjects que acabaram duplicados.
+    **Retorna:** {merged_items}.
+    **Exemplo:** subject_merge(workspace="Polara", project="app", source="pagto",
+        target="pagamentos")
+    """
+    ws_id = WorkspaceService(connection_id=connection_id).get(workspace).id
+    pj_id = ProjectService(connection_id=connection_id).get(ws_id, project).id
+    return SubjectService(connection_id=connection_id).merge(pj_id, source, target)
+
+
+def subject_delete(
+    workspace: str,
+    project: str,
+    name: str,
+    confirm: bool = False,
+    connection_id: str | None = None,
+) -> Any:
+    """Remove um subject. Nunca apaga item, só desvincula (`subject_id = None`).
+
+    **Use quando:** Um subject não serve mais, mas os items continuam valendo.
+    **Retorna:** sem `confirm` → {status: preview, would_delete: {items_sem_assunto}}; com
+        `confirm=True` → {status: deleted}.
+    **Exemplo:** subject_delete(workspace="Polara", project="app", name="pagamentos",
+        confirm=True)
+    """
+    if not name:
+        raise ValidationError("delete exige name")
+    ws_id = WorkspaceService(connection_id=connection_id).get(workspace).id
+    pj_id = ProjectService(connection_id=connection_id).get(ws_id, project).id
+    svc = SubjectService(connection_id=connection_id)
+    sj = svc.get(pj_id, name)
+    session = get_session(get_engine(connection_id) if connection_id else get_engine())
+    try:
+        orphaned = session.scalar(
+            select(func.count()).select_from(Item).where(Item.subject_id == sj.id)
+        )
+    finally:
+        session.close()
+    if not confirm:
+        return {
+            "status": "preview",
+            "would_delete": {"subject": name, "items_sem_assunto": orphaned},
+        }
+    svc.delete(pj_id, name)
+    return {"status": "deleted", "subject": name, "items_sem_assunto": orphaned}
 
 
 # --------------------------------------------------------------------------------------
-# 4. repo: link / list / unlink
+# repo: link / list / unlink / sync — continua por action= (ver docstring do módulo)
 # --------------------------------------------------------------------------------------
 
 
@@ -320,7 +400,7 @@ def repo(
 
 
 # --------------------------------------------------------------------------------------
-# 5-8. context_get / item_search / item_get / item_save
+# context_get / item_search / item_get / item_save
 # --------------------------------------------------------------------------------------
 
 
@@ -385,12 +465,23 @@ def item_search(
             raise ValidationError("subject exige project")
         subject_id = svc.resolve_subject_id(project_id, subject)
     req = ItemSearchRequest(
-        workspace_id=workspace_id, project_id=project_id, subject_id=subject_id, query=query,
-        types=types, memory_classes=memory_classes, limit=limit,
+        workspace_id=workspace_id,
+        project_id=project_id,
+        subject_id=subject_id,
+        query=query,
+        types=types,
+        memory_classes=memory_classes,
+        limit=limit,
     )
     rows = svc.search(
-        req.workspace_id, req.project_id, req.query, req.subject_id, req.types,
-        req.memory_classes, req.limit, include_inactive=include_inactive,
+        req.workspace_id,
+        req.project_id,
+        req.query,
+        req.subject_id,
+        req.types,
+        req.memory_classes,
+        req.limit,
+        include_inactive=include_inactive,
     )
     return [ItemSearchResult(**r).model_dump() for r in rows]
 
@@ -403,7 +494,7 @@ def item_get(
     project: str | None = None,
     connection_id: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Lê itens completos (content, tags, relações, anexos) por id e/ou key, vários de uma vez.
+    """Lê itens completos (content, tags, relações) por id e/ou key, vários de uma vez.
 
     **Use quando:** O resumo da busca ou do contexto não bastou.
     **Retorna:** Lista de itens completos, na ordem pedida; o que não existe vem como
@@ -436,7 +527,6 @@ def item_get(
     svc.track_use([i.id for i in items if not isinstance(i, dict)])
     out: list[dict[str, Any]] = []
     relations = RelationService(connection_id=connection_id)
-    artifacts = ArtifactService(connection_id=connection_id)
     for item in items:
         if isinstance(item, dict):
             out.append(item)
@@ -445,10 +535,6 @@ def item_get(
         data["relations"] = RelationListResponse.model_validate(
             relations.list(item.id), from_attributes=True
         ).model_dump(mode="json")
-        data["artifacts"] = [
-            {"id": a.id, "filename": a.filename, "file_size": a.file_size}
-            for a in artifacts.list(item.id)
-        ]
         out.append(data)
     return out
 
@@ -467,7 +553,7 @@ def item_save(
         workspace/project (criados se não existirem); o `subject`, se vier, é resolvido/criado
         no project novo, senão o subject do item é zerado. Com `id` e só `subject` (sem
         workspace/project) → move o item para esse subject dentro do project atual. Em qualquer
-        caso de `id`, id, created_at, access_count, tags, labels, relations e artifacts do item
+        caso de `id`, id, created_at, access_count, tags, labels e relations do item
         não mudam — só as FKs de localização.
     **Exemplo (upsert):** item_save(repo=".", items=[{"key": "regra/money", "type": "rule",
         "title": "Money em pagamentos", "summary": "Valores em Money, nunca double",
@@ -506,12 +592,12 @@ def item_save(
 
 
 # --------------------------------------------------------------------------------------
-# 9-11. item_delete / relation_delete / vocabulary
+# item_delete / relation_create / relation_delete
 # --------------------------------------------------------------------------------------
 
 
 def item_delete(item_id: str, connection_id: str | None = None) -> dict[str, str]:
-    """Remove um item de vez (com tags, relações e anexos). Destrutivo.
+    """Remove um item de vez (com tags e relações). Destrutivo.
 
     **Use quando:** O item está errado e não há histórico a preservar.
     **Retorna:** {status: deleted, id} ou, se a connection usa modo `pr`, {status:
@@ -523,6 +609,38 @@ def item_delete(item_id: str, connection_id: str | None = None) -> dict[str, str
         uma relação supersedes.
     """
     return ItemService(connection_id=connection_id).delete_published(item_id)
+
+
+def relation_create(
+    source_item_id: str,
+    target_item_id: str,
+    relation_type: str,
+    connection_id: str | None = None,
+) -> dict[str, Any]:
+    """Cria uma relação entre dois itens já existentes, sem precisar passar por item_save.
+
+    **Use quando:** Ligar dois itens que já existem, sem reescrever nenhum dos dois.
+    **Retorna:** {id, source_item_id, target_item_id, relation_type}.
+    **Exemplo:** relation_create(source_item_id="...", target_item_id="...",
+        relation_type="depends_on")
+    **Notas:** relation_type: related_to, depends_on, implements, references, supersedes,
+        derived_from. `supersedes` marca o alvo como substituído (sai da busca e do contexto,
+        sem perder o histórico). Se a connection tem repositório git em modo `direct`, o item
+        de origem é republicado com a relação nova.
+    """
+    if relation_type not in RELATION_TYPES:
+        raise ValidationError(
+            f"relation_type inválido: {relation_type}. Válidos: {', '.join(RELATION_TYPES)}"
+        )
+    rel = RelationService(connection_id=connection_id).create_published(
+        source_item_id, target_item_id, relation_type
+    )
+    return {
+        "id": rel.id,
+        "source_item_id": rel.source_item_id,
+        "target_item_id": rel.target_item_id,
+        "relation_type": rel.relation_type,
+    }
 
 
 def relation_delete(relation_id: str, connection_id: str | None = None) -> dict[str, str]:
@@ -540,132 +658,168 @@ def relation_delete(relation_id: str, connection_id: str | None = None) -> dict[
     return {"status": "deleted", "id": relation_id}
 
 
-def vocabulary(
-    kind: str = "tags",
-    action: str = "list",
-    name: str | None = None,
-    id: str | None = None,
-    connection_id: str | None = None,
+# --------------------------------------------------------------------------------------
+# tag / label (antes: vocabulary(kind=, action=))
+# --------------------------------------------------------------------------------------
+
+
+def tag_list(connection_id: str | None = None) -> Any:
+    """Lista as tags (livres) já usadas em algum item.
+
+    **Use quando:** Reaproveitar tags existentes antes de criar variações.
+    **Retorna:** [{id, name}].
+    **Exemplo:** tag_list()
+    """
+    return [{"id": r.id, "name": r.name} for r in TagService(connection_id=connection_id).list()]
+
+
+def tag_create(name: str, connection_id: str | None = None) -> Any:
+    """Cria uma tag. Também pode ser criada direto no item_save.
+
+    **Use quando:** Registrar uma tag nova fora do item_save.
+    **Retorna:** {id, name}.
+    **Exemplo:** tag_create(name="lgpd")
+    """
+    row = TagService(connection_id=connection_id).create(name)
+    return {"id": row.id, "name": row.name}
+
+
+def tag_delete(id: str, connection_id: str | None = None) -> Any:
+    """Remove uma tag.
+
+    **Use quando:** Remover uma tag que não faz mais sentido.
+    **Retorna:** {status: deleted}.
+    **Exemplo:** tag_delete(id="...")
+    """
+    TagService(connection_id=connection_id).delete(id)
+    return {"status": "deleted", "id": id}
+
+
+def label_list(connection_id: str | None = None) -> Any:
+    """Lista os labels (lista controlada).
+
+    **Use quando:** Ver os labels já cadastrados.
+    **Retorna:** [{id, name}].
+    **Exemplo:** label_list()
+    """
+    return [{"id": r.id, "name": r.name} for r in LabelService(connection_id=connection_id).list()]
+
+
+def label_create(name: str, connection_id: str | None = None) -> Any:
+    """Cria um label.
+
+    **Use quando:** Registrar um label novo na lista controlada.
+    **Retorna:** {id, name}.
+    **Exemplo:** label_create(name="lgpd")
+    """
+    row = LabelService(connection_id=connection_id).create(name)
+    return {"id": row.id, "name": row.name}
+
+
+def label_delete(id: str, connection_id: str | None = None) -> Any:
+    """Remove um label.
+
+    **Use quando:** Remover um label que não faz mais sentido.
+    **Retorna:** {status: deleted}.
+    **Exemplo:** label_delete(id="...")
+    """
+    LabelService(connection_id=connection_id).delete(id)
+    return {"status": "deleted", "id": id}
+
+
+# --------------------------------------------------------------------------------------
+# connection: criar/listar/remover uma connection a partir de uma pasta local
+# --------------------------------------------------------------------------------------
+
+
+def _connection_view(conn: Any) -> dict[str, Any]:
+    return {
+        "id": conn.id,
+        "name": conn.name,
+        "path": getattr(conn, "path", None),
+        "remote_url": getattr(conn, "remote_url", None),
+        "review_mode": getattr(conn, "review_mode", "direct"),
+        "enabled": bool(conn.is_active),
+        "is_default": bool(getattr(conn, "is_default", False)),
+        "is_catalog": conn.id == DEFAULT_CONNECTION_ID,
+    }
+
+
+def connection_create(
+    name: str, path: str, remote_url: str | None = None, review_mode: str = "direct"
 ) -> Any:
-    """Vocabulário da base: tags (livres) e labels (lista controlada).
+    """Cria uma connection: um repositório git numa pasta local (onde os items não-secretos
+    são guardados como arquivo Markdown).
 
-    **Use quando:** Reaproveitar tags existentes antes de criar variações, ou gerir labels.
-    **Retorna:** list → [{id, name}]; create → {id, name}; delete → {status: deleted}.
-    **Exemplo:** vocabulary(kind="tags") · vocabulary(kind="labels", action="create", name="lgpd")
-    **Notas:** kind: tags | labels. action: list | create (name) | delete (id). Tags também são
-        criadas direto no item_save.
+    **Use quando:** Começar a guardar conhecimento numa pasta que você já escolheu (um
+        repositório próprio, com ou sem GitHub).
+    **Retorna:** {id, name, path, remote_url, review_mode, enabled}.
+    **Exemplo:** connection_create(name="Polara", path="/home/user/polara-knowledge")
+    **Notas:** `path` precisa ser uma pasta existente, absoluta, fora da home de dados do
+        Knowledge OS. Se já for um repositório git, é usado como está; senão, vira um
+        (`git init`, preservando o que já tiver dentro). Com `remote_url`, `path` é o destino
+        do clone.
     """
-    services = {"tags": TagService, "labels": LabelService}
-    if kind not in services:
-        raise ValidationError("kind deve ser tags ou labels")
-    svc = services[kind](connection_id=connection_id)
-    if action == "list":
-        return [{"id": r.id, "name": r.name} for r in svc.list()]
-    if action == "create":
-        if not name:
-            raise ValidationError("create exige name")
-        row = svc.create(name)
-        return {"id": row.id, "name": row.name}
-    if action == "delete":
-        if not id:
-            raise ValidationError("delete exige id")
-        svc.delete(id)
-        return {"status": "deleted", "id": id}
-    raise ValidationError("action deve ser list, create ou delete")
+    conn = ConnectionService().create(name, path, remote_url=remote_url, review_mode=review_mode)
+    return _connection_view(conn)
 
 
-# --------------------------------------------------------------------------------------
-# 12-13. artifact / backup
-# --------------------------------------------------------------------------------------
+def connection_list() -> Any:
+    """Lista as connections (a `default`, catálogo, primeiro).
 
-
-def artifact(
-    action: str,
-    item_id: str | None = None,
-    file_path: str | None = None,
-    artifact_id: str | None = None,
-    connection_id: str | None = None,
-) -> dict[str, Any]:
-    """Anexa um arquivo local a um item ou lê o conteúdo de um anexo.
-
-    **Use quando:** O valor do item é um arquivo (diagrama, template, script), ou é preciso
-        o arquivo em si (confira file_size em item_get antes).
-    **Retorna:** attach → metadados do anexo (id, filename, file_size, mime_type); get →
-        {artifact, content_base64}.
-    **Exemplo:** artifact(action="attach", item_id="...", file_path="C:/docs/arquitetura.png")
-        · artifact(action="get", artifact_id="...")
-    **Notas:** Use só caminhos que o usuário indicou (attach). A lista de anexos de um item vem
-        em item_get → artifacts, até 100 MB por arquivo.
+    **Use quando:** Ver as connections já cadastradas.
+    **Retorna:** [{id, name, path, remote_url, review_mode, enabled, is_default, is_catalog}].
+    **Exemplo:** connection_list()
     """
-    if action == "attach":
-        if not item_id or not file_path:
-            raise ValidationError("attach exige item_id e file_path")
-        data = ArtifactCreate(item_id=item_id, file_path=file_path)
-        art = ArtifactService(connection_id=connection_id).attach(data.item_id, data.file_path)
-        return ArtifactResponse.model_validate(art).model_dump(mode="json")
-    if action == "get":
-        if not artifact_id:
-            raise ValidationError("get exige artifact_id")
-        art, content = ArtifactService(connection_id=connection_id).get(artifact_id)
-        return {
-            "artifact": ArtifactResponse.model_validate(art).model_dump(mode="json"),
-            "content_base64": base64.b64encode(content).decode("ascii"),
-        }
-    raise ValidationError("action deve ser attach ou get")
+    return [_connection_view(c) for c in ConnectionService().list()]
 
 
-def backup(
-    action: str,
-    workspace: str | None = None,
-    project: str | None = None,
-    file_path: str | None = None,
-    connection_id: str | None = None,
-) -> dict[str, Any]:
-    """Exporta um workspace (ou project) para ZIP em `<home>/exports`, ou importa um ZIP desses.
+def connection_delete(id: str) -> dict[str, Any]:
+    """Remove uma connection do cadastro. Não apaga a pasta nem o índice: são dados do
+    usuário, e removê-los sem confirmação explícita é destrutivo demais pra fazer aqui.
 
-    **Use quando:** Antes de mudanças grandes, para levar conhecimento a outra máquina, ou
-        para restaurar um backup.
-    **Retorna:** export → {status: ok, file_path, size_mb}; import → {status: ok, ...workspace
-        ou project criado}.
-    **Exemplo:** backup(action="export", workspace="agenda-api") · backup(action="export",
-        workspace="agenda-api", project="projpro") · backup(action="import",
-        file_path="C:/x/workspace_....zip")
-    **Notas:** import usa só caminhos que o usuário indicou; nome de workspace já existente é
-        recusado. O workspace importado ganha ids novos.
+    **Use quando:** Parar de usar uma connection sem apagar os dados dela.
+    **Retorna:** {status: deleted|not_found, id}.
+    **Exemplo:** connection_delete(id="...")
     """
-    if action == "export":
-        if not workspace:
-            raise ValidationError("export exige workspace")
-        ws_id = WorkspaceService(connection_id=connection_id).get(workspace).id
-        svc = ImportExportService(connection_id=connection_id)
-        if project:
-            pj_id = ProjectService(connection_id=connection_id).get(ws_id, project).id
-            data, prefix = svc.export_project(ws_id, pj_id), f"project_{pj_id}"
-        else:
-            data, prefix = svc.export_workspace(ws_id), f"workspace_{ws_id}"
-        EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
-        path = EXPORTS_DIR / f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.zip"
-        path.write_bytes(data)
-        return {"status": "ok", "file_path": str(path), "size_mb": round(len(data) / 1048576, 2)}
-    if action == "import":
-        if not file_path:
-            raise ValidationError("import exige file_path")
-        svc = ImportExportService(connection_id=connection_id)
-        if workspace:
-            ws_id = WorkspaceService(connection_id=connection_id).get(workspace).id
-            dm = svc.import_project(ws_id, file_path)
-            return {"status": "ok", **ProjectResponse.model_validate(dm).model_dump(mode="json")}
-        ws = svc.import_workspace(file_path)
-        return {"status": "ok", **WorkspaceResponse.model_validate(ws).model_dump(mode="json")}
-    raise ValidationError("action deve ser export ou import")
+    deleted = ConnectionService().delete(id)
+    return {"status": "deleted" if deleted else "not_found", "id": id}
 
 
 def register(mcp: FastMCP) -> None:
-    """Registra estas 13 ferramentas (a 14ª, `health_check`, é registrada em `main.py`)."""
+    """Registra as ferramentas (a última, `health_check`, é registrada em `main.py`)."""
     for fn in (
-        workspace, project, subject, repo,
-        context_get, item_search, item_get, item_save,
-        item_delete, relation_delete, vocabulary,
-        artifact, backup,
+        workspace_list,
+        workspace_create,
+        workspace_rename,
+        workspace_merge,
+        workspace_delete,
+        project_list,
+        project_create,
+        project_rename,
+        project_merge,
+        project_delete,
+        subject_list,
+        subject_create,
+        subject_rename,
+        subject_merge,
+        subject_delete,
+        repo,
+        context_get,
+        item_search,
+        item_get,
+        item_save,
+        item_delete,
+        relation_create,
+        relation_delete,
+        tag_list,
+        tag_create,
+        tag_delete,
+        label_list,
+        label_create,
+        label_delete,
+        connection_create,
+        connection_list,
+        connection_delete,
     ):
         mcp.tool()(fn)

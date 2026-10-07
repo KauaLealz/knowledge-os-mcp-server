@@ -42,8 +42,9 @@ def test_sem_connection_nao_faz_nada(tmp_path):
 
 
 def test_puxa_mudanca_da_connection_default(bare_repo, tmp_path):
+    dest = tmp_path / "sync-dest"
     conn = ConnectionService().create(
-        "Sync", remote_url=str(bare_repo), review_mode="direct", test=False
+        "Sync", str(dest), remote_url=str(bare_repo), review_mode="direct", test=False
     )
     _set_default(conn.id)
     clone_path = ConfigManager.load_or_create().get_connection(conn.id).clone_path()
@@ -67,8 +68,10 @@ def test_falha_de_rede_nao_quebra_o_hook(bare_repo, tmp_path, monkeypatch):
     sincronizar (tolerância a erro), igual ao resto do hook."""
     import argparse
 
+    dest = tmp_path / "semrede-dest"
     conn = ConnectionService().create(
         "SemRede",
+        str(dest),
         remote_url=str(bare_repo),
         review_mode="direct",
         test=False,

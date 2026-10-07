@@ -1,15 +1,13 @@
 """Segredos no cérebro: item `secret` vazio, valor preenchido pela UI, uso por `knowledge-mcp run`.
 
-O valor nunca volta por ferramenta, rota, busca, contexto ou exportação — só `has_value`.
+O valor nunca volta por ferramenta, rota, busca ou contexto — só `has_value`.
 """
 
-import io
 import json
 import os
 import re
 import subprocess
 import sys
-import zipfile
 from pathlib import Path
 
 import pytest
@@ -19,7 +17,6 @@ from knowledge_os import config
 from knowledge_os.exceptions import NotFoundError, ValidationError
 from knowledge_os.services import vault
 from knowledge_os.services.context_service import ContextService
-from knowledge_os.services.import_export_service import ImportExportService
 from knowledge_os.services.item_service import ItemService
 from knowledge_os.services.repo_service import RepoService
 from knowledge_os.services.secret_guard import ensure_no_secrets
@@ -114,19 +111,6 @@ def test_contexto_mostra_o_link_quando_falta_o_valor(linked):
     _secret(linked)
     md = ContextService(linked).build(PROJECT)["markdown"]
     assert "sem valor" in md and "http://127.0.0.1:8765/ui/#/c/" in md
-
-
-def test_exportacao_nao_leva_valor_nem_cifra(linked):
-    item_id = _secret(linked)
-    SecretService(linked).set_value(item_id, VALUE)
-    link = RepoService(linked).require(PROJECT)
-    from sqlalchemy.orm import Session
-
-    with Session(linked) as s:
-        data = ImportExportService(s).export_workspace(link["workspace_id"])
-    with zipfile.ZipFile(io.BytesIO(data)) as z:
-        blob = b"".join(z.read(n) for n in z.namelist())
-    assert VALUE.encode() not in blob and b"gAAAA" not in blob  # prefixo de token Fernet
 
 
 def test_apagar_o_item_apaga_o_valor(linked):

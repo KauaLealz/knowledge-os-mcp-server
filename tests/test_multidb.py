@@ -28,8 +28,10 @@ def workdir(tmp_path, monkeypatch):
 @pytest.fixture
 def two(catalog, tmp_path):  # noqa: F811
     svc = ConnectionService()
-    a = svc.create("A")
-    b = svc.create("B")
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    a = svc.create("A", str(tmp_path / "a"))
+    b = svc.create("B", str(tmp_path / "b"))
     return a, b
 
 

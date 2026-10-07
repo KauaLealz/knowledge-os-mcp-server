@@ -48,6 +48,7 @@ def _view(conn: Connection) -> dict[str, Any]:
     return {
         "id": conn.id,
         "name": conn.name,
+        "path": getattr(conn, "path", None),
         "remote_url": getattr(conn, "remote_url", None),
         "review_mode": getattr(conn, "review_mode", "direct"),
         "enabled": bool(conn.is_active),
@@ -66,7 +67,11 @@ def list_connections(session: Session = Depends(get_catalog_session_dep)):
 @router.post("/connections", status_code=status.HTTP_201_CREATED, response_model=ConnectionResponse)
 def create_connection(req: ConnectionCreate, session: Session = Depends(get_catalog_session_dep)):
     conn = ConnectionService(session).create(
-        req.name, remote_url=req.remote_url, review_mode=req.review_mode, enabled=req.enabled
+        req.name,
+        req.path,
+        remote_url=req.remote_url,
+        review_mode=req.review_mode,
+        enabled=req.enabled,
     )
     return _view(conn)
 

@@ -17,7 +17,6 @@ from sqlalchemy.orm import Session
 from knowledge_os.config import CATALOG_ID, ConfigManager, ConnectionConfig
 from knowledge_os.db.dialects import get_dialect
 from knowledge_os.db.models import (
-    Artifact,
     Item,
     ItemLabel,
     ItemTag,
@@ -707,7 +706,6 @@ class ItemService:
                     (Relation.source_item_id == item_id) | (Relation.target_item_id == item_id)
                 )
             )
-            s.execute(delete(Artifact).where(Artifact.item_id == item_id))
             s.execute(delete(SecretValue).where(SecretValue.item_id == item_id))
             s.expire(item, ["tags", "labels"])
             s.delete(item)

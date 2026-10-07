@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from knowledge_os.api.deps import get_artifacts_dir, get_catalog_engine_dep, get_engine_dep
+from knowledge_os.api.deps import get_catalog_engine_dep, get_engine_dep
 from knowledge_os.api.main import app
 from knowledge_os.db.migrations import bootstrap_labels
 from knowledge_os.db.session import create_db_engine, init_db
@@ -21,10 +21,8 @@ def engine(tmp_path):
 
 @pytest.fixture
 def client(engine, tmp_path):
-    art_dir = tmp_path / "artifacts"
     app.dependency_overrides[get_engine_dep] = lambda: engine
     app.dependency_overrides[get_catalog_engine_dep] = lambda: engine
-    app.dependency_overrides[get_artifacts_dir] = lambda: art_dir
     yield TestClient(app)
     app.dependency_overrides.clear()
 
