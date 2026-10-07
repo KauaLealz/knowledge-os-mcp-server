@@ -4,9 +4,9 @@
 // atribuição direta de marcação bruta (x-html), mesma regra do resto do app (markdown.js é
 // a única exceção, com DOMPurify).
 import { api } from '../api.js';
-import { go } from '../router.js';
+import { go, hrefs } from '../router.js';
 import { typeClass } from '../util.js';
-import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation } from '../../vendor/d3-force.esm.js';
+import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, forceX, forceY } from '../../vendor/d3-force.esm.js';
 import { select } from '../../vendor/d3-selection.esm.js';
 import { drag } from '../../vendor/d3-drag.esm.js';
 import { zoom } from '../../vendor/d3-zoom.esm.js';
@@ -83,9 +83,10 @@ export function register(Alpine) {
       return title.length > 22 ? title.slice(0, 21) + '…' : title;
     },
 
-    goTo(id) {
-      const href = this.app.hItemById(id);
-      if (href) go(href);
+    /** Não depende de itemIndex (só tem o que a sidebar já carregou): o próprio nó do grafo
+     * já traz workspace/project, suficiente pra montar o link direto. */
+    goTo(n) {
+      go(hrefs.item(this.app.connId, this.app.route.params.ws, n.project_id, n.id));
     },
 
     /**
@@ -166,6 +167,29 @@ export function register(Alpine) {
         .force('collide', forceCollide((n) => radius(n) + 6))
         .on('tick', tick);
 
+      // No grafo do workspace (vários projects ao mesmo tempo), agrupa visualmente por
+      // project/assunto — cada grupo puxado pro centro de uma célula de uma grade; escopo
+      // de project/subject já é um grupo só, não precisa disso.
+      if (this.app.route.name === 'graph') {
+        const groupKey = (n) => (n.subject_id ? `${n.project_id}:${n.subject_id}` : n.project_id);
+        const groups = [...new Set(this.nodes.map(groupKey))];
+        if (groups.length > 1) {
+          const cols = Math.ceil(Math.sqrt(groups.length));
+          const rows = Math.ceil(groups.length / cols);
+          const cellW = this.width / cols;
+          const cellH = this.height / rows;
+          const centers = new Map(
+            groups.map((g, i) => [
+              g,
+              { x: cellW * ((i % cols) + 0.5), y: cellH * (Math.floor(i / cols) + 0.5) },
+            ]),
+          );
+          this.sim
+            .force('x', forceX((n) => centers.get(groupKey(n)).x).strength(0.12))
+            .force('y', forceY((n) => centers.get(groupKey(n)).y).strength(0.12));
+        }
+      }
+
       // Deixa o layout assentar de uma vez antes do primeiro desenho: o timer do d3 usa
       // requestAnimationFrame, que o navegador pausa se a aba abrir em segundo plano — sem
       // isso, o grafo ficaria com todos os nós empilhados até alguém olhar pra aba.
@@ -196,7 +220,7 @@ export function register(Alpine) {
               this.sim.alphaTarget(0);
               n.fx = null;
               n.fy = null;
-              if (!moved) this.goTo(n.id);
+              if (!moved) this.goTo(n);
             }),
         );
       });

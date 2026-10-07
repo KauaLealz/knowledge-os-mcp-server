@@ -172,7 +172,7 @@ def test_graph(client, mk):
     data = resp.json()
     assert {n["id"] for n in data["nodes"]} == {a["id"], b["id"], c["id"]}
     node_a = next(n for n in data["nodes"] if n["id"] == a["id"])
-    assert set(node_a) == {"id", "title", "type", "project_id", "status"}
+    assert set(node_a) == {"id", "title", "type", "project_id", "subject_id", "status"}
     assert len(data["edges"]) == 1
     edge = data["edges"][0]
     assert edge["source"] == a["id"]

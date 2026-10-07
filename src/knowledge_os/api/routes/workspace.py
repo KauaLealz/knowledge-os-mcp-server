@@ -204,10 +204,19 @@ def workspace_graph(
     if subject_id:
         filters.append(Item.subject_id == subject_id)
     rows = session.execute(
-        select(Item.id, Item.title, Item.type, Item.project_id, Item.status).where(*filters)
+        select(Item.id, Item.title, Item.type, Item.project_id, Item.subject_id, Item.status).where(
+            *filters
+        )
     ).all()
     nodes = [
-        GraphNode(id=r.id, title=r.title, type=r.type, project_id=r.project_id, status=r.status)
+        GraphNode(
+            id=r.id,
+            title=r.title,
+            type=r.type,
+            project_id=r.project_id,
+            subject_id=r.subject_id,
+            status=r.status,
+        )
         for r in rows
     ]
     edges = [

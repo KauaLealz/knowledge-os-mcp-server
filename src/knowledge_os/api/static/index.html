@@ -242,7 +242,6 @@
                 <h1 class="page-title">Workspaces</h1>
                 <div class="toolbar"><button class="btn primary" @click="$store.app.openModal('workspace')"><svg class="ic"><use href="#i-plus"/></svg> Novo workspace</button></div>
               </div>
-              <p class="page-lead">Escolha um workspace para navegar pelo conhecimento.</p>
               <div class="state error" x-show="$store.app.wsError" role="alert">
                 <svg class="logo"><use href="#logo"/></svg>
                 <h3>Não foi possível listar os workspaces</h3>
@@ -282,7 +281,6 @@
                     <h1 class="page-title" x-text="$store.app.workspace.name"></h1>
                     <div class="toolbar"><a class="btn" :href="graphHref()">Ver grafo</a></div>
                   </div>
-                  <p class="page-lead" x-show="$store.app.workspace.description" x-text="$store.app.workspace.description"></p>
                   <div class="page-meta" x-show="$store.app.tree">
                     <span><b x-text="$store.app.tree?.projects?.length"></b> projects</span>
                     <span><b x-text="totalItems"></b> itens</span>
@@ -438,8 +436,6 @@
                 <span>Grafo</span>
               </nav>
               <h1 class="page-title">Grafo de relações</h1>
-              <p class="page-lead">Nós são os itens do escopo; arestas são as relações entre eles. Arraste um nó, role pra dar zoom, clique pra abrir o item.</p>
-
               <div class="state" x-show="loading">
                 <svg class="logo"><use href="#logo"/></svg>
                 <h3>Carregando grafo…</h3>
@@ -492,7 +488,6 @@
                       <button class="btn primary" @click="$store.app.openModal('item')"><svg class="ic"><use href="#i-plus"/></svg> Novo item</button>
                     </div>
                   </div>
-                  <p class="page-lead" x-show="$store.app.project.description" x-text="$store.app.project.description"></p>
                   <div class="page-meta"><span><b x-text="$store.app.project.item_count"></b> itens</span></div>
 
                   <div class="filterbar">
@@ -889,7 +884,6 @@
                     <h1 class="page-title">Conexões</h1>
                     <div class="toolbar"><a class="btn primary" href="#/settings/connections/new"><svg class="ic"><use href="#i-plus"/></svg> Nova conexão</a></div>
                   </div>
-                  <p class="page-lead">Repositórios git usados pela API e pelas tools MCP. O cadastro vive no <code>connections.json</code> do home.</p>
                   <div class="state error" x-show="error || $store.app.connError" role="alert">
                     <svg class="logo"><use href="#logo"/></svg>
                     <h3>Não foi possível listar as conexões</h3>

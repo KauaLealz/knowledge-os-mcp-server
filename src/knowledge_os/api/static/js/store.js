@@ -50,7 +50,10 @@ export const appStore = {
   filtersWs: null,
 
   trees: {}, // cache por workspace: { [wsId]: treeData }
-  treeWs: null, // último workspace carregado (gatilho simples para os $watch de workspace.js/project.js)
+  treeWs: null, // último workspace carregado (só informativo — não serve de gatilho de $watch,
+  // várias gavetas podem carregar "por último" fora de ordem quando refresh() recarrega
+  // todas de uma vez; use treeVersion pra isso)
+  treeVersion: 0, // incrementa a cada loadTree — gatilho de $watch de workspace/project/subject.js
   treeLoadingWs: {},
   treeErrorWs: {},
   itemIndex: {},
@@ -225,6 +228,7 @@ export const appStore = {
       }
       this.trees = { ...this.trees, [wsId]: data };
       this.itemIndex = { ...this.itemIndex, ...index };
+      this.treeVersion++;
       const pj = this.route.params.pj;
       if (pj && this.expanded[pj] === undefined) this.expanded[pj] = true;
     } catch (e) {

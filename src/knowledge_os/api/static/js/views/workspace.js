@@ -12,7 +12,7 @@ export function register(Alpine) {
         },
         init() {
           this.$watch(
-            () => this.app.route.params.ws + '|' + this.app.treeWs,
+            () => this.app.route.params.ws + '|' + this.app.treeVersion,
             () => this.loadItems(),
           );
           this.loadItems();

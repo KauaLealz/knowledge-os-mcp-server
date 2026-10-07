@@ -477,7 +477,7 @@ def test_grafo_usa_d3_force_zoom_drag_e_destaca_supersedes():
         "forceManyBody",
         "forceLink",
         "forceCollide",
-        "goTo(id)",
+        "goTo(n)",
     ):
         assert needle in graph, needle
     for d3lib in ("d3-force", "d3-zoom", "d3-drag", "d3-selection"):
@@ -496,6 +496,37 @@ def test_grafo_e_interativo_pan_zoom_arrastar():
     assert "drag()" in graph  # arrastar um nó
     assert "scaleExtent" in graph
     assert "alphaTarget" in graph  # solta a simulação durante o drag, acalma no fim
+
+
+def test_recarga_de_listagem_nao_depende_de_qual_gaveta_carregou_por_ultimo():
+    """`treeWs` era só "o último workspace cujo loadTree terminou" — com várias gavetas
+    carregando em paralelo (refresh() recarrega todas as abertas de uma vez), o último a
+    terminar podia não ser o da rota atual, e o $watch (que comparava contra treeWs) parava
+    de disparar loadItems() pra página certa. treeVersion incrementa a cada loadTree,
+    não importa qual workspace — serve de gatilho independente de ordem."""
+    store = _js("store.js")
+    assert "treeVersion++" in store
+    for view in ("workspace.js", "project.js", "subject.js"):
+        src = _js(f"views/{view}")
+        assert "this.app.treeVersion" in src
+        assert "this.app.treeWs" not in src
+
+
+def test_grafo_abre_item_sem_depender_do_indice_da_sidebar():
+    """`goTo` usava hItemById (precisa do item já estar no itemIndex, carregado pela
+    sidebar) — abrir o grafo direto, sem antes expandir a gaveta daquele workspace, fazia o
+    clique no nó não abrir nada. O próprio nó do grafo já traz project_id; usa direto."""
+    graph = _js("views/graph.js")
+    assert "goTo(n) {" in graph
+    assert "hrefs.item(this.app.connId, this.app.route.params.ws, n.project_id, n.id)" in graph
+    assert "hItemById" not in graph
+
+
+def test_grafo_do_workspace_agrupa_por_project_e_assunto():
+    graph = _js("views/graph.js")
+    assert "forceX" in graph and "forceY" in graph
+    assert "groupKey" in graph
+    assert "n.subject_id" in graph
 
 
 def test_grafo_nao_usa_template_x_for_dentro_de_svg():
@@ -518,7 +549,7 @@ def test_grafo_nao_usa_template_x_for_dentro_de_svg():
     assert "edgeClass(e)" in graph and "nodeClass(n)" in graph
     # clique só conta se o nó não se mexeu entre mousedown e mouseup (senão todo drag
     # navegaria pro item ao soltar)
-    assert "if (!moved) this.goTo(n.id)" in graph
+    assert "if (!moved) this.goTo(n)" in graph
 
 
 def test_linhas_de_item_nao_usam_icone_de_tipo():
