@@ -93,70 +93,92 @@
             </template>
           </div>
         </div>
-
-        <!-- Workspace -->
-        <div class="dd" x-data="dropdown" @click.outside="close()" @keydown.escape.window="close()">
-          <button class="dd-btn" @click="toggle()" :aria-expanded="open" aria-haspopup="listbox">
-            <svg class="ic"><use href="#i-box"/></svg>
-            <span class="dd-text">
-              <span class="dd-label">Workspace</span>
-              <span class="dd-value" x-text="$store.app.workspace ? $store.app.workspace.name : 'Selecionar…'"></span>
-            </span>
-            <svg class="ic dd-chev"><use href="#i-chevrons"/></svg>
-          </button>
-          <div class="dd-menu" x-show="open" x-cloak role="listbox">
-            <template x-for="w in $store.app.workspaces" :key="w.id">
-              <button class="dd-item" role="option" :class="{ active: w.id === $store.app.route.params.ws }"
-                      @click="close(); $store.app.pickWorkspace(w.id)">
-                <span class="grow" x-text="w.name"></span>
-              </button>
-            </template>
-            <div class="dd-empty" x-show="!$store.app.workspaces.length">Nenhum workspace nesta conexão.</div>
-          </div>
-        </div>
       </div>
 
-      <!-- Árvore Workspace → Project → Item -->
-      <nav class="tree" aria-label="Árvore do workspace">
-        <template x-if="$store.app.route.params.ws && $store.app.treeLoading && !$store.app.tree">
-          <div><div class="skeleton"></div><div class="skeleton" style="width:70%"></div><div class="skeleton" style="width:85%"></div></div>
-        </template>
-        <template x-if="$store.app.route.params.ws && $store.app.tree">
+      <!-- Árvore: todos os workspaces da conexão, cada um como gaveta (Workspace → Project → Subject → Item) -->
+      <nav class="tree" aria-label="Workspaces">
+        <template x-for="w in $store.app.workspaces" :key="w.id">
           <div>
-            <div class="tree-head">
-              <span x-text="$store.app.workspace ? $store.app.workspace.name : 'Workspace'"></span>
+            <div class="tree-row" :class="{ active: $store.app.route.name === 'workspace' && $store.app.route.params.ws === w.id }">
+              <button class="tw" @click="$store.app.toggleWorkspace(w.id)"
+                      :aria-label="($store.app.isWorkspaceOpen(w.id) ? 'Recolher ' : 'Expandir ') + w.name"
+                      :aria-expanded="$store.app.isWorkspaceOpen(w.id)">
+                <svg class="ic" :class="{ open: $store.app.isWorkspaceOpen(w.id) }"><use href="#i-chevron"/></svg>
+              </button>
+              <a class="tree-link" :href="$store.app.hWs(w.id)">
+                <svg class="ic"><use href="#i-box"/></svg>
+                <span class="tl-text" x-text="w.name"></span>
+              </a>
+              <a class="tw" :href="$store.app.hGraph(w.id)" :aria-label="'Grafo de ' + w.name" title="Grafo">
+                <svg class="ic"><use href="#i-command"/></svg>
+              </a>
             </div>
-            <template x-for="p in $store.app.tree.projects" :key="p.id">
-              <div>
-                <div class="tree-row" :class="{ active: $store.app.route.name === 'project' && $store.app.route.params.pj === p.id }">
-                  <button class="tw" @click="$store.app.toggleProject(p.id)"
-                          :aria-label="($store.app.isOpen(p.id) ? 'Recolher ' : 'Expandir ') + p.name"
-                          :aria-expanded="$store.app.isOpen(p.id)">
-                    <svg class="ic" :class="{ open: $store.app.isOpen(p.id) }"><use href="#i-chevron"/></svg>
-                  </button>
-                  <a class="tree-link" :href="$store.app.hProject(p.id)">
-                    <svg class="ic"><use href="#i-folder"/></svg>
-                    <span class="tl-text" x-text="p.name"></span>
-                    <span class="count" x-text="p.item_count"></span>
-                  </a>
-                </div>
-                <div class="tree-items" x-show="$store.app.isOpen(p.id)">
-                  <template x-for="it in p.items" :key="it.id">
-                    <a class="tree-item" :class="{ active: $store.app.route.params.item === it.id }"
-                       :href="$store.app.hItem(p.id, it.id)" :title="it.title">
-                      <span class="tdot" :class="$tc(it.type)" aria-hidden="true"></span>
-                      <span class="sr-only" x-text="$tlabel(it.type) + ': '"></span><span x-text="it.title"></span>
-                    </a>
+
+            <div class="tree-items" x-show="$store.app.isWorkspaceOpen(w.id)">
+              <template x-if="$store.app.treeLoadingWs[w.id] && !$store.app.trees[w.id]">
+                <div><div class="skeleton"></div><div class="skeleton" style="width:70%"></div></div>
+              </template>
+              <template x-if="$store.app.trees[w.id]">
+                <div>
+                  <template x-for="p in $store.app.trees[w.id].projects" :key="p.id">
+                    <div>
+                      <div class="tree-row" :class="{ active: $store.app.route.name === 'project' && $store.app.route.params.pj === p.id }">
+                        <button class="tw" @click="$store.app.toggleProject(p.id)"
+                                :aria-label="($store.app.isOpen(p.id) ? 'Recolher ' : 'Expandir ') + p.name"
+                                :aria-expanded="$store.app.isOpen(p.id)">
+                          <svg class="ic" :class="{ open: $store.app.isOpen(p.id) }"><use href="#i-chevron"/></svg>
+                        </button>
+                        <a class="tree-link" :href="$store.app.hProject(p.id)">
+                          <svg class="ic"><use href="#i-folder"/></svg>
+                          <span class="tl-text" x-text="p.name"></span>
+                          <span class="count" x-text="p.item_count"></span>
+                        </a>
+                      </div>
+                      <div class="tree-items" x-show="$store.app.isOpen(p.id)">
+                        <template x-for="s in (p.subjects || [])" :key="s.id">
+                          <div class="tree-subject">
+                            <div class="tree-row">
+                              <button class="tw" @click="$store.app.toggleProject(p.id + ':' + s.id)"
+                                      :aria-label="($store.app.isOpen(p.id + ':' + s.id) ? 'Recolher ' : 'Expandir ') + s.name"
+                                      :aria-expanded="$store.app.isOpen(p.id + ':' + s.id)">
+                                <svg class="ic" :class="{ open: $store.app.isOpen(p.id + ':' + s.id) }"><use href="#i-chevron"/></svg>
+                              </button>
+                              <span class="tree-link">
+                                <span class="tl-text" x-text="s.name"></span>
+                                <span class="count" x-text="s.item_count"></span>
+                              </span>
+                            </div>
+                            <div class="tree-items" x-show="$store.app.isOpen(p.id + ':' + s.id)">
+                              <template x-for="it in s.items" :key="it.id">
+                                <a class="tree-item" :class="{ active: $store.app.route.params.item === it.id }"
+                                   :href="$store.app.hItem(p.id, it.id)" :title="it.title">
+                                  <span class="tdot" :class="$tc(it.type)" aria-hidden="true"></span>
+                                  <span class="sr-only" x-text="$tlabel(it.type) + ': '"></span><span x-text="it.title"></span>
+                                </a>
+                              </template>
+                              <div class="tree-empty" x-show="!s.items.length">Sem itens</div>
+                            </div>
+                          </div>
+                        </template>
+                        <template x-for="it in p.items" :key="it.id">
+                          <a class="tree-item" :class="{ active: $store.app.route.params.item === it.id }"
+                             :href="$store.app.hItem(p.id, it.id)" :title="it.title">
+                            <span class="tdot" :class="$tc(it.type)" aria-hidden="true"></span>
+                            <span class="sr-only" x-text="$tlabel(it.type) + ': '"></span><span x-text="it.title"></span>
+                          </a>
+                        </template>
+                        <div class="tree-empty" x-show="!p.items.length && !(p.subjects || []).length">Sem itens</div>
+                      </div>
+                    </div>
                   </template>
-                  <div class="tree-empty" x-show="!p.items.length">Sem itens</div>
+                  <div class="tree-empty" x-show="!$store.app.trees[w.id].projects.length">Este workspace ainda não tem projects.</div>
                 </div>
-              </div>
-            </template>
-            <div class="tree-empty" x-show="!$store.app.tree.projects.length">Este workspace ainda não tem projects.</div>
+              </template>
+              <div class="tree-empty" x-show="$store.app.treeErrorWs[w.id]" x-text="$store.app.treeErrorWs[w.id]"></div>
+            </div>
           </div>
         </template>
-        <div class="tree-empty" x-show="$store.app.route.params.ws && $store.app.treeError" x-text="$store.app.treeError"></div>
-        <div class="tree-empty" x-show="!$store.app.route.params.ws">Escolha um workspace para ver a árvore.</div>
+        <div class="tree-empty" x-show="!$store.app.workspaces.length">Nenhum workspace nesta conexão.</div>
       </nav>
 
       <div class="side-foot">

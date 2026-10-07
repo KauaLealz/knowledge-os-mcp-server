@@ -411,3 +411,42 @@ def test_linhas_de_item_nao_usam_icone_de_tipo():
         assert "<svg" not in row
         assert row.count('class="tbadge"') == 1
     assert "icon:" not in (STATIC / "js" / "util.js").read_text(encoding="utf-8")
+
+
+def _sidebar() -> str:
+    html = _index()
+    start = html.index("<!-- ===== Sidebar ===== -->")
+    end = html.index("<!-- ===== Conteúdo ===== -->")
+    return html[start:end]
+
+
+def test_sidebar_so_tem_um_dropdown_o_da_connection():
+    sidebar = _sidebar()
+    assert sidebar.count('x-data="dropdown"') == 1
+    assert 'dd-label">Workspace' not in sidebar  # sem o antigo label/dropdown de Workspace
+    assert "pickWorkspace" not in sidebar
+
+
+def test_sidebar_lista_todos_os_workspaces_como_gavetas():
+    sidebar = _sidebar()
+    assert "$store.app.workspaces" in sidebar
+    assert "$store.app.hWs(w.id)" in sidebar
+
+
+def test_sidebar_expande_e_recolhe_cada_workspace():
+    sidebar = _sidebar()
+    assert "isWorkspaceOpen" in sidebar and "toggleWorkspace" in sidebar
+    store = _js("store.js")
+    assert "isWorkspaceOpen(wsId)" in store and "toggleWorkspace(wsId)" in store
+
+
+def test_sidebar_mostra_subjects_na_arvore():
+    sidebar = _sidebar()
+    assert "p.subjects" in sidebar
+
+
+def test_sidebar_tem_atalho_de_grafo_por_workspace():
+    sidebar = _sidebar()
+    assert "hGraph" in sidebar
+    store = _js("store.js")
+    assert "hGraph(wsId)" in store and "hrefs.graph" in store

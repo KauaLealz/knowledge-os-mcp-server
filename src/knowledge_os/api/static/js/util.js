@@ -58,6 +58,7 @@ export const TYPE_META = {
   knowledge: { label: 'Aprendizado', plural: 'Aprendizados' },
   context: { label: 'Contexto', plural: 'Contexto' },
   artifact: { label: 'Anexo', plural: 'Anexos' },
+  spec: { label: 'Especificação', plural: 'Especificações' },
   secret: { label: 'Segredo', plural: 'Segredos' },
 };
 export const TYPE_ORDER = Object.keys(TYPE_META);

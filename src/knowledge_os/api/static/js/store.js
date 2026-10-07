@@ -49,10 +49,10 @@ export const appStore = {
   filters: { q: '', types: [] },
   filtersWs: null,
 
-  tree: null,
-  treeWs: null,
-  treeLoading: false,
-  treeError: null,
+  trees: {}, // cache por workspace: { [wsId]: treeData }
+  treeWs: null, // último workspace carregado (gatilho simples para os $watch de workspace.js/project.js)
+  treeLoadingWs: {},
+  treeErrorWs: {},
   itemIndex: {},
 
   theme: 'light', // sempre 'light' ou 'dark' (o do sistema até o primeiro clique)
@@ -155,7 +155,7 @@ export const appStore = {
       this.filtersWs = r.params.ws || null;
       this.filters = { q: '', types: [] };
     }
-    if (r.params.ws && r.params.ws !== this.treeWs && this.workspaces.length) {
+    if (r.params.ws && !this.trees[r.params.ws] && this.workspaces.length) {
       await this.loadTree(r.params.ws);
     }
     this.updateTitle();
@@ -175,8 +175,10 @@ export const appStore = {
     this.connId = id;
     setConnection(id);
     lsSet('kos.conn', id);
-    this.tree = null;
+    this.trees = {};
     this.treeWs = null;
+    this.treeLoadingWs = {};
+    this.treeErrorWs = {};
     this.itemIndex = {};
     await this.loadWorkspaces();
   },
@@ -202,43 +204,62 @@ export const appStore = {
     }
   },
 
+  /** Carrega (ou recarrega, se chamado via refresh) a árvore de um workspace. Várias gavetas podem estar abertas ao mesmo tempo, cada uma com seu próprio cache. */
   async loadTree(wsId = this.route.params.ws) {
     if (!wsId) return;
-    this.treeLoading = true;
-    this.treeError = null;
+    this.treeLoadingWs[wsId] = true;
+    this.treeErrorWs[wsId] = null;
     this.treeWs = wsId;
     try {
       const data = await api('GET', `/workspaces/${wsId}/tree`);
-      if (this.treeWs !== wsId) return;
       const index = {};
       for (const p of data.projects || []) {
         for (const it of p.items) {
           index[it.id] = { ...it, project_id: p.id, project_name: p.name, workspace_id: wsId };
         }
+        for (const s of p.subjects || []) {
+          for (const it of s.items) {
+            index[it.id] = { ...it, project_id: p.id, project_name: p.name, workspace_id: wsId, subject_id: s.id };
+          }
+        }
       }
-      this.tree = data;
-      this.itemIndex = index;
+      this.trees = { ...this.trees, [wsId]: data };
+      this.itemIndex = { ...this.itemIndex, ...index };
       const pj = this.route.params.pj;
       if (pj && this.expanded[pj] === undefined) this.expanded[pj] = true;
     } catch (e) {
-      if (this.treeWs === wsId) {
-        this.tree = null;
-        this.treeError = e.message;
-      }
+      delete this.trees[wsId];
+      this.treeErrorWs[wsId] = e.message;
     } finally {
-      if (this.treeWs === wsId) this.treeLoading = false;
+      this.treeLoadingWs[wsId] = false;
     }
   },
 
   async refresh() {
     await this.loadWorkspaces();
-    if (this.treeWs) await this.loadTree(this.treeWs);
+    // Recarrega todas as gavetas de workspace abertas (mínimo: a do workspace da rota atual).
+    const openWs = Object.keys(this.expanded)
+      .filter((k) => k.startsWith('ws:') && this.expanded[k])
+      .map((k) => k.slice(3));
+    const toReload = new Set(openWs);
+    if (this.route.params.ws) toReload.add(this.route.params.ws);
+    await Promise.all([...toReload].map((wsId) => this.loadTree(wsId)));
     this.updateTitle();
   },
 
   // ---- derivados ----
   get workspace() {
     return this.workspaces.find((w) => w.id === this.route.params.ws) || null;
+  },
+  /** Compatibilidade: árvore do workspace da rota atual (workspace.js/project.js/item.js/editor.js usam assim). */
+  get tree() {
+    return this.trees[this.route.params.ws] || null;
+  },
+  get treeLoading() {
+    return !!this.treeLoadingWs[this.route.params.ws];
+  },
+  get treeError() {
+    return this.treeErrorWs[this.route.params.ws] || null;
   },
   get project() {
     return this.tree?.projects?.find((p) => p.id === this.route.params.pj) || null;
@@ -273,6 +294,9 @@ export const appStore = {
     return it ? hrefs.item(this.connId, this.route.params.ws, it.project_id, itemId) : null;
   },
   hConnections: (sub) => hrefs.connections(sub),
+  hGraph(wsId) {
+    return hrefs.graph(this.connId, wsId ?? this.route.params.ws);
+  },
 
   // ---- árvore ----
   isOpen(pjId) {
@@ -281,6 +305,15 @@ export const appStore = {
   toggleProject(pjId) {
     this.expanded[pjId] = !this.isOpen(pjId);
     lsSet('kos.expanded', JSON.stringify(this.expanded));
+  },
+  isWorkspaceOpen(wsId) {
+    return this.expanded['ws:' + wsId] ?? this.route.params.ws === wsId;
+  },
+  toggleWorkspace(wsId) {
+    const next = !this.isWorkspaceOpen(wsId);
+    this.expanded['ws:' + wsId] = next;
+    lsSet('kos.expanded', JSON.stringify(this.expanded));
+    if (next && !this.trees[wsId]) this.loadTree(wsId);
   },
 
   // ---- navegação ----
