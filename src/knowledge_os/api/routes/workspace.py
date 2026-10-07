@@ -189,13 +189,22 @@ def workspace_tree(id: str, session: Session = Depends(get_session_dep)):
 
 
 @router.get("/workspaces/{id}/graph", response_model=WorkspaceGraph)
-def workspace_graph(id: str, session: Session = Depends(get_session_dep)):
-    """Nós = items do workspace; arestas = Relation entre dois items do workspace."""
+def workspace_graph(
+    id: str,
+    project_id: str | None = None,
+    subject_id: str | None = None,
+    session: Session = Depends(get_session_dep),
+):
+    """Nós = items do escopo (workspace inteiro, ou só um project/subject dele); arestas =
+    Relation entre dois items do mesmo escopo."""
     get_or_404(session, Workspace, id, "Workspace")
+    filters = [Item.workspace_id == id]
+    if project_id:
+        filters.append(Item.project_id == project_id)
+    if subject_id:
+        filters.append(Item.subject_id == subject_id)
     rows = session.execute(
-        select(Item.id, Item.title, Item.type, Item.project_id, Item.status).where(
-            Item.workspace_id == id
-        )
+        select(Item.id, Item.title, Item.type, Item.project_id, Item.status).where(*filters)
     ).all()
     nodes = [
         GraphNode(id=r.id, title=r.title, type=r.type, project_id=r.project_id, status=r.status)
@@ -207,7 +216,7 @@ def workspace_graph(id: str, session: Session = Depends(get_session_dep)):
             target=rel.target_item_id,
             relation_type=rel.relation_type,
         )
-        for rel in RelationService(session).list_for_workspace(id)
+        for rel in RelationService(session).list_for_items([r.id for r in rows])
     ]
     return WorkspaceGraph(nodes=nodes, edges=edges)
 

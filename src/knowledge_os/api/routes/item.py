@@ -28,6 +28,7 @@ router = APIRouter()
 def list_items(
     workspace_id: str | None = None,
     project_id: str | None = None,
+    subject_id: str | None = None,
     type: str | None = None,
     memory_class: str | None = None,
     limit: int = Query(default=100, ge=1, le=500),
@@ -39,6 +40,8 @@ def list_items(
         filters.append(Item.workspace_id == workspace_id)
     if project_id:
         filters.append(Item.project_id == project_id)
+    if subject_id:
+        filters.append(Item.subject_id == subject_id)
     if type:
         filters.append(Item.type == type)
     if memory_class:

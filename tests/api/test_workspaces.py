@@ -184,6 +184,42 @@ def test_graph_missing_is_404(client):
     assert client.get("/api/workspaces/nope/graph").status_code == 404
 
 
+def test_graph_filtra_por_project_e_subject(client, mk, engine):
+    from sqlalchemy.orm import Session
+
+    from knowledge_os.services.subject_service import SubjectService
+
+    ws = mk.ws("Escopos")
+    p1 = mk.project(ws["id"], "P1")
+    p2 = mk.project(ws["id"], "P2")
+    with Session(engine) as s:
+        subj = SubjectService(s).create(p1["id"], "Assunto")
+        subj_id = subj.id
+    a = mk.item(ws["id"], p1["id"], "A", subject_id=subj_id)
+    b = mk.item(ws["id"], p1["id"], "B", subject_id=subj_id)
+    c = mk.item(ws["id"], p1["id"], "C")  # mesmo project, sem subject
+    d = mk.item(ws["id"], p2["id"], "D")  # outro project
+    for src, tgt in ((a, b), (a, c), (a, d)):
+        r = client.post(
+            "/api/relations",
+            json={
+                "source_item_id": src["id"],
+                "target_item_id": tgt["id"],
+                "relation_type": "related_to",
+            },
+        )
+        assert r.status_code == 201, r.text
+
+    graph_url = f"/api/workspaces/{ws['id']}/graph"
+    by_project = client.get(graph_url, params={"project_id": p1["id"]}).json()
+    assert {n["id"] for n in by_project["nodes"]} == {a["id"], b["id"], c["id"]}
+    assert len(by_project["edges"]) == 2  # a-b e a-c; a-d sai (d é de outro project)
+
+    by_subject = client.get(graph_url, params={"subject_id": subj_id}).json()
+    assert {n["id"] for n in by_subject["nodes"]} == {a["id"], b["id"]}
+    assert len(by_subject["edges"]) == 1  # só a-b; a-c e a-d saem (c/d fora do subject)
+
+
 def test_graph_ignores_relation_pointing_outside_workspace(client, mk):
     ws1, p1, item1 = mk.tree()
     ws2 = mk.ws("Other")

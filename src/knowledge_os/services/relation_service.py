@@ -80,6 +80,24 @@ class RelationService:
                 s.expunge_all()
             return rows
 
+    def list_for_items(self, item_ids: list[str]) -> list[Relation]:
+        """Lista relações cujos dois items (source e target) estão em `item_ids` — o grafo
+        de um escopo qualquer (workspace/project/subject) é só filtrar os items antes."""
+        if not item_ids:
+            return []
+        with session_scope(self._session, self._connection_id) as s:
+            rows = list(
+                s.scalars(
+                    select(Relation)
+                    .where(Relation.source_item_id.in_(item_ids))
+                    .where(Relation.target_item_id.in_(item_ids))
+                    .order_by(Relation.created_at, Relation.id)
+                )
+            )
+            if self._session is None:
+                s.expunge_all()
+            return rows
+
     def list(self, item_id: str) -> list[Relation]:
         """Lista relações em que o item é source ou target."""
         with session_scope(self._session, self._connection_id) as s:

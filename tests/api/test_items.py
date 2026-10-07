@@ -73,6 +73,20 @@ def test_list_limit_offset(client, mk):
     assert len(client.get("/api/items", params={"limit": 2, "offset": 2}).json()["items"]) == 1
 
 
+def test_list_filtra_por_subject_id(client, mk, engine):
+    from sqlalchemy.orm import Session
+
+    from knowledge_os.services.subject_service import SubjectService
+
+    ws, dm, _ = mk.tree()
+    with Session(engine) as s:
+        subj = SubjectService(s).create(dm["id"], "Assunto")
+        subj_id = subj.id
+    mk.item(ws["id"], dm["id"], "Com assunto", subject_id=subj_id)
+    r = client.get("/api/items", params={"subject_id": subj_id})
+    assert [i["title"] for i in r.json()["items"]] == ["Com assunto"]
+
+
 def test_list_total_independe_do_limit(client, mk):
     """`total` é o total real sem o corte de limit/offset — é o que a paginação usa."""
     ws, dm, _ = mk.tree()
