@@ -1,5 +1,5 @@
 // Página de Project: itens do project agrupados por tipo, com filtros e busca.
-import { listingMixin, mix, LIMIT } from './listing.js';
+import { listingMixin, mix } from './listing.js';
 
 export function register(Alpine) {
   Alpine.data('projectView', () =>
@@ -16,11 +16,6 @@ export function register(Alpine) {
           );
           this.loadItems();
           this.initListing();
-        },
-        /** Lista cheia (== limite) ou menor que o item_count da árvore: avisa que há mais itens. */
-        get truncated() {
-          const total = this.app.project?.item_count ?? 0;
-          return !this.loading && this.items.length > 0 && (this.items.length >= LIMIT || this.items.length < total);
         },
         get totalItems() {
           return Math.max(this.app.project?.item_count ?? 0, this.items.length);

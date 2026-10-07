@@ -380,6 +380,12 @@
                       </div>
                     </section>
                   </template>
+                  <div class="toolbar" x-show="!searchMode && hasMore">
+                    <span class="muted" style="font-size:13px" x-text="items.length + ' itens carregados'"></span>
+                    <button class="btn" :disabled="loadingMore" @click="loadMore()">
+                      <span x-text="loadingMore ? 'Carregando…' : 'Carregar mais'"></span>
+                    </button>
+                  </div>
                   <div class="state" x-show="filtering && !visible.length && !searching && !searchError">
                     <svg class="logo"><use href="#logo"/></svg>
                     <h3>Nenhum item encontrado</h3>
@@ -478,10 +484,6 @@
                   <div class="page-meta"><span><b x-text="$store.app.project.item_count"></b> itens</span></div>
                   <div class="toolbar"><button class="btn primary" @click="$store.app.openModal('item')"><svg class="ic"><use href="#i-plus"/></svg> Novo item</button></div>
 
-                  <div class="banner" role="status" x-show="truncated">
-                    <svg class="ic"><use href="#i-alert"/></svg><span x-text="'Mostrando ' + items.length + ' de ' + totalItems + ' itens'"></span>
-                  </div>
-
                   <div class="filterbar">
                     <label class="searchbox">
                       <svg class="ic"><use href="#i-search"/></svg>
@@ -536,6 +538,12 @@
                       </div>
                     </section>
                   </template>
+                  <div class="toolbar" x-show="!searchMode && hasMore">
+                    <span class="muted" style="font-size:13px" x-text="items.length + ' itens carregados'"></span>
+                    <button class="btn" :disabled="loadingMore" @click="loadMore()">
+                      <span x-text="loadingMore ? 'Carregando…' : 'Carregar mais'"></span>
+                    </button>
+                  </div>
                   <div class="state" x-show="filtering && !visible.length && !searching && !searchError">
                     <svg class="logo"><use href="#logo"/></svg>
                     <h3>Nenhum item encontrado</h3>

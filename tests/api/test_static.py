@@ -236,11 +236,13 @@ def test_load_workspaces_descarta_resposta_antiga():
     assert "++this.wsSeq" in st and st.count("seq !== this.wsSeq") >= 2
 
 
-def test_pagina_de_project_usa_limite_maximo_e_avisa():
+def test_listagem_carrega_por_paginas_com_botao_carregar_mais():
     lst = _js("views/listing.js")
-    assert "LIMIT = 500" in lst and "limit: LIMIT" in lst
+    assert "pageSize" in lst and "hasMore" in lst and "loadMore" in lst
+    assert "limit: this.pageSize" in lst
     html = (STATIC / "index.html").read_text(encoding="utf-8")
-    assert "Mostrando " in html and "truncated" in html
+    assert html.count('@click="loadMore()"') == 2
+    assert "hasMore" in html and "loadingMore" in html
 
 
 def test_nenhum_arquivo_estatico_menciona_401():

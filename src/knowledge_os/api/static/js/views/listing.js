@@ -4,7 +4,7 @@
 import { api } from '../api.js';
 import { TYPE_ORDER, groupByType, parseDate, typeLabel } from '../util.js';
 
-export const LIMIT = 500; // máximo aceito pela API na listagem
+export const PAGE_SIZE = 50; // itens por página no "Carregar mais" (mesmo tamanho da busca)
 const SEARCH_LIMIT = 50; // máximo aceito pela busca
 const MIN_QUERY = 2;
 
@@ -27,6 +27,10 @@ export function listingMixin(Alpine) {
     items: [],
     loading: false,
     error: null,
+    pageSize: PAGE_SIZE,
+    offset: 0,
+    hasMore: true,
+    loadingMore: false,
     remote: [],
     searching: false,
     searchError: null,
@@ -56,19 +60,49 @@ export function listingMixin(Alpine) {
       this.runSearch();
     },
 
+    /** Carga inicial (ou recarga ao trocar de workspace/project): busca a primeira página. */
     async loadItems() {
       const scope = this.scope();
       if (!scope.workspace_id) return;
       const seq = ++loadSeq;
       this.loading = true;
       this.error = null;
+      this.offset = 0;
+      this.hasMore = true;
       try {
-        const items = await api('GET', '/items', { query: { ...scope, limit: LIMIT } });
-        if (seq === loadSeq) this.items = items;
+        const items = await api('GET', '/items', { query: { ...scope, limit: this.pageSize, offset: 0 } });
+        if (seq === loadSeq) {
+          this.items = items;
+          this.offset = items.length;
+          this.hasMore = items.length === this.pageSize;
+        }
       } catch (e) {
         if (seq === loadSeq) this.error = e.message;
       } finally {
         if (seq === loadSeq) this.loading = false;
+      }
+    },
+
+    /** "Carregar mais": busca a próxima página e concatena ao que já está carregado. */
+    async loadMore() {
+      const scope = this.scope();
+      if (!scope.workspace_id || !this.hasMore || this.loadingMore) return;
+      const seq = loadSeq;
+      this.loadingMore = true;
+      this.error = null;
+      try {
+        const items = await api('GET', '/items', {
+          query: { ...scope, limit: this.pageSize, offset: this.items.length },
+        });
+        if (seq === loadSeq) {
+          this.items = this.items.concat(items);
+          this.offset = this.items.length;
+          this.hasMore = items.length === this.pageSize;
+        }
+      } catch (e) {
+        if (seq === loadSeq) this.error = e.message;
+      } finally {
+        if (seq === loadSeq) this.loadingMore = false;
       }
     },
 
