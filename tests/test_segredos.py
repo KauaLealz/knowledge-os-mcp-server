@@ -15,7 +15,8 @@ from pathlib import Path
 import pytest
 from fastmcp.exceptions import ToolError
 
-from knowledge_os.exceptions import ValidationError
+from knowledge_os import config
+from knowledge_os.exceptions import NotFoundError, ValidationError
 from knowledge_os.services import vault
 from knowledge_os.services.context_service import ContextService
 from knowledge_os.services.import_export_service import ImportExportService
@@ -302,18 +303,14 @@ def test_set_value_recusa_curto_e_utf16_solto(linked, value, match):
         SecretService(linked).set_value(item_id, value)
 
 
-def test_valor_trocado_de_linha_no_banco_nao_vira_outro_segredo(linked):
-    from sqlalchemy import text
-
+def test_valor_trocado_de_linha_no_arquivo_nao_vira_outro_segredo(linked):
     a = _secret(linked)
     b = _secret(linked, key="segredo/aws", title="AWS")
     SecretService(linked).set_value(a, VALUE)
     SecretService(linked).set_value(b, "aws-" + VALUE)
-    with linked.begin() as conn:
-        tok_a = conn.execute(text("SELECT ciphertext FROM secret_values WHERE item_id=:i"),
-                             {"i": a}).scalar()
-        conn.execute(text("UPDATE secret_values SET ciphertext=:t WHERE item_id=:i"),
-                     {"t": tok_a, "i": b})
+    secrets_dir = config.KNOWLEDGE_HOME / "repos" / "default" / ".secrets"
+    (secrets_dir / f"{b}.enc").write_text((secrets_dir / f"{a}.enc").read_text(encoding="utf-8"),
+                                          encoding="utf-8")
     with pytest.raises(ValidationError, match="outro segredo"):
         SecretService(linked).resolve(PROJECT, "segredo/aws")
 
@@ -342,6 +339,53 @@ def test_apagar_project_leva_o_valor(linked):
         s.commit()
     with linked.connect() as conn:
         assert conn.execute(text("SELECT count(*) FROM secret_values")).scalar() == 0
+
+
+# ---- ciphertext em arquivo no clone, fora do banco ------------------------------------------
+
+def test_set_value_grava_o_ciphertext_em_arquivo_no_clone(linked):
+    item_id = _secret(linked)
+    SecretService(linked).set_value(item_id, VALUE)
+    secret_path = config.KNOWLEDGE_HOME / "repos" / "default" / ".secrets" / f"{item_id}.enc"
+    assert secret_path.is_file()
+    token = secret_path.read_text(encoding="utf-8")
+    assert VALUE not in token
+    assert vault.decrypt(token, bound_to=item_id) == VALUE
+    with linked.connect() as conn:
+        from sqlalchemy import text
+
+        cols = {row[1] for row in conn.execute(text("PRAGMA table_info(secret_values)"))}
+    assert "ciphertext" not in cols
+
+
+def test_primeira_gravacao_poe_secrets_no_gitignore_sem_duplicar(linked):
+    item_id = _secret(linked)
+    clone_path = config.KNOWLEDGE_HOME / "repos" / "default"
+    SecretService(linked).set_value(item_id, VALUE)
+    gitignore = (clone_path / ".gitignore").read_text(encoding="utf-8")
+    assert gitignore.splitlines().count(".secrets/") == 1
+
+    SecretService(linked).set_value(item_id, "outro-valor-com-tamanho-ok")
+    gitignore = (clone_path / ".gitignore").read_text(encoding="utf-8")
+    assert gitignore.splitlines().count(".secrets/") == 1
+
+
+def test_clear_value_remove_o_arquivo(linked):
+    item_id = _secret(linked)
+    SecretService(linked).set_value(item_id, VALUE)
+    secret_path = config.KNOWLEDGE_HOME / "repos" / "default" / ".secrets" / f"{item_id}.enc"
+    assert secret_path.exists()
+    SecretService(linked).clear_value(item_id)
+    assert not secret_path.exists()
+
+
+def test_resolve_com_arquivo_ausente_mas_indice_com_valor_da_erro_claro(linked):
+    item_id = _secret(linked)
+    SecretService(linked).set_value(item_id, VALUE)
+    secret_path = config.KNOWLEDGE_HOME / "repos" / "default" / ".secrets" / f"{item_id}.enc"
+    secret_path.unlink()
+    with pytest.raises(NotFoundError, match="arquivo cifrado não existe"):
+        SecretService(linked).resolve(PROJECT, "segredo/npm-token")
 
 
 # ---- redação e execução --------------------------------------------------------------------

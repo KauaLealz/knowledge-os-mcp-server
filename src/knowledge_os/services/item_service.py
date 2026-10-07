@@ -14,6 +14,7 @@ from sqlalchemy import DateTime, Engine, bindparam, delete, func, select, text, 
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
+from knowledge_os.config import CATALOG_ID, ConfigManager, ConnectionConfig
 from knowledge_os.db.dialects import get_dialect
 from knowledge_os.db.models import (
     Artifact,
@@ -39,6 +40,8 @@ from knowledge_os.db.session import (
 from knowledge_os.db.timeutil import utcnow
 from knowledge_os.exceptions import NotFoundError, ValidationError
 from knowledge_os.schemas.item_schemas import MEMORY_CLASSES, ItemCreate, ItemUpdate
+from knowledge_os.services.git_repo_service import GitRepoService, PublishResult
+from knowledge_os.services.item_file import item_path, serialize_item
 from knowledge_os.services.secret_guard import ensure_no_secrets
 
 logger = logging.getLogger(__name__)
@@ -107,6 +110,50 @@ class ItemService:
         if self._engine is not None and (known := connection_id_of(self._engine)):
             return known
         return default_connection_id()
+
+    def _connection_config(self) -> ConnectionConfig | None:
+        """Config git da connection ativa; None para o catálogo (não tem repositório git)."""
+        cid = self._cid
+        if cid == CATALOG_ID:
+            return None
+        try:
+            return ConfigManager.load_or_create().get_connection(cid)
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _git_service(conn: ConnectionConfig) -> GitRepoService:
+        return GitRepoService(conn.clone_path(), conn.remote_url, conn.review_mode)
+
+    @staticmethod
+    def _publish_path_and_content(s: Session, item: Item) -> tuple[str, str]:
+        """Path relativo + conteúdo serializado do item, a partir do estado já resolvido
+        na sessão (workspace/project/subject, tags, labels e relações atuais)."""
+        ws = s.get(Workspace, item.workspace_id)
+        pj = s.get(Project, item.project_id)
+        sj = s.get(Subject, item.subject_id) if item.subject_id else None
+        relations: list[dict[str, str]] = []
+        for rel in s.scalars(select(Relation).where(Relation.source_item_id == item.id)):
+            target = s.get(Item, rel.target_item_id)
+            ref = (target.key or target.id) if target is not None else rel.target_item_id
+            relations.append({"type": rel.relation_type, "target": ref})
+        path = item_path(ws.name, pj.name, item.key, item.id)
+        content = serialize_item(
+            item,
+            workspace_name=ws.name,
+            project_name=pj.name,
+            subject_name=sj.name if sj else None,
+            relations=relations,
+            tags=[t.name for t in item.tags],
+            labels=[lb.name for lb in item.labels],
+        )
+        return path, content
+
+    @staticmethod
+    def _review_result(index: int, publish: PublishResult) -> dict[str, Any]:
+        if publish.status == "pending_review":
+            return {"index": index, "status": "pending_review", "pr_url": publish.pr_url}
+        return {"index": index, "status": "issue_opened", "issue_url": publish.issue_url}
 
     @contextmanager
     def _session(self) -> Iterator[Session]:
@@ -526,9 +573,20 @@ class ItemService:
         return run_with_retry(lambda: self._save_plans(plans), retry_conflict=True)
 
     def _save_plans(self, plans: list[tuple]) -> list[dict[str, Any]]:
-        """Executa o plano numa transação (reexecutável: cada tentativa copia os campos)."""
+        """Executa o plano numa transação (reexecutável: cada tentativa copia os campos).
+
+        Se a connection ativa tem repositório git configurado (não é o catálogo), itens
+        não secretos são serializados e publicados nesse repositório antes do índice ser
+        atualizado: modo `direct` publica e aplica no índice; modo `pr` publica para
+        revisão e devolve `pending_review`/`issue_opened` por entrada, sem tocar o índice
+        (a tentativa inteira é desfeita; o índice só muda quando o PR for mergeado e o
+        repositório sincronizado).
+        """
         results: list[dict[str, Any]] = []
         links: list[tuple[int, Item, dict[str, Any]]] = []
+        items_by_index: dict[int, Item] = {}
+        conn = self._connection_config()
+        git = self._git_service(conn) if conn is not None else None
         with self._session() as s:
             for i, item_id, key, location, fields, relations, move in plans:
                 fields = dict(fields)  # o ramo de id consome `memory_class` com pop
@@ -571,6 +629,7 @@ class ItemService:
                 if similar:
                     row["similar"] = similar
                 results.append(row)
+                items_by_index[i] = item
                 links += [(i, item, r) for r in relations]
             for i, item, rel in links:
                 try:
@@ -579,6 +638,24 @@ class ItemService:
                     raise ValidationError(f"Entrada {i}, relação {rel}: {exc}") from exc
                 if created:
                     results[i]["relations"] = results[i].get("relations", 0) + 1
+
+            files: dict[str, str | None] = {}
+            if git is not None:
+                s.flush()
+                for i, item in items_by_index.items():
+                    if item.type == "secret":
+                        continue
+                    path, content = self._publish_path_and_content(s, item)
+                    files[path] = content
+
+            if git is not None and files:
+                git.ensure_clone()
+                message = f"knowledge-os: salva {len(files)} item(ns)"
+                publish = git.publish(files, message)
+                if git.review_mode == "pr":
+                    s.rollback()
+                    return [self._review_result(i, publish) for i in sorted(items_by_index)]
+
             s.commit()
         return results
 

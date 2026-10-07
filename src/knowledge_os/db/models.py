@@ -12,7 +12,7 @@ from sqlalchemy import (
     UniqueConstraint,
     select,
 )
-from sqlalchemy.orm import column_property, declarative_base, deferred, relationship
+from sqlalchemy.orm import column_property, declarative_base, relationship
 
 from knowledge_os.db.timeutil import utcnow
 
@@ -243,12 +243,15 @@ class Artifact(Base):
 
 
 class SecretValue(Base):
-    """Valor cifrado (Fernet) de um item `secret`. Tabela à parte: nenhuma leitura, busca ou
-    exportação de item a toca; só o `knowledge-mcp run` decifra, para o processo filho."""
+    """Marcador de presença de valor de um item `secret`: existe linha = segredo tem valor.
+
+    O ciphertext (Fernet) em si não mora mais aqui — vive em arquivo, dentro do clone git
+    da connection (`<clone_path>/.secrets/<item_id>.enc`), numa pasta coberta por
+    `.gitignore` (nunca vai pro git). Tabela à parte: nenhuma leitura, busca ou exportação
+    de item a toca; só o `knowledge-mcp run` decifra, para o processo filho."""
     __tablename__ = "secret_values"
 
     item_id = Column(String(36), ForeignKey("items.id", ondelete="CASCADE"), primary_key=True)
-    ciphertext = deferred(Column(Text, nullable=False))
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
 
