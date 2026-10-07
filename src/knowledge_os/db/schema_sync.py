@@ -126,9 +126,7 @@ def _write_version(engine: Engine, version: str) -> None:
     with engine.begin() as conn:
         conn.execute(_schema_meta.delete().where(_schema_meta.c.key == _VERSION_KEY))
         conn.execute(
-            _schema_meta.insert().values(
-                key=_VERSION_KEY, value=version, updated_at=utcnow()
-            )
+            _schema_meta.insert().values(key=_VERSION_KEY, value=version, updated_at=utcnow())
         )
 
 
@@ -201,7 +199,9 @@ def schema_sync(engine: Engine, dry_run: bool = False) -> dict[str, Any]:
 
     Retorna `status` (created | updated | up_to_date | drift), `tables_created`,
     `columns_added` ("tabela.coluna"), `indexes_created` ("tabela.índice"), `fts_created`,
-    `pending_manual`, `version` e `dry_run`. Com `dry_run=True` nada é gravado e as listas
+    `pending_manual` (tipo divergente, não aplicado automaticamente), `tables_unknown` e
+    `columns_unknown` (existem no banco mas fora do nosso modelo — nunca tocadas, só
+    reportadas), `version` e `dry_run`. Com `dry_run=True` nada é gravado e as listas
     dizem o que seria aplicado.
     """
     try:
@@ -216,13 +216,26 @@ def _sync(engine: Engine, dry_run: bool) -> dict[str, Any]:
     model_tables = Base.metadata.tables
 
     tables_created = sorted(set(model_tables) - existing)
+    # Tabelas auxiliares que não são modelo de domínio (sombra da FTS5, controle de versão):
+    # fora do nosso modelo de propósito, não entram em "desconhecida".
+    _known_extra = {SCHEMA_META_TABLE, "sqlite_sequence", FTS_TABLE}
+    tables_unknown = sorted(
+        t for t in existing - set(model_tables) - _known_extra if not t.startswith(f"{FTS_TABLE}_")
+    )
     columns_to_add: list[tuple[Table, Column]] = []
     indexes_to_create: list[Index] = []
     pending_manual: list[str] = []
+    columns_unknown: list[str] = []  # na tabela, mas fora do nosso modelo — nunca tocadas
 
     for name in sorted(set(model_tables) & existing):
         table = model_tables[name]
         reflected = {c["name"]: c["type"] for c in inspector.get_columns(name)}
+        model_column_names = {c.name for c in table.columns}
+        columns_unknown += [
+            f"{name}.{col_name}"
+            for col_name in sorted(reflected)
+            if col_name not in model_column_names
+        ]
         for column in table.columns:
             if column.name not in reflected:
                 columns_to_add.append((table, column))
@@ -254,8 +267,11 @@ def _sync(engine: Engine, dry_run: bool) -> dict[str, Any]:
         if tables_created:
             _create_tolerant(
                 lambda: Base.metadata.create_all(
-                    bind=engine, tables=[model_tables[t] for t in tables_created]),
-                engine, tables_created)
+                    bind=engine, tables=[model_tables[t] for t in tables_created]
+                ),
+                engine,
+                tables_created,
+            )
         for table, column in columns_to_add:
             _add_column(engine, table, column)
         if indexes_to_create:
@@ -287,6 +303,8 @@ def _sync(engine: Engine, dry_run: bool) -> dict[str, Any]:
         "indexes_created": indexes_created,
         "fts_created": fts_missing,
         "pending_manual": pending_manual,
+        "tables_unknown": tables_unknown,
+        "columns_unknown": columns_unknown,
         "version": version,
         "dry_run": dry_run,
     }

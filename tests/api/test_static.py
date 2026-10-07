@@ -118,14 +118,14 @@ def test_view_de_conexoes_tem_as_acoes_pedidas():
         "Test",
         "Save and test",
         "Set as default",
-        "Sync schema",
         "Danger zone",
         "Default",
-        "Remote git",
+        "Repository folder",
+        "Browse…",
     ):
         assert needle in inside, needle
     conn = _js("views/connections.js")
-    for needle in ("'PATCH'", "'POST'", "'PUT'", "'DELETE'", "schema-sync", "dry_run", "/test"):
+    for needle in ("'PATCH'", "'POST'", "'PUT'", "'DELETE'", "/test", "/fs/browse"):
         assert needle in conn, needle
     assert "confirmName" in conn
 

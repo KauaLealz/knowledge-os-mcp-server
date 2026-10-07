@@ -1,12 +1,12 @@
-// Configurações · Conexões: lista, detalhe com formulário, teste, default, schema-sync e exclusão.
-// Cada conexão é um repositório git (clone local; sem remote_url = só local). `review_mode`
-// decide como as mudanças são publicadas: direto na branch principal, ou por PR.
+// Configurações · Conexões: lista, detalhe com formulário, teste, default e exclusão.
+// Cada conexão é um repositório git numa pasta local. `review_mode` decide como as
+// mudanças são publicadas: direto na branch principal, ou por PR.
 import { api } from '../api.js';
 import { go, hrefs } from '../router.js';
 
 const blankForm = () => ({
   name: '',
-  remote_url: '',
+  path: '',
   review_mode: 'direct',
   enabled: true,
 });
@@ -17,14 +17,12 @@ export function register(Alpine) {
     loading: false,
     saving: false,
     testing: false,
-    syncing: false,
     deleting: false,
     error: null,
     notFound: false,
     alert: null, // { kind: 'ok' | 'error', message, latency }
-    plan: null, // resultado do dry-run do schema-sync
-    syncMessage: null,
     confirmName: '',
+    browse: { open: false, path: '', parent: null, isGitRepo: false, entries: [], loading: false, error: null },
 
     get app() {
       return Alpine.store('app');
@@ -47,14 +45,6 @@ export function register(Alpine) {
     get dangerReady() {
       return this.canDelete && this.confirmName === this.conn.name;
     },
-    get planEmpty() {
-      const p = this.plan;
-      return !!p && !p.tables_created.length && !p.columns_added.length && !p.indexes_created.length && !p.fts_created;
-    },
-    get canApply() {
-      return !!this.plan && !this.planEmpty && !this.plan.pending_manual.length;
-    },
-
     async init() {
       await this.load();
       this.$watch('$store.app.route.params.sub', () => this.load());
@@ -64,8 +54,6 @@ export function register(Alpine) {
       this.error = null;
       this.notFound = false;
       this.alert = null;
-      this.plan = null;
-      this.syncMessage = null;
       this.confirmName = '';
       this.loading = true;
       try {
@@ -91,10 +79,38 @@ export function register(Alpine) {
     fill(c) {
       this.form = {
         name: c.name,
-        remote_url: c.remote_url || '',
+        path: c.path || '',
         review_mode: c.review_mode || 'direct',
         enabled: c.enabled,
       };
+    },
+
+    // ---- seletor de pasta (GET /fs/browse — o server só escuta em 127.0.0.1) ----
+    async openBrowse() {
+      this.browse.open = true;
+      await this.browseTo(this.form.path || null);
+    },
+    closeBrowse() {
+      this.browse.open = false;
+    },
+    async browseTo(path) {
+      this.browse.loading = true;
+      this.browse.error = null;
+      try {
+        const r = await api('GET', '/fs/browse', { query: path ? { path } : {} });
+        this.browse.path = r.path;
+        this.browse.parent = r.parent;
+        this.browse.isGitRepo = r.is_git_repo;
+        this.browse.entries = r.entries;
+      } catch (e) {
+        this.browse.error = e.message;
+      } finally {
+        this.browse.loading = false;
+      }
+    },
+    pickFolder() {
+      this.form.path = this.browse.path;
+      this.closeBrowse();
     },
 
     /** Recarrega a lista sem mexer no formulário (último teste, default, enabled). */
@@ -124,12 +140,14 @@ export function register(Alpine) {
     // ---- corpo da requisição ----
     buildBody() {
       const f = this.form;
-      return {
+      const body = {
         name: f.name.trim(),
         remote_url: f.remote_url.trim() || null,
         review_mode: f.review_mode,
         enabled: !!f.enabled,
       };
+      if (this.isNew) body.path = f.path.trim();
+      return body;
     },
 
     /** Grava (POST ou PATCH) e devolve a conexão salva. */

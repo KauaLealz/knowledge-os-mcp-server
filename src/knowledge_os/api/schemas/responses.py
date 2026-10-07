@@ -150,5 +150,7 @@ class SchemaSyncResponse(BaseModel):
     indexes_created: list[str]
     fts_created: bool
     pending_manual: list[str]
+    tables_unknown: list[str]
+    columns_unknown: list[str]
     version: str
     dry_run: bool

@@ -942,6 +942,7 @@
                 <span x-show="!sub">Settings</span>
                 <span x-show="isNew">New connection</span>
                 <span x-show="conn" x-text="conn?.name"></span>
+                <a class="crumb-back" href="#/settings/connections" x-show="sub"><svg class="ic"><use href="#i-arrow-left"/></svg> Back</a>
               </nav>
 
               <!-- Lista -->
@@ -965,7 +966,6 @@
                           <span class="conn-name"><b x-text="c.name"></b>
                             <span class="chip outline" x-text="c.review_mode"></span>
                             <span class="chip accent" x-show="c.is_default">Default</span>
-                            <span class="chip outline" x-show="c.is_catalog">Catalog</span>
                             <span class="chip outline" x-show="!c.enabled">Disabled</span>
                           </span>
                           <span class="conn-sub" x-text="target(c)"></span>
@@ -984,10 +984,8 @@
               <template x-if="sub">
                 <div>
                   <h1 class="page-title" x-text="isNew ? 'New connection' : (conn ? conn.name : 'Connection')"></h1>
-                  <p class="page-meta" x-show="conn">
-                    <span class="chip outline" x-text="conn?.review_mode"></span>
-                    <span class="chip accent" x-show="conn?.is_default">Default</span>
-                    <span class="chip outline" x-show="conn?.is_catalog">Catalog (read-only)</span>
+                  <p class="page-meta" x-show="conn?.is_default">
+                    <span class="chip accent">Default</span>
                   </p>
 
                   <div class="state error" x-show="notFound" role="alert">
@@ -1011,9 +1009,12 @@
                           </select></div>
                       </div>
 
-                      <div class="field"><label for="c-remote">Remote git</label>
-                        <input id="c-remote" class="input mono" type="text" x-model="form.remote_url" placeholder="https://github.com/org/repo.git">
-                        <span class="form-hint-text">Blank: local-only repository (no GitHub). The clone and search index live in the data home.</span></div>
+                      <div class="field" x-show="isNew"><label for="c-path">Repository folder</label>
+                        <div style="display:flex; gap:8px">
+                          <input id="c-path" class="input mono" style="flex:1" type="text" x-model="form.path" placeholder="/home/user/my-knowledge" required>
+                          <button type="button" class="btn" @click="openBrowse()"><svg class="ic"><use href="#i-folder"/></svg> Browse…</button>
+                        </div>
+                        <span class="form-hint-text">A local folder — already a git repository (used as-is) or a plain one (git init, keeping what's inside).</span></div>
 
                       <label class="check"><input type="checkbox" x-model="form.enabled"> Enabled</label>
 
@@ -1023,6 +1024,39 @@
                         <a class="btn ghost" href="#/settings/connections">Cancel</a>
                       </div>
                     </form>
+
+                    <!-- Folder picker (GET /fs/browse — server listens on 127.0.0.1 only) -->
+                    <div class="overlay" x-show="browse.open" x-cloak @click.self="closeBrowse()" @keydown.escape.window="closeBrowse()">
+                      <div class="dialog" role="dialog" aria-modal="true" aria-label="Choose a folder">
+                        <div class="dialog-head">
+                          <h2>Choose a folder</h2>
+                          <button class="btn icon ghost" @click="closeBrowse()" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button>
+                        </div>
+                        <div class="dialog-body">
+                          <p class="form-error" x-show="browse.error" x-text="browse.error" role="alert"></p>
+                          <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px">
+                            <span class="chip outline" style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:var(--mono)" x-text="browse.path"></span>
+                            <span class="chip accent" x-show="browse.isGitRepo">Git repo</span>
+                          </div>
+                          <div style="max-height:320px; overflow:auto; border:1px solid var(--border); border-radius:var(--radius)">
+                            <a class="fs-row" href="#" @click.prevent="browseTo(browse.parent)" x-show="browse.parent">.. (up)</a>
+                            <template x-for="e in browse.entries" :key="e.path">
+                              <a class="fs-row" href="#" @click.prevent="browseTo(e.path)">
+                                <svg class="ic"><use href="#i-folder"/></svg> <span x-text="e.name"></span>
+                                <span class="chip accent" x-show="e.is_git_repo">git</span>
+                              </a>
+                            </template>
+                            <div class="state" x-show="!browse.loading && !browse.entries.length">
+                              <p>No subfolders here.</p>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="dialog-foot">
+                          <button type="button" class="btn ghost" @click="closeBrowse()">Cancel</button>
+                          <button type="button" class="btn primary" @click="pickFolder()">Use this folder</button>
+                        </div>
+                      </div>
+                    </div>
 
                     <!-- Test result: message + latency (the message never includes the password) -->
                     <div class="alert-inline" :class="alert?.kind" x-show="alert" role="status">
@@ -1039,22 +1073,6 @@
                           <button class="btn" :disabled="conn.is_default || !conn.enabled" @click="makeDefault()">Set as default</button>
                         </div>
                         <p class="form-hint-text">"Test" uses the saved configuration. "Set as default" also changes the connection used by MCP tools when they're called without <code>connection_id</code>.</p>
-
-                        <h2 class="section-title">Schema</h2>
-                        <div class="toolbar">
-                          <button class="btn" :disabled="syncing" @click="syncSchema(true)">Sync schema (dry run)</button>
-                          <button class="btn primary" x-show="plan" :disabled="syncing || !canApply" @click="syncSchema(false)">Apply</button>
-                        </div>
-                        <div class="plan" x-show="plan">
-                          <p class="plan-title">Plan (nothing written yet): <b x-text="plan?.status"></b></p>
-                          <p class="muted" x-show="planEmpty && !plan?.pending_manual.length">Schema is already up to date.</p>
-                          <template x-for="g in [['Tables to create', plan?.tables_created], ['Columns to add', plan?.columns_added], ['Indexes to create', plan?.indexes_created], ['Manual differences (not applied)', plan?.pending_manual]]" :key="g[0]">
-                            <div x-show="g[1] && g[1].length"><div class="rel-h" x-text="g[0]"></div>
-                              <ul class="mini-list"><template x-for="x in g[1]" :key="x"><li x-text="x"></li></template></ul></div>
-                          </template>
-                          <p x-show="plan?.fts_created">Full-text search (FTS) to be created.</p>
-                        </div>
-                        <p class="form-hint-text" x-show="syncMessage" x-text="syncMessage"></p>
 
                         <div class="danger-zone" x-show="editable">
                           <h2 class="section-title">Danger zone</h2>
