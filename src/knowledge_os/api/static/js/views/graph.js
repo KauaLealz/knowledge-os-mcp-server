@@ -5,6 +5,8 @@ import { api } from '../api.js';
 import { go } from '../router.js';
 import { typeClass } from '../util.js';
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
 const WIDTH = 900;
 const HEIGHT = 560;
 const PADDING = 26;
@@ -70,6 +72,14 @@ function layout(nodes, edges) {
       node.vy += (cy - node.y) * 0.012;
       node.vx *= 0.85;
       node.vy *= 0.85;
+      // Sem isso, grafos com muitos nós (repulsão de cada par contra todos os outros)
+      // aceleram mais rápido do que o amortecimento segura, e todo mundo acaba
+      // empurrado pro clamp da borda — ficam grudados nos 4 cantos em vez de espalhados.
+      const speed = Math.hypot(node.vx, node.vy);
+      if (speed > k) {
+        node.vx = (node.vx / speed) * k;
+        node.vy = (node.vy / speed) * k;
+      }
       node.x = Math.min(WIDTH - PADDING, Math.max(PADDING, node.x + node.vx));
       node.y = Math.min(HEIGHT - PADDING, Math.max(PADDING, node.y + node.vy));
       moved += Math.abs(node.vx) + Math.abs(node.vy);
@@ -139,6 +149,51 @@ export function register(Alpine) {
     goTo(id) {
       const href = this.app.hItemById(id);
       if (href) go(href);
+    },
+
+    /**
+     * Monta os nós/arestas do SVG via DOM de verdade (`createElementNS`), não
+     * `<template x-for>` dentro de `<svg>`: Alpine clona o conteúdo do `<template>` via
+     * `importNode`, e o parser HTML não dá o namespace SVG certo pro conteúdo de um
+     * `<template>` filho de `<svg>` — os elementos somem do fragment e o clone quebra
+     * ("parameter 1 is not of type 'Node'"). `textContent`/`setAttribute` em vez de
+     * string com `x-html`: nada de HTML bruto, mesma regra do resto do app (markdown.js é
+     * o único ponto que gera HTML, sempre via DOMPurify).
+     */
+    renderSvg(svg) {
+      // `:viewBox` via Alpine vira `viewbox` em minúsculas no HTML parser — SVG exige a
+      // grafia exata pra reconhecer o atributo de verdade. `setAttribute` preserva o case.
+      svg.setAttribute('viewBox', `0 0 ${this.width} ${this.height}`);
+      while (svg.firstChild) svg.removeChild(svg.firstChild);
+      const byId = new Map(this.nodes.map((n) => [n.id, n]));
+      for (const e of this.edges) {
+        const a = byId.get(e.source);
+        const b = byId.get(e.target);
+        if (!a || !b) continue;
+        const line = document.createElementNS(SVG_NS, 'line');
+        line.setAttribute('class', this.edgeClass(e));
+        line.setAttribute('x1', a.x);
+        line.setAttribute('y1', a.y);
+        line.setAttribute('x2', b.x);
+        line.setAttribute('y2', b.y);
+        svg.appendChild(line);
+      }
+      for (const n of this.nodes) {
+        const g = document.createElementNS(SVG_NS, 'g');
+        g.setAttribute('class', this.nodeClass(n));
+        g.setAttribute('transform', `translate(${n.x},${n.y})`);
+        g.addEventListener('click', () => this.goTo(n.id));
+        const title = document.createElementNS(SVG_NS, 'title');
+        title.textContent = n.title;
+        const circle = document.createElementNS(SVG_NS, 'circle');
+        circle.setAttribute('r', '10');
+        const text = document.createElementNS(SVG_NS, 'text');
+        text.setAttribute('x', '14');
+        text.setAttribute('y', '4');
+        text.textContent = this.label(n.title);
+        g.append(title, circle, text);
+        svg.appendChild(g);
+      }
     },
   }));
 }

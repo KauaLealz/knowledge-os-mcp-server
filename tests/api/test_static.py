@@ -425,10 +425,28 @@ def test_grafo_tem_layout_proprio_sem_biblioteca_e_destaca_supersedes():
         assert needle in graph, needle
     html = _index()
     inside = html[html.index("<!-- Grafo -->") : html.index("<!-- Project -->")]
-    assert "byId(e.source)" in inside
-    assert "edgeClass(e)" in inside and "nodeClass(n)" in inside
     assert "supersedes" in inside  # destaque visual distinto no CSS escopado
-    assert '@click="goTo(n.id)"' in inside
+
+
+def test_grafo_nao_usa_template_x_for_dentro_de_svg():
+    """`<template x-for>` filho de `<svg>` quebra: o navegador não dá o namespace SVG pro
+    conteúdo do template, e o clone do Alpine falha em runtime (achado testando a UI de
+    verdade, não só com asserção estática). O SVG é montado via DOM real
+    (`createElementNS`/`textContent`), nunca `x-html`/`.innerHTML` — mesma regra de nunca
+    gerar HTML bruto que vale pro resto do app (markdown.js é a única exceção, via
+    DOMPurify)."""
+    html = _index()
+    inside = html[html.index("<!-- Grafo -->") : html.index("<!-- Project -->")]
+    assert "<template x-for" not in inside
+    assert "x-html" not in inside
+    assert 'x-effect="renderSvg($el)"' in inside
+    graph = _js("views/graph.js")
+    assert "renderSvg(svg)" in graph
+    assert "createElementNS" in graph
+    assert ".innerHTML" not in graph
+    assert "byId.get(e.source)" in graph
+    assert "edgeClass(e)" in graph and "nodeClass(n)" in graph
+    assert "addEventListener('click'" in graph
 
 
 def test_linhas_de_item_nao_usam_icone_de_tipo():

@@ -448,20 +448,7 @@
               </div>
 
               <template x-if="!loading && !error && nodes.length">
-                <svg class="graph-svg" :viewBox="'0 0 ' + width + ' ' + height" xmlns="http://www.w3.org/2000/svg">
-                  <template x-for="e in edges" :key="e.source + '>' + e.target + '|' + e.relation_type">
-                    <line :class="edgeClass(e)"
-                          :x1="byId(e.source)?.x" :y1="byId(e.source)?.y"
-                          :x2="byId(e.target)?.x" :y2="byId(e.target)?.y"></line>
-                  </template>
-                  <template x-for="n in nodes" :key="n.id">
-                    <g :class="nodeClass(n)" :transform="'translate(' + n.x + ',' + n.y + ')'" @click="goTo(n.id)">
-                      <title x-text="n.title"></title>
-                      <circle r="10"></circle>
-                      <text x="14" y="4" x-text="label(n.title)"></text>
-                    </g>
-                  </template>
-                </svg>
+                <svg class="graph-svg" xmlns="http://www.w3.org/2000/svg" x-effect="renderSvg($el)"></svg>
               </template>
 
               <style>
