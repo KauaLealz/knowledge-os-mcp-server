@@ -84,19 +84,6 @@ item_save(items=[{"id": "9b2c...", "workspace": "Polara", "project": "projpro",
 item_save(items=[{"id": "9b2c...", "subject": "estorno"}])   # só troca o subject, mesmo project
 ```
 
-### Planos de mudança (`task`)
-
-O Plumb guarda o plano de cada mudança como item `task` (`key: "mudanca/<id>"`): o `summary`
-é o andamento em uma linha ("Construindo: falta recusar método inválido"), o `content` é o plano.
-Enquanto `status` é `active`, ele aparece em "Mudanças em andamento" no pacote do início da
-sessão; ao concluir, `status: "done"` — sai do pacote e continua na busca, como histórico.
-
-```python
-item_save(repo=".", items=[{"key": "mudanca/pay-142", "summary": "Construindo: 1 de 2 feitos"}])
-item_save(repo=".", items=[{"key": "mudanca/pay-142", "status": "done",
-                             "summary": "Concluída: Pix devolve o QR code"}])
-```
-
 ### Promover, renovar, aposentar
 
 ```python
@@ -115,6 +102,23 @@ item_save(repo=".", items=[{"key": "proc/deploy-ci", "type": "procedure", ...,
 O alvo vira `superseded` e sai da busca e do contexto. Tipos de relação: `related_to`,
 `depends_on`, `implements`, `references`, `supersedes`, `derived_from`. `target` é id ou key
 do mesmo project, inclusive de um item criado no mesmo lote.
+
+### Publicação (connection com repositório git)
+
+Numa connection com repositório git (toda, menos o catálogo), todo item não secreto também vira
+um arquivo Markdown e é publicado nesse repositório, conforme o `review_mode` da connection:
+
+- `direct` (padrão): `item_save` escreve, comita (e empurra, se há `remote_url`) na mesma
+  chamada — o retorno é o de sempre, `{index, id, key, action, ...}`.
+- `pr`: a mesma gravação vai para uma branch nova e abre um Pull Request (ou uma Issue, se o
+  token não tem permissão de push); cada entrada do lote devolve `{status: "pending_review",
+  pr_url}` (ou `{status: "issue_opened", issue_url}`) em vez do resultado de sempre. O índice só
+  reflete a mudança depois que o PR for mergeado e alguém rodar `repo(action="sync")` (ou o hook
+  de início de sessão sincronizar).
+
+`item_delete` e `relation_delete` seguem a mesma regra: em modo `pr`, a remoção também fica
+pendente de revisão (`item_delete` devolve `pending_review`/`issue_opened`; `relation_delete`
+tira a relação do índice na hora, mas a republicação do item sem ela entra como trabalho futuro).
 
 ### Erros
 
@@ -158,6 +162,7 @@ subject(action="create", workspace="Polara", project="projpro", name="pagamentos
 
 repo(action="list", workspace="Polara")                    # auditar o que está ligado
 repo(action="unlink", repo="github.com/org/antigo")
+repo(action="sync")                       # puxa manualmente o que mudou no repo da connection
 
 item_delete(item_id="...")                          # prefira status=deprecated
 relation_delete(relation_id="...")                  # id vem em item_get → relations
@@ -176,17 +181,22 @@ artifact(action="get", artifact_id="...")                   # base64; confira fi
 (ou link/list/unlink) numa ferramenta só, em vez de uma função por operação — igual `vocabulary`
 já fazia com tags e labels.
 
-## Conexões com outros bancos
+## Conexões (repositórios git)
 
-Pela UI (`knowledge-mcp ui`): cadastrar Postgres/MySQL, testar e sincronizar schema. As conexões
-ficam em `<home>/connections.json`; as ferramentas do cérebro e de administração aceitam
-`connection_id` opcional (sem ele, o catálogo `default`); só `health_check` não aceita e verifica
-sempre o catálogo `default`. Senhas nunca passam pela conversa.
+Pela UI (`knowledge-mcp ui`): cadastrar uma connection (nome, `remote_url` opcional,
+`review_mode` `direct` ou `pr`), testar o remote (`git ls-remote`, sem clonar) e sincronizar o
+índice SQLite derivado do repositório. As conexões ficam em `<home>/connections.json`; as
+ferramentas do cérebro e de administração aceitam `connection_id` opcional (sem ele, o catálogo
+`default`); só `health_check` não aceita e verifica sempre o catálogo `default`.
+
+Sem `remote_url`, a connection é um repositório git só local (sem GitHub) — útil para manter
+conhecimento fora de qualquer remote. Com `remote_url`, o primeiro uso clona; dali em diante,
+`item_save`/`item_delete`/`relation_delete` publicam conforme o `review_mode`, e
+`repo(action="sync")` (ou o hook de início de sessão) puxa o que mudou de fora.
 
 Banco com o schema de antes da renomeação Project/Repo? `knowledge-mcp
---migrate-v2` migra as tabelas e colunas de uma vez (one-shot, nunca automática): no SQLite faz
-backup antes de mexer; em Postgres/MySQL só avisa para tirar um snapshot externo
-(`pg_dump`/`mysqldump`) antes de confirmar que rodou bem.
+--migrate-v2` migra as tabelas e colunas do índice SQLite de uma vez (one-shot, nunca
+automática), com backup antes de mexer.
 
 ## Problemas comuns
 
@@ -197,4 +207,5 @@ backup antes de mexer; em Postgres/MySQL só avisa para tirar um snapshot extern
 | `Entrada N (...)` | corrija a entrada N; nada do lote foi gravado |
 | "parece conter um segredo" | tire o valor; crie um item `secret` sem valor e passe o `fill_url` ao usuário |
 | Servidor fora do ar | o Plumb segue com aviso e guarda em `~/.knowledge-os/pending.jsonl` (uma entrada de `item_save` por linha, com `repo`); o hook da próxima sessão grava, ou `knowledge-mcp pending` |
-| Banco remoto inacessível | `health_check`; a UI testa a conexão |
+| Remote git inacessível | `health_check`; a UI testa a connection (`git ls-remote`) |
+| PR aberto não aparece na busca | normal em `review_mode="pr"`: o índice só reflete a mudança depois do PR mergeado e `repo(action="sync")` |

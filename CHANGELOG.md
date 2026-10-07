@@ -64,6 +64,12 @@
   sozinho antes de montar o contexto, tolerando falha de rede ou `gh` ausente sem quebrar a
   sessão.
 
+- **Migração SQLite → Git concluída.** Fecha a refatoração de storage (lotes GS-L1 a GS-L6):
+  serializador item↔arquivo, `GitRepoService`/`gh_cli`, connection vira repositório git,
+  `item_save`/`item_delete`/`relation_delete` publicando em `direct`/`pr`, segredos sempre em
+  arquivo gitignorado (nunca no git nem no índice). README, `docs/ARQUITETURA.md` e
+  `docs/MCP_USAGE.md` atualizados para a arquitetura atual.
+
 ### Quebra de compatibilidade
 
 - O formato do ZIP de `backup export`/`import` mudou junto com o rename de schema — **não há
