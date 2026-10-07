@@ -16,3 +16,6 @@ class NotFoundError(Exception):
 class ValidationError(Exception):
     """Entrada inválida ou conflitante (ex.: nome duplicado)."""
 
+
+class GitError(Exception):
+    """Falha ao rodar `git` ou `gh` (clone, pull, push, PR, issue)."""
