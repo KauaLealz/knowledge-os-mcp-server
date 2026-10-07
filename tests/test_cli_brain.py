@@ -129,19 +129,6 @@ def test_fila_antiga_do_projeto_ainda_e_lida(env, project):
     assert "Fila antiga" in out.stdout and not legacy.exists()
 
 
-def test_mudanca_em_andamento_aparece_e_concluida_some(env, project):
-    cli(env, "link", "--repo", str(project), "--workspace", "W", "--project", "D")
-    _save(env, project, [{"key": "mudanca/pay-142", "type": "task", "memory_class": "working",
-                          "title": "PAY-142 — Pix no checkout",
-                          "summary": "Construindo: falta recusar método inválido",
-                          "content": "# PAY-142 ..."}])
-    out = cli(env, "context", "--repo", str(project)).stdout
-    assert "## Mudanças em andamento" in out and "falta recusar método inválido" in out
-    _save(env, project, [{"key": "mudanca/pay-142", "status": "done",
-                          "summary": "Concluída: Pix devolve QR code"}])
-    assert "PAY-142" not in cli(env, "context", "--repo", str(project)).stdout
-
-
 def test_recent_json(env, project):
     cli(env, "link", "--repo", str(project), "--workspace", "W", "--project", "D")
     _save(env, project, [{"key": "decisao/y", "type": "insight", "memory_class": "working",

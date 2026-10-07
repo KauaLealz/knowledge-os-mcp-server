@@ -266,7 +266,8 @@ def test_mapa_de_tipos_cobre_todos_os_tipos_da_api():
         assert re.search(rf"\b{t}: {{ label: '[^']+', plural: '[^']+' }}", meta), t
     labels = dict(re.findall(r"(\w+): \{ label: '([^']+)'", meta))
     assert labels["rule"] == "Regra" and labels["insight"] == "Decisão"
-    assert labels["task"] == "Mudança" and labels["knowledge"] == "Aprendizado"
+    assert labels["knowledge"] == "Aprendizado"
+    assert "task" not in labels
     tokens = (STATIC / "css" / "tokens.css").read_text(encoding="utf-8")
     for t in (*ITEM_TYPES, "secret"):
         assert tokens.count(f"--t-{t}:") == 3, t  # claro, escuro (media) e escuro (data-theme)
@@ -311,9 +312,10 @@ def test_listas_agrupadas_por_tipo_com_filtros_e_busca():
     util = _js("util.js")
     block = re.search(r"export const TYPE_META = \{(.*?)\n\};", util, re.S).group(1)
     keys = re.findall(r"^  (\w+): \{", block, re.M)
-    assert keys[:8] == [
-        "rule", "insight", "procedure", "pattern", "knowledge", "context", "task", "artifact",
+    assert keys[:7] == [
+        "rule", "insight", "procedure", "pattern", "knowledge", "context", "artifact",
     ]
+    assert "task" not in keys
 
 
 def test_paleta_busca_em_todos_os_workspaces_com_ate_20_resultados():

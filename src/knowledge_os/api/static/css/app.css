@@ -407,7 +407,6 @@ body { overflow-x: clip; }
 .t-pattern { --tc: var(--t-pattern); }
 .t-knowledge { --tc: var(--t-knowledge); }
 .t-context { --tc: var(--t-context); }
-.t-task { --tc: var(--t-task); }
 .t-artifact { --tc: var(--t-artifact); }
 .t-secret { --tc: var(--t-secret); }
 .t-unknown { --tc: var(--text-2); }

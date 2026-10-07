@@ -13,10 +13,9 @@ if TYPE_CHECKING:
 
 ITEM_TYPES: tuple[str, ...] = (
     "context", "rule", "pattern", "procedure", "knowledge", "insight", "artifact",
-    "task", "secret",
+    "secret",
 )
 MEMORY_CLASSES: tuple[str, ...] = ("ephemeral", "working", "longterm", "canonical")
-# done: mudança concluída (type task) — continua na busca, sai do pacote de contexto.
 ITEM_STATUSES: tuple[str, ...] = ("active", "done", "superseded", "deprecated")
 # Chave estável: minúsculas, números e . _ / - (ex.: "regra/money-em-pagamentos").
 KEY_PATTERN = r"^[a-z0-9][a-z0-9._/-]{0,199}$"

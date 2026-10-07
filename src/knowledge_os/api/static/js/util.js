@@ -57,7 +57,6 @@ export const TYPE_META = {
   pattern: { label: 'Padrão', plural: 'Padrões' },
   knowledge: { label: 'Aprendizado', plural: 'Aprendizados' },
   context: { label: 'Contexto', plural: 'Contexto' },
-  task: { label: 'Mudança', plural: 'Mudanças' },
   artifact: { label: 'Anexo', plural: 'Anexos' },
   secret: { label: 'Segredo', plural: 'Segredos' },
 };

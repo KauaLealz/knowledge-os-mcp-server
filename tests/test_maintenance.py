@@ -235,7 +235,7 @@ def test_memoria_de_longa_duracao_nunca_expira_sozinha(db, monkeypatch):
     now = datetime(2027, 6, 10, 12)
     s = get_session(db)
     for key, type_ in (("gotcha/nunca", "knowledge"), ("regra/nunca", "rule"),
-                       ("decisao/nunca", "insight"), ("mudanca/x", "task")):
+                       ("decisao/nunca", "insight"), ("proc/nunca", "procedure")):
         _item(s, "w", "d", key, type=type_, updated_at=now - timedelta(days=400))
     s.commit()
     s.close()
