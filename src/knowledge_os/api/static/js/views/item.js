@@ -1,5 +1,5 @@
-// Página de item em modo leitura: selo de tipo, Markdown, TOC, relações, artifacts, prev/next.
-import { api, download } from '../api.js';
+// Página de item em modo leitura: selo de tipo, Markdown, TOC, relações, prev/next.
+import { api } from '../api.js';
 import { renderTo } from '../markdown.js';
 import { go, hrefs } from '../router.js';
 import { formatDate } from '../util.js';
@@ -23,11 +23,6 @@ function copyText(text) {
   });
 }
 
-function humanSize(n) {
-  if (n < 1024) return `${n} B`;
-  if (n < 1048576) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / 1048576).toFixed(1)} MB`;
-}
 
 export function register(Alpine) {
   // Valor de segredo: só escrito (PUT) ou apagado (DELETE); a API nunca o devolve.
@@ -82,7 +77,6 @@ export function register(Alpine) {
     item: null,
     out: [],
     inc: [],
-    artifacts: [],
     headings: [],
     active: '',
     loading: true,
@@ -130,13 +124,12 @@ export function register(Alpine) {
       observer?.disconnect();
       try {
         const item = await api('GET', `/items/${id}`);
-        const [rels, arts] = await Promise.allSettled([
-          api('GET', `/items/${id}/relations`),
-          api('GET', '/artifacts', { query: { item_id: id } }),
-        ]);
+        const rels = await api('GET', `/items/${id}/relations`).then(
+          (value) => ({ status: 'fulfilled', value }),
+          () => ({ status: 'rejected' }),
+        );
         if (seq !== this.seq) return;
         this.splitRelations(id, rels.status === 'fulfilled' ? rels.value : {});
-        this.artifacts = arts.status === 'fulfilled' ? arts.value : [];
         this.item = item;
         this.app.pushRecent(item);
         document.title = `${item.title} · Knowledge OS`;
@@ -229,7 +222,6 @@ export function register(Alpine) {
       return this.app.hItemById(id);
     },
     fullDate: formatDate,
-    humanSize,
 
     // ---- ações ----
     applyUpdate(updated) {
@@ -241,13 +233,6 @@ export function register(Alpine) {
         this.app.toast('Markdown copied');
       } catch {
         this.app.toast('Could not copy', 'error');
-      }
-    },
-    async downloadArtifact(a) {
-      try {
-        await download(`/artifacts/${a.id}`, a.filename);
-      } catch (e) {
-        this.app.toast(e.message, 'error');
       }
     },
     async remove() {

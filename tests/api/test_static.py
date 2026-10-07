@@ -356,7 +356,7 @@ def test_listas_sao_planas_com_filtros_e_busca():
         "pattern",
         "knowledge",
         "context",
-        "artifact",
+        "spec",
     ]
     assert "task" not in keys
 

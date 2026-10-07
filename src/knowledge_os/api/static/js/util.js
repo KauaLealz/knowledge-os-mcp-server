@@ -53,7 +53,6 @@ export const TYPE_META = {
   pattern: { label: 'Pattern' },
   knowledge: { label: 'Learning' },
   context: { label: 'Context' },
-  artifact: { label: 'Attachment' },
   spec: { label: 'Spec' },
   secret: { label: 'Secret' },
 };

@@ -64,16 +64,3 @@ export async function api(method, path, opts) {
   return data;
 }
 
-/** Baixa um recurso binário (artifact) e dispara o download. */
-export async function download(path, filename) {
-  const res = await request('GET', path);
-  if (!res.ok) throw new ApiError(res.status, 'Falha ao baixar o arquivo');
-  const url = URL.createObjectURL(await res.blob());
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
