@@ -41,6 +41,7 @@
   <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
   <symbol id="i-box" viewBox="0 0 24 24"><path d="m12 3 9 5v8l-9 5-9-5V8l9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></symbol>
   <symbol id="i-command" viewBox="0 0 24 24"><path d="M9 6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6z"/></symbol>
+  <symbol id="i-graph" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M8.3 6h7.4M7.4 8.2l3.2 7.6M16.6 8.2l-3.2 7.6"/></symbol>
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 6.3"/><path d="M20 4v7h-7"/></symbol>
   <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 5h16l-6 7v6l-4 2v-8z"/></symbol>
 </svg>
@@ -111,7 +112,7 @@
                 <span class="tl-text" x-text="w.name"></span>
               </a>
               <a class="tw" :href="$store.app.hGraph(w.id)" :aria-label="'Graph for ' + w.name" title="Graph">
-                <svg class="ic"><use href="#i-command"/></svg>
+                <svg class="ic"><use href="#i-graph"/></svg>
               </a>
             </div>
 
@@ -281,7 +282,7 @@
                   <div class="page-head">
                     <h1 class="page-title" x-text="$store.app.workspace.name"></h1>
                     <div class="toolbar">
-                      <a class="btn" :href="graphHref()"><svg class="ic"><use href="#i-command"/></svg> View graph</a>
+                      <a class="btn" :href="graphHref()"><svg class="ic"><use href="#i-graph"/></svg> View graph</a>
                       <button class="btn" @click="$store.app.openModal('project')"><svg class="ic"><use href="#i-plus"/></svg> New project</button>
                     </div>
                   </div>
@@ -509,7 +510,7 @@
                   <div class="page-head">
                     <h1 class="page-title" x-text="$store.app.project.name"></h1>
                     <div class="toolbar">
-                      <a class="btn" :href="graphHref()"><svg class="ic"><use href="#i-command"/></svg> View graph</a>
+                      <a class="btn" :href="graphHref()"><svg class="ic"><use href="#i-graph"/></svg> View graph</a>
                       <button class="btn primary" @click="$store.app.openModal('item')"><svg class="ic"><use href="#i-plus"/></svg> New item</button>
                     </div>
                   </div>
@@ -641,7 +642,7 @@
                   <div class="page-head">
                     <h1 class="page-title" x-text="$store.app.subject.name"></h1>
                     <div class="toolbar">
-                      <a class="btn" :href="graphHref()"><svg class="ic"><use href="#i-command"/></svg> View graph</a>
+                      <a class="btn" :href="graphHref()"><svg class="ic"><use href="#i-graph"/></svg> View graph</a>
                     </div>
                   </div>
 
