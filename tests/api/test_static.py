@@ -573,8 +573,9 @@ def test_grafo_rotulo_e_camada_propria_nunca_coberto_por_outro_no():
     shapes_idx = graph.index("const nodeEls = allNodes.map")
     labels_idx = graph.index("const labelEls = allNodes.map")
     assert shapes_idx < labels_idx
-    # projeto/assunto maiores que o teto do item (16): nunca devem parecer menores
-    assert "RADIUS = { project: ITEM_MAX_RADIUS * 1.1, subject: ITEM_MAX_RADIUS * 1.05 }" in graph
+    # project/assunto um pouco maiores que o item TÍPICO, não o teto raro de grau alto
+    assert "const ITEM_TYPICAL_RADIUS = 9" in graph
+    assert "RADIUS = { project: ITEM_TYPICAL_RADIUS * 1.1," in graph
 
 
 def test_grafo_project_e_assunto_tem_cor_propria_nao_cinza():

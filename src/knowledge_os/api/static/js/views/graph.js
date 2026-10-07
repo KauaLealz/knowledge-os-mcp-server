@@ -19,11 +19,13 @@ import { zoom } from '../../vendor/d3-zoom.esm.js';
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const WIDTH = 900;
 const HEIGHT = 560;
-// Item (círculo) é a unidade de referência (1x — varia de 4 a ITEM_MAX pelo grau);
-// assunto e project são só um pouco maiores (1.05x e 1.1x do teto do item) — diferença
-// sutil, não um salto de tamanho.
+// Item (círculo) é a unidade de referência — mas varia de 4 (sem nenhuma relação, o caso
+// comum) a ITEM_MAX_RADIUS (grau alto, raro) pelo grau; comparar com o TETO fazia
+// project/assunto parecerem enormes ao lado da maioria dos itens, que é pequena. 1.05x/1.1x
+// é sobre o item TÍPICO (ITEM_TYPICAL_RADIUS), não sobre o caso raro do item mais conectado.
 const ITEM_MAX_RADIUS = 16;
-const RADIUS = { project: ITEM_MAX_RADIUS * 1.1, subject: ITEM_MAX_RADIUS * 1.05 };
+const ITEM_TYPICAL_RADIUS = 9;
+const RADIUS = { project: ITEM_TYPICAL_RADIUS * 1.1, subject: ITEM_TYPICAL_RADIUS * 1.05 };
 
 /** Hash determinístico de um id pra um matiz (0-359) — mesmo id sempre a mesma cor, entre
  * recarregamentos. */
