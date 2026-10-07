@@ -348,26 +348,6 @@
                     <svg class="ic"><use href="#i-alert"/></svg><span x-text="'Busca indisponível: ' + searchError"></span>
                   </div>
 
-                  <template x-if="recent.length && !filtering">
-                    <div>
-                      <div class="section-title">Atualizados recentemente</div>
-                      <div class="item-list">
-                        <template x-for="it in recent" :key="it.id">
-                          <a class="item-row" :href="$store.app.hItem(it.project_id, it.id)">
-                            <div>
-                              <div class="ir-title" x-text="it.title"></div>
-                              <div class="ir-meta">
-                                <span class="tbadge" :class="$tc(it.type)"><span class="tdot" aria-hidden="true"></span><span x-text="$tlabel(it.type)"></span></span>
-                                <span class="chip outline" x-text="it.project_name"></span>
-                                <span class="muted" style="font-size:12.5px" x-text="$ago(it.updated_at)"></span>
-                              </div>
-                            </div>
-                          </a>
-                        </template>
-                      </div>
-                    </div>
-                  </template>
-
                   <div class="section-title"><span x-text="filtering ? 'Resultados' : 'Todos os itens'"></span>
                     <span class="muted" x-show="searching">Buscando…</span></div>
                   <div class="banner" role="alert" x-show="error">
@@ -437,6 +417,7 @@
           <!-- Grafo (workspace, project ou subject — mesma view, escopo pela rota) -->
           <template x-if="['graph', 'project-graph', 'subject-graph'].includes($store.app.route.name)">
             <div class="page" x-data="graphView"><div class="doc">
+              <a class="back-link" :href="backHref()"><svg class="ic"><use href="#i-arrow-left"/></svg> Voltar</a>
               <nav class="crumbs">
                 <a :href="$store.app.hConn()" x-text="$store.app.connName"></a><span class="sep">/</span>
                 <a :href="$store.app.hWs()" x-text="$store.app.workspace?.name"></a><span class="sep">/</span>

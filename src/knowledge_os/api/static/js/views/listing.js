@@ -33,7 +33,7 @@ export function listingMixin(Alpine) {
     remote: [],
     searching: false,
     searchError: null,
-    sort: 'title',
+    sort: 'recent', // listagem geral por padrão ordenada pelo mais atualizado
 
     get app() {
       return Alpine.store('app');

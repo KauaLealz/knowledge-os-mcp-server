@@ -399,11 +399,11 @@ def test_contador_de_itens_so_na_paginacao_nao_duplicado_embaixo_do_titulo():
 
 
 def test_telas_tem_botao_de_voltar():
-    """Item, Project e Subject sobem um nível (Item -> assunto/project; Project/Subject ->
-    pai) — Workspace não (já alcançável pela sidebar e pelo breadcrumb, um botão ali seria
-    redundante)."""
+    """Item, Project, Subject e Grafo sobem um nível (Item -> assunto/project; Project/
+    Subject -> pai; Grafo -> a página do escopo que ele mostra) — Workspace não (já
+    alcançável pela sidebar e pelo breadcrumb, um botão ali seria redundante)."""
     html = (STATIC / "index.html").read_text(encoding="utf-8")
-    assert html.count('class="back-link"') == 3
+    assert html.count('class="back-link"') == 4
     item = _js("views/item.js")
     assert "backHref()" in item
     assert "this.item.subject_id" in item
@@ -411,6 +411,9 @@ def test_telas_tem_botao_de_voltar():
     assert "backHref()" in project and "hrefs.ws(" in project
     subject = _js("views/subject.js")
     assert "backHref()" in subject and "hrefs.project(" in subject
+    graph = _js("views/graph.js")
+    assert "backHref()" in graph
+    assert "hrefs.subject(" in graph and "hrefs.project(" in graph and "hrefs.ws(" in graph
 
 
 def test_workspace_sem_secao_de_projects_na_listagem():
@@ -533,11 +536,15 @@ def test_sidebar_usa_workspace_explicito_nos_links_nao_o_da_rota_atual():
     assert "hItemIn(wsId, pjId, itemId)" in store
 
 
-def test_pagina_de_workspace_nao_mistura_itens_de_outro_workspace_no_indice():
-    """itemIndex é global (acumula várias gavetas abertas ao mesmo tempo na sidebar) — a
-    página de Workspace tem que filtrar por workspace_id antes de contar/listar recentes."""
+def test_pagina_de_workspace_sem_secao_de_atualizados_recentemente():
+    """Removida — a listagem geral já ordena por mais atualizado por padrão (sort =
+    'recent'), repetir num bloco separado em cima virou redundante."""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert "Atualizados recentemente" not in html
     ws = _js("views/workspace.js")
-    assert "workspace_id === ws" in ws or "workspace_id === this.app.route.params.ws" in ws
+    assert "indexed" not in ws and "get recent()" not in ws
+    lst = _js("views/listing.js")
+    assert "sort: 'recent'" in lst
 
 
 def test_grafo_usa_d3_force_zoom_drag_e_destaca_supersedes():

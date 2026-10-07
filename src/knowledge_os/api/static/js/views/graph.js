@@ -123,6 +123,15 @@ export function register(Alpine) {
       go(hrefs.item(this.app.connId, ws, n.project_id, n.id));
     },
 
+    /** Sobe um nível: do grafo de um assunto/project/workspace pra própria página do
+     * escopo que o grafo está mostrando. */
+    backHref() {
+      const p = this.app.route.params;
+      if (this.app.route.name === 'subject-graph') return hrefs.subject(this.app.connId, p.ws, p.pj, p.subj);
+      if (this.app.route.name === 'project-graph') return hrefs.project(this.app.connId, p.ws, p.pj);
+      return hrefs.ws(this.app.connId, p.ws);
+    },
+
     /**
      * Project e assunto viram nós de hierarquia: um por project (quadrado) e um por grupo
      * de assunto dentro dele (triângulo, só quando o project tem 2+ grupos — "Sem assunto"
