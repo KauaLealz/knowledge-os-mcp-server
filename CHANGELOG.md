@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### Corrigido
+
+- Push rejeitado (non-fast-forward) no mesmo arquivo, em publish concorrente de `direct`,
+  deixava o clone preso num conflito de `rebase` — qualquer publish seguinte na mesma
+  connection passava a falhar até alguém rodar `git rebase --abort` manualmente. Trocado por
+  `reset --hard` + reescrita dos arquivos (last-write-wins), que nunca entra em conflito de
+  merge de texto.
+
+### Limitações conhecidas (storage em git)
+
+- Se a publicação no git tiver sucesso mas a transação do índice SQLite falhar logo depois
+  (esgotando as tentativas de `run_with_retry`), o item fica publicado no repositório mas
+  ausente do índice — sem compensação automática; precisa de um `repo(action="sync")` manual
+  para reconciliar. Janela estreita (falha teria que ocorrer bem depois do commit/push já
+  confirmado), mas sem detecção automática hoje.
+- `connection_service.py` chama `ensure_codeowners([])` sempre com lista vazia — o mecanismo de
+  CODEOWNERS por pasta existe e é testado, mas nenhuma connection gera regras de verdade ainda;
+  fica para quando houver um jeito de configurar quem aprova cada pasta.
+- Leitura não trava explicitamente na branch principal — o índice reflete o que estiver
+  checked out no clone local, sem uma trava contra ler de uma branch não publicada.
+
 ### Alterado (quebra de compatibilidade)
 
 - **`Domain` renomeado para `Project`.** O nível que representava "um repositório dentro de um
