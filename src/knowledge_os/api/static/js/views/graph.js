@@ -100,6 +100,13 @@ export function register(Alpine) {
       return e.relation_type === 'supersedes' ? 'gedge supersedes' : 'gedge';
     },
 
+    /** Project/assunto guardam o nome em `label` (mesmo quando vazio — balde "sem
+     * assunto"); item só tem `title`. `n.label || n.title` cairia pro título errado num
+     * `label` vazio (string vazia é falsy) — por isso checa `undefined`, não truthiness. */
+    textOf(n) {
+      return n.label !== undefined ? n.label : n.title;
+    },
+
     label(title) {
       return title.length > 22 ? title.slice(0, 21) + '…' : title;
     },
@@ -133,7 +140,9 @@ export function register(Alpine) {
         if (!byProject.has(n.project_id)) byProject.set(n.project_id, { name: n.project_name, buckets: new Map() });
         const p = byProject.get(n.project_id);
         const key = `${n.project_id}:${n.subject_id || 'none'}`;
-        if (!p.buckets.has(key)) p.buckets.set(key, { subjectId: n.subject_id || null, name: n.subject_id ? n.subject_name : 'Sem assunto', items: [] });
+        // Balde "sem assunto" não ganha texto nenhum — não "Sem assunto", nada: é só mais
+        // um triângulo (sem rótulo) ligado direto no project, sem precisar nomear o óbvio.
+        if (!p.buckets.has(key)) p.buckets.set(key, { subjectId: n.subject_id || null, name: n.subject_id ? n.subject_name : '', items: [] });
         p.buckets.get(key).items.push(n);
       }
 
@@ -222,19 +231,24 @@ export function register(Alpine) {
         g.setAttribute('class', this.nodeClass(n));
         const r = radius(n);
         const title = document.createElementNS(SVG_NS, 'title');
-        title.textContent = n.label || n.title;
+        title.textContent = this.textOf(n);
 
+        // `r` (usado pro layout: collide, link, posição do rótulo) não muda — só o desenho
+        // encolhe pra compensar que, no mesmo raio nominal, um quadrado tem área bem maior
+        // que um círculo (4r² contra ~3.14r²) e lia como "muito maior" mesmo a só 1.1x.
         let shape;
         if (n.kind === 'project') {
+          const half = r * 0.82;
           shape = document.createElementNS(SVG_NS, 'rect');
-          shape.setAttribute('x', String(-r));
-          shape.setAttribute('y', String(-r));
-          shape.setAttribute('width', String(r * 2));
-          shape.setAttribute('height', String(r * 2));
+          shape.setAttribute('x', String(-half));
+          shape.setAttribute('y', String(-half));
+          shape.setAttribute('width', String(half * 2));
+          shape.setAttribute('height', String(half * 2));
           shape.setAttribute('rx', '4');
         } else if (n.kind === 'subject') {
+          const a = r * 0.88;
           shape = document.createElementNS(SVG_NS, 'polygon');
-          shape.setAttribute('points', `0,${-r} ${r},${r} ${-r},${r}`);
+          shape.setAttribute('points', `0,${-a} ${a},${a} ${-a},${a}`);
         } else {
           shape = document.createElementNS(SVG_NS, 'circle');
           shape.setAttribute('r', String(r));
@@ -260,7 +274,7 @@ export function register(Alpine) {
         text.setAttribute('class', n.kind === 'item' ? 'glabel' : `glabel glabel-${n.kind}`);
         text.setAttribute('x', String(r + 4));
         text.setAttribute('y', '4');
-        text.textContent = this.label(n.label || n.title);
+        text.textContent = this.label(this.textOf(n));
         viewport.appendChild(text);
         return text;
       });
@@ -305,7 +319,7 @@ export function register(Alpine) {
       // sem relação entre si (nenhuma aresta cruzando um pro outro) não têm nenhuma força
       // os puxando de volta — só o charge empurrando pra longe — por isso uma gravidade bem
       // fraca pro centro do canvas (force 'x'/'y' abaixo) pra eles não derivarem pro infinito.
-      const labelPad = (n) => Math.min(60, this.label(n.label || n.title).length * 3.4);
+      const labelPad = (n) => Math.min(60, this.label(this.textOf(n)).length * 3.4);
       this.sim = forceSimulation(allNodes)
         .force('charge', forceManyBody().strength((n) => (n.kind === 'item' ? -55 : -110)))
         .force(

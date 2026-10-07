@@ -540,8 +540,7 @@ def test_grafo_project_e_assunto_sao_nos_proprios_ligados_por_aresta_de_hierarqu
     assert "document.createElementNS(SVG_NS, 'rect')" in graph
     assert "document.createElementNS(SVG_NS, 'polygon')" in graph
     assert "document.createElementNS(SVG_NS, 'circle')" in graph
-    # "Sem assunto" só vira nó quando o project tem 2+ grupos; com 1 só, redundante
-    assert "'Sem assunto'" in graph
+    # balde "sem assunto" só vira nó quando o project tem 2+ grupos; com 1 só, redundante
     assert "p.buckets.size >= 2" in graph
     # clicar no nó de project/assunto abre a página dele, não a de um item
     assert "hrefs.project(this.app.connId, ws, n.project_id)" in graph
@@ -588,6 +587,40 @@ def test_grafo_project_e_assunto_tem_cor_propria_nao_cinza():
     graph = _js("views/graph.js")
     assert "g.style.setProperty('--tc'" in graph
     assert "shape.setAttribute('fill'" not in graph
+
+
+def test_grafo_balde_sem_assunto_nao_escreve_sem_assunto():
+    """O balde "sem assunto" (itens soltos de um project com 2+ grupos) continua um
+    triângulo próprio — só não leva texto nenhum, nem a palavra "Sem assunto": é óbvio pela
+    posição (ligado direto no project) sem precisar nomear."""
+    graph = _js("views/graph.js")
+    assert "'Sem assunto'" not in graph
+    assert "n.subject_id ? n.subject_name : ''" in graph
+    # `n.label || n.title` trocaria "" (falsy) pelo title errado — tem que checar undefined
+    assert "n.label !== undefined ? n.label : n.title" in graph
+
+
+def test_grafo_forma_de_project_e_assunto_compensa_area_pra_nao_parecer_maior():
+    """No mesmo raio nominal, um quadrado tem ~27% mais área que um círculo (4r² contra
+    πr²) — por isso, mesmo com RADIUS só 1.1x/1.05x do item, o quadrado/triângulo liam como
+    bem maiores. O raio usado no layout (collide, link, posição do rótulo) não muda; só o
+    desenho encolhe."""
+    graph = _js("views/graph.js")
+    assert "r * 0.82" in graph  # quadrado do project
+    assert "r * 0.88" in graph  # triângulo do assunto
+
+
+def test_grafo_tem_legenda_generica_de_forma_acima_do_canvas():
+    """Não é a legenda por nome (removida — cada nó já se rotula agora); é uma legenda
+    genérica, fixa, explicando o que cada FORMA significa (círculo = item, triângulo =
+    assunto, quadrado = project) — acima do SVG, fora da física, nunca se move."""
+    html = _index()
+    block = html[html.index("<!-- Grafo") : html.index("<!-- Project -->")]
+    assert 'class="graph-key"' in block
+    key_idx = block.index('class="graph-key"')
+    svg_idx = block.index('<svg class="graph-svg"')
+    assert key_idx < svg_idx
+    assert "gk-circle" in block and "gk-triangle" in block and "gk-square" in block
     css = (STATIC / "css" / "app.css").read_text(encoding="utf-8") + (
         STATIC / "index.html"
     ).read_text(encoding="utf-8")
