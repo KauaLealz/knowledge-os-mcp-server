@@ -17,6 +17,36 @@ def test_search_project_filter(client, mk):
     assert r.json()["total"] == 0
 
 
+def test_search_project_filter_aceita_varios_ids_separados_por_virgula(client, mk):
+    ws, dm, it = mk.tree()
+    dm2 = mk.project(ws["id"], "D2")
+    it2 = mk.item(ws["id"], dm2["id"], "Segundo conditional")
+    dm3 = mk.project(ws["id"], "D3")
+    mk.item(ws["id"], dm3["id"], "Terceiro conditional")
+    r = client.get("/api/items/search", params={
+        "query": "conditional", "workspace_id": ws["id"], "project_id": f"{dm['id']},{dm2['id']}",
+    })
+    assert {x["id"] for x in r.json()["results"]} == {it["id"], it2["id"]}
+
+
+def test_search_subject_filter(client, mk, engine):
+    from sqlalchemy.orm import Session
+
+    from knowledge_os.services.subject_service import SubjectService
+
+    ws, dm, it = mk.tree()
+    with Session(engine) as s:
+        subj = SubjectService(s).create(dm["id"], "Assunto")
+        subj_id = subj.id
+    mk.item(ws["id"], dm["id"], "Com assunto conditional", subject_id=subj_id)
+    r = client.get("/api/items/search", params={
+        "query": "conditional", "workspace_id": ws["id"], "subject_id": subj_id,
+    })
+    assert r.json()["total"] == 1
+    assert r.json()["results"][0]["title"] == "Com assunto conditional"
+    assert it["id"] not in {x["id"] for x in r.json()["results"]}
+
+
 def test_search_no_match(client, mk):
     ws, _, _ = mk.tree()
     r = client.get("/api/items/search", params={"query": "zzzz", "workspace_id": ws["id"]})

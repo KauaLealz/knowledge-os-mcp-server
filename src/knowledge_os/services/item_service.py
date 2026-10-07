@@ -768,9 +768,9 @@ class ItemService:
     def search(
         self,
         workspace_id: str | None,
-        project_id: str | None,
+        project_id: str | list[str] | None,
         query: str,
-        subject_id: str | None = None,
+        subject_id: str | list[str] | None = None,
         types: list[str] | None = None,
         memory_classes: list[str] | None = None,
         limit: int = 10,
@@ -804,11 +804,15 @@ class ItemService:
             )
             params["cid"] = self._cid
         if project_id:
-            where.append("i.project_id = :dm")
-            params["dm"] = project_id
+            ids = [project_id] if isinstance(project_id, str) else list(project_id)
+            where.append("i.project_id IN :dm")
+            params["dm"] = ids
+            expanding.append("dm")
         if subject_id:
-            where.append("i.subject_id = :sj")
-            params["sj"] = subject_id
+            ids = [subject_id] if isinstance(subject_id, str) else list(subject_id)
+            where.append("i.subject_id IN :sj")
+            params["sj"] = ids
+            expanding.append("sj")
         if types:
             where.append("i.type IN :types")
             params["types"] = list(types)

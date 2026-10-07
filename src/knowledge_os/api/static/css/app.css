@@ -142,6 +142,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; color: var(--text-3); margin-bottom: 14px; }
 .crumbs a { color: var(--text-2); }
 .crumbs .sep { color: var(--border-strong); }
+.back-link { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--text-2); margin-bottom: 10px; }
+.back-link .ic { width: 14px; height: 14px; }
+.back-link:hover { color: var(--text); text-decoration: none; }
 .page-title { font-size: 30px; line-height: 1.2; letter-spacing: -0.02em; margin: 0 0 8px; font-weight: 700; overflow-wrap: anywhere; }
 .page-lead { color: var(--text-2); font-size: 16px; margin: 0 0 20px; }
 .page-meta { display: flex; flex-wrap: wrap; gap: 14px; color: var(--text-3); font-size: 13px; margin-bottom: 28px; }
@@ -430,10 +433,22 @@ body { overflow-x: clip; }
 .group { margin-top: 22px; }
 .group-head { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 14px; font-weight: 650; color: var(--text); }
 .group-head .count { color: var(--text-3); }
-.filterbar { display: grid; gap: 10px; margin: 0 0 8px; }
-.searchbox { position: relative; display: block; }
+.searchbar { display: flex; gap: 8px; margin: 0 0 14px; }
+.searchbox { position: relative; display: block; flex: 1; }
 .searchbox .ic { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-3); pointer-events: none; }
 .searchbox .input { padding-left: 32px; }
+.filter-pop { position: relative; flex: none; }
+.filter-pop .btn.icon.active { border-color: var(--accent); color: var(--accent); }
+.filter-popover {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; width: 280px; max-height: 70vh;
+  overflow-y: auto; padding: 14px; border-radius: 10px; border: 1px solid var(--border-strong);
+  background: var(--bg-raised, var(--bg)); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  display: flex; flex-direction: column; gap: 14px;
+}
+.filter-group-title { font-size: 12px; font-weight: 650; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 6px; }
+.filter-check { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13.5px; color: var(--text-2); cursor: pointer; }
+.filter-check input { flex: none; }
+.filter-check-list { max-height: 160px; overflow-y: auto; display: flex; flex-direction: column; }
 .type-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .tchip {
   display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 14px;

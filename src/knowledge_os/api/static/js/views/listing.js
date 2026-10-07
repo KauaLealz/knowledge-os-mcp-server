@@ -48,13 +48,27 @@ export function listingMixin(Alpine) {
       return this.query.length >= MIN_QUERY;
     },
     get filtering() {
-      return this.searchMode || this.filters.types.length > 0;
+      return (
+        this.searchMode ||
+        this.filters.types.length > 0 ||
+        this.filters.projectIds.length > 0 ||
+        this.filters.subjectIds.length > 0
+      );
     },
 
     initListing() {
       this.$watch(
         () => this.filters.q + '|' + this.filters.types.join(',') + '|' + JSON.stringify(this.scope()),
         () => this.runSearch(),
+      );
+      // project/assunto filtram no servidor (não só a página carregada, como o tipo) —
+      // mudar qualquer um dos dois recarrega a página 1 com o filtro novo.
+      this.$watch(
+        () => this.filters.projectIds.join(',') + '|' + this.filters.subjectIds.join(',') + '|' + JSON.stringify(this.scope()),
+        () => {
+          this.runSearch();
+          if (!this.searchMode) this.goToPage(1);
+        },
       );
       this.runSearch();
     },
@@ -77,9 +91,10 @@ export function listingMixin(Alpine) {
       this.loading = true;
       this.error = null;
       try {
-        const res = await api('GET', '/items', {
-          query: { ...scope, limit: this.pageSize, offset: (target - 1) * this.pageSize },
-        });
+        const query = { ...scope, limit: this.pageSize, offset: (target - 1) * this.pageSize };
+        if (this.filters.projectIds.length) query.project_id = this.filters.projectIds.join(',');
+        if (this.filters.subjectIds.length) query.subject_id = this.filters.subjectIds.join(',');
+        const res = await api('GET', '/items', { query });
         if (seq === loadSeq) {
           this.items = res.items;
           this.total = res.total;
@@ -112,6 +127,8 @@ export function listingMixin(Alpine) {
         try {
           const q = { ...this.scope(), query: this.query, limit: SEARCH_LIMIT };
           if (this.filters.types.length) q.types = this.filters.types.join(',');
+          if (this.filters.projectIds.length) q.project_id = this.filters.projectIds.join(',');
+          if (this.filters.subjectIds.length) q.subject_id = this.filters.subjectIds.join(',');
           const res = await api('GET', '/items/search', { query: q });
           if (mine === searchSeq) this.remote = res.results;
         } catch (e) {
@@ -136,6 +153,40 @@ export function listingMixin(Alpine) {
     clearFilters() {
       this.filters.q = '';
       this.filters.types = [];
+      this.filters.projectIds = [];
+      this.filters.subjectIds = [];
+    },
+
+    // ---- filtro por project/assunto (multisseleção, filtra no servidor) ----
+    toggleProjectFilter(id) {
+      const cur = this.filters.projectIds;
+      this.filters.projectIds = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+    },
+    toggleSubjectFilter(id) {
+      const cur = this.filters.subjectIds;
+      this.filters.subjectIds = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+    },
+    /** Workspace: todo project da árvore. Project: nenhum (já é um project só, o filtro de
+     * project ali seria redundante). */
+    get projectFilterOptions() {
+      if (this.scope().project_id) return [];
+      return (this.app.tree?.projects || []).map((p) => ({ id: p.id, name: p.name }));
+    },
+    /** Workspace: assuntos de todos os projects, com o nome do project junto (pra
+     * diferenciar "Credenciais" de um project do "Credenciais" de outro). Project: só os
+     * assuntos do próprio project, sem precisar repetir o nome dele. Subject: nenhum — já
+     * é um assunto só, o filtro ali seria redundante com a própria página. */
+    get subjectFilterOptions() {
+      if (this.scope().subject_id) return [];
+      const pid = this.scope().project_id;
+      const projects = (this.app.tree?.projects || []).filter((p) => !pid || p.id === pid);
+      const out = [];
+      for (const p of projects) {
+        for (const s of p.subjects || []) {
+          out.push({ id: s.id, name: pid ? s.name : `${s.name} · ${p.name}` });
+        }
+      }
+      return out;
     },
     /** Chips: com contagem na listagem; na busca, todos os tipos (a contagem vem dos grupos). */
     get chipTypes() {

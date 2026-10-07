@@ -27,8 +27,12 @@ router = APIRouter()
 @router.get("/items", response_model=ItemListResponse)
 def list_items(
     workspace_id: str | None = None,
-    project_id: str | None = None,
-    subject_id: str | None = None,
+    project_id: str | None = Query(
+        default=None, description="um id, ou vários separados por vírgula"
+    ),
+    subject_id: str | None = Query(
+        default=None, description="um id, ou vários separados por vírgula"
+    ),
     type: str | None = None,
     memory_class: str | None = None,
     limit: int = Query(default=100, ge=1, le=500),
@@ -39,9 +43,11 @@ def list_items(
     if workspace_id:
         filters.append(Item.workspace_id == workspace_id)
     if project_id:
-        filters.append(Item.project_id == project_id)
+        ids = [p.strip() for p in project_id.split(",") if p.strip()]
+        filters.append(Item.project_id.in_(ids))
     if subject_id:
-        filters.append(Item.subject_id == subject_id)
+        ids = [s.strip() for s in subject_id.split(",") if s.strip()]
+        filters.append(Item.subject_id.in_(ids))
     if type:
         filters.append(Item.type == type)
     if memory_class:
@@ -79,7 +85,12 @@ class SearchHitsResponse(SearchResponse):
 def search_items(
     query: str,
     workspace_id: str | None = None,
-    project_id: str | None = None,
+    project_id: str | None = Query(
+        default=None, description="um id, ou vários separados por vírgula"
+    ),
+    subject_id: str | None = Query(
+        default=None, description="um id, ou vários separados por vírgula"
+    ),
     types: str | None = Query(default=None, description="types separados por vírgula"),
     limit: int = Query(default=10, ge=1, le=50),
     engine: Engine = Depends(get_engine_dep),
@@ -94,10 +105,15 @@ def search_items(
         )
     service = ItemService(engine)
     ws_id = service.resolve_workspace_id(workspace_id) if workspace_id else None
-    pj_id = project_id
-    if project_id and ws_id:
-        pj_id = service.resolve_project_id(ws_id, project_id)
-    rows = service.search(ws_id, pj_id, query, types=type_list or None, limit=limit)
+    # `project_id` aceita vários ids separados por vírgula — resolve_project_id (nomes
+    # amigáveis) só faz sentido pra um id só, então só tenta resolver nesse caso.
+    pj_ids = [p.strip() for p in project_id.split(",") if p.strip()] if project_id else None
+    if pj_ids and len(pj_ids) == 1 and ws_id:
+        pj_ids = [service.resolve_project_id(ws_id, pj_ids[0])]
+    sj_ids = [s.strip() for s in subject_id.split(",") if s.strip()] if subject_id else None
+    rows = service.search(
+        ws_id, pj_ids, query, subject_id=sj_ids, types=type_list or None, limit=limit
+    )
     links = {}
     if rows:
         found = session.execute(
@@ -107,8 +123,11 @@ def search_items(
         )
         links = {i: (w, d) for i, w, d in found}
     results = [
-        SearchHit(**r, workspace_id=links.get(r["id"], (None, None))[0],
-                  project_id=links.get(r["id"], (None, None))[1])
+        SearchHit(
+            **r,
+            workspace_id=links.get(r["id"], (None, None))[0],
+            project_id=links.get(r["id"], (None, None))[1],
+        )
         for r in rows
     ]
     return SearchHitsResponse(query=query, total=len(results), results=results)
@@ -142,9 +161,7 @@ def set_importance(id: str, req: ImportanceUpdate, engine: Engine = Depends(get_
 
 
 @router.put("/items/{id}/memory_class", response_model=ItemResponse)
-def set_memory_class(
-    id: str, req: MemoryClassUpdate, session: Session = Depends(get_session_dep)
-):
+def set_memory_class(id: str, req: MemoryClassUpdate, session: Session = Depends(get_session_dep)):
     item = MemoryService(session).promote(id, req.memory_class)
     return ItemResponse.from_item(item)
 
@@ -158,7 +175,7 @@ async def set_secret_value(
     try:
         body = await request.json()
     except ValueError:
-        raise HTTPException(422, "Corpo deve ser JSON: {\"value\": \"...\"}") from None
+        raise HTTPException(422, 'Corpo deve ser JSON: {"value": "..."}') from None
     value = body.get("value") if isinstance(body, dict) else None
     if not isinstance(value, str) or not value:
         raise HTTPException(422, "Informe value (texto não vazio)")

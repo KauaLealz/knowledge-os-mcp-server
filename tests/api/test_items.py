@@ -87,6 +87,29 @@ def test_list_filtra_por_subject_id(client, mk, engine):
     assert [i["title"] for i in r.json()["items"]] == ["Com assunto"]
 
 
+def test_list_filtra_por_varios_project_id_e_subject_id_separados_por_virgula(client, mk, engine):
+    from sqlalchemy.orm import Session
+
+    from knowledge_os.services.subject_service import SubjectService
+
+    ws = mk.ws()
+    p1 = mk.project(ws["id"], "P1")
+    p2 = mk.project(ws["id"], "P2")
+    p3 = mk.project(ws["id"], "P3")
+    with Session(engine) as s:
+        subj = SubjectService(s).create(p1["id"], "Assunto")
+        subj_id = subj.id
+    mk.item(ws["id"], p1["id"], "A", subject_id=subj_id)
+    mk.item(ws["id"], p2["id"], "B")
+    mk.item(ws["id"], p3["id"], "C")
+
+    r = client.get("/api/items", params={"project_id": f"{p1['id']},{p2['id']}"})
+    assert {i["title"] for i in r.json()["items"]} == {"A", "B"}
+
+    r = client.get("/api/items", params={"subject_id": subj_id})
+    assert [i["title"] for i in r.json()["items"]] == ["A"]
+
+
 def test_list_total_independe_do_limit(client, mk):
     """`total` é o total real sem o corte de limit/offset — é o que a paginação usa."""
     ws, dm, _ = mk.tree()

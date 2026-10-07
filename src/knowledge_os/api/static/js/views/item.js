@@ -1,7 +1,7 @@
 // Página de item em modo leitura: selo de tipo, Markdown, TOC, relações, artifacts, prev/next.
 import { api, download } from '../api.js';
 import { renderTo } from '../markdown.js';
-import { go } from '../router.js';
+import { go, hrefs } from '../router.js';
 import { formatDate } from '../util.js';
 
 function copyText(text) {
@@ -95,6 +95,14 @@ export function register(Alpine) {
 
     get app() {
       return Alpine.store('app');
+    },
+    /** Sobe um nível: pro assunto do item (se tiver um) ou direto pro project. */
+    backHref() {
+      const ws = this.app.route.params.ws;
+      if (!this.item) return hrefs.ws(this.app.connId, ws);
+      return this.item.subject_id
+        ? hrefs.subject(this.app.connId, ws, this.item.project_id, this.item.subject_id)
+        : hrefs.project(this.app.connId, ws, this.item.project_id);
     },
     init() {
       this.$watch(

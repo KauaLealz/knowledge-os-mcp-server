@@ -23,8 +23,9 @@ export function register(Alpine) {
           const p = this.app.route.params;
           return hrefs.projectGraph(this.app.connId, p.ws, p.pj);
         },
-        get totalItems() {
-          return Math.max(this.app.project?.item_count ?? 0, this.items.length);
+        /** Sobe um nível: pro workspace. */
+        backHref() {
+          return hrefs.ws(this.app.connId, this.app.route.params.ws);
         },
       },
       listingMixin(Alpine),

@@ -331,7 +331,7 @@ def test_largura_larga_sem_teto_e_botao_oculto_quando_nao_cabe():
 
 def test_listas_agrupadas_por_tipo_com_filtros_e_busca():
     html = (STATIC / "index.html").read_text(encoding="utf-8")
-    assert html.count('class="filterbar"') == 3 and "Todos os itens" in html
+    assert html.count('class="searchbar"') == 3 and "Todos os itens" in html
     lst = _js("views/listing.js")
     assert "groupByType" in lst and "/items/search" in lst and "types" in lst
     util = _js("util.js")
@@ -347,6 +347,80 @@ def test_listas_agrupadas_por_tipo_com_filtros_e_busca():
         "artifact",
     ]
     assert "task" not in keys
+
+
+def test_busca_tem_botao_de_filtro_com_popover_a_direita():
+    """Busca e botão de filtro na mesma linha (.searchbar); o filtro abre um popover (não uma
+    barra separada embaixo) — fecha ao clicar fora ou Esc."""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert html.count('class="filter-pop"') == 3
+    assert html.count('class="filter-popover"') == 3
+    assert html.count('@click.outside="open = false"') == 3
+    assert html.count('@keydown.escape.window="open = false"') == 3
+    css = (STATIC / "css" / "app.css").read_text(encoding="utf-8")
+    assert ".filter-popover {" in css and "position: absolute; right: 0;" in css
+
+
+def test_project_e_assunto_sao_filtro_multiselect_no_servidor_nao_na_pagina_carregada():
+    """type filtra só a página já carregada (client-side); project/assunto tinham que
+    filtrar o total do workspace/project, não só os 50 itens da página — por isso vão de
+    verdade pro servidor (query string, igual ao type na busca), não um filtro local."""
+    lst = _js("views/listing.js")
+    assert "toggleProjectFilter(id)" in lst and "toggleSubjectFilter(id)" in lst
+    assert "query.project_id = this.filters.projectIds.join(',')" in lst
+    assert "query.subject_id = this.filters.subjectIds.join(',')" in lst
+    assert "q.project_id = this.filters.projectIds.join(',')" in lst
+    assert "q.subject_id = this.filters.subjectIds.join(',')" in lst
+    # muda projectIds/subjectIds -> recarrega a página 1 com o filtro novo
+    assert "if (!this.searchMode) this.goToPage(1);" in lst
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert html.count("toggleProjectFilter(p.id)") == 1  # só faz sentido no workspace
+    assert html.count("toggleSubjectFilter(s.id)") == 2  # workspace e project
+
+
+def test_filtro_de_project_so_no_workspace_assunto_nao_na_propria_pagina_do_assunto():
+    """Project: filtrar por project dentro da própria página do project seria redundante
+    (já é um só). Assunto: filtrar por assunto na própria página do assunto também (já é um
+    assunto só) — só aparece em Workspace (todos) e Project (os do project)."""
+    lst = _js("views/listing.js")
+    assert "if (this.scope().project_id) return [];" in lst
+    assert "if (this.scope().subject_id) return [];" in lst
+
+
+def test_contador_de_itens_so_na_paginacao_nao_duplicado_embaixo_do_titulo():
+    """O total já aparece na paginação (ver test_listagem_pagina_...) — repetir embaixo do
+    título era redundante e um dos dois podia ficar desatualizado."""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert 'x-text="$store.app.project.item_count"' not in html
+    assert 'x-text="$store.app.subject.item_count"' not in html
+    assert '<b x-text="totalItems">' not in html
+    ws_block = html[html.index("<!-- Workspace -->") : html.index("<!-- Project -->")]
+    assert "page-meta" not in ws_block  # contagem de projects/itens embaixo do título saiu
+
+
+def test_telas_tem_botao_de_voltar():
+    """Item, Project e Subject sobem um nível (Item -> assunto/project; Project/Subject ->
+    pai) — Workspace não (já alcançável pela sidebar e pelo breadcrumb, um botão ali seria
+    redundante)."""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert html.count('class="back-link"') == 3
+    item = _js("views/item.js")
+    assert "backHref()" in item
+    assert "this.item.subject_id" in item
+    project = _js("views/project.js")
+    assert "backHref()" in project and "hrefs.ws(" in project
+    subject = _js("views/subject.js")
+    assert "backHref()" in subject and "hrefs.project(" in subject
+
+
+def test_workspace_sem_secao_de_projects_na_listagem():
+    """Foco da página de workspace é filtrar/buscar itens — navegar pra um project
+    específico é o filtro multiselect de project (acima), não uma seção de cards clicáveis
+    misturada com a listagem."""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    ws_block = html[html.index("<!-- Workspace -->") : html.index("<!-- Project -->")]
+    assert "card-grid" not in ws_block
+    assert "previewItems" not in ws_block
 
 
 def test_paleta_busca_em_todos_os_workspaces_com_ate_20_resultados():

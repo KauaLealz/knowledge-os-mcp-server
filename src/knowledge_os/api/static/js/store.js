@@ -46,7 +46,9 @@ export const appStore = {
   wsError: null,
 
   // Filtros das listas (workspace e project): ficam no store para não se perderem ao navegar.
-  filters: { q: '', types: [] },
+  // projectIds/subjectIds filtram no servidor (não só a página carregada, como types) —
+  // só aparecem na UI de quem tem a árvore pra oferecer as opções (workspace e project).
+  filters: { q: '', types: [], projectIds: [], subjectIds: [] },
   filtersWs: null,
 
   trees: {}, // cache por workspace: { [wsId]: treeData }
@@ -156,7 +158,7 @@ export const appStore = {
     if (conn && conn !== this.connId) await this.selectConnection(conn);
     if (r.params.ws !== this.filtersWs) {
       this.filtersWs = r.params.ws || null;
-      this.filters = { q: '', types: [] };
+      this.filters = { q: '', types: [], projectIds: [], subjectIds: [] };
     }
     if (r.params.ws && !this.trees[r.params.ws] && this.workspaces.length) {
       await this.loadTree(r.params.ws);

@@ -29,15 +29,9 @@ export function register(Alpine) {
             .sort((a, b) => (parseDate(b.updated_at)?.getTime() || 0) - (parseDate(a.updated_at)?.getTime() || 0))
             .slice(0, 6);
         },
-        get totalItems() {
-          return this.indexed.length;
-        },
         /** Link para a tela de grafo deste workspace. */
         graphHref() {
           return hrefs.graph(this.app.connId, this.app.route.params.ws);
-        },
-        previewItems(p) {
-          return p.items.slice(0, 3);
         },
       },
       listingMixin(Alpine),

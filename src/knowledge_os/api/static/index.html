@@ -42,6 +42,7 @@
   <symbol id="i-box" viewBox="0 0 24 24"><path d="m12 3 9 5v8l-9 5-9-5V8l9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></symbol>
   <symbol id="i-command" viewBox="0 0 24 24"><path d="M9 6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6z"/></symbol>
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 6.3"/><path d="M20 4v7h-7"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 5h16l-6 7v6l-4 2v-8z"/></symbol>
 </svg>
 
 <div x-data x-cloak>
@@ -279,58 +280,72 @@
                   </nav>
                   <div class="page-head">
                     <h1 class="page-title" x-text="$store.app.workspace.name"></h1>
-                    <div class="toolbar"><a class="btn" :href="graphHref()">Ver grafo</a></div>
-                  </div>
-                  <div class="page-meta" x-show="$store.app.tree">
-                    <span><b x-text="$store.app.tree?.projects?.length"></b> projects</span>
-                    <span><b x-text="totalItems"></b> itens</span>
-                    <span>criado <b x-text="$ago($store.app.workspace.created_at)"></b></span>
+                    <div class="toolbar">
+                      <a class="btn" :href="graphHref()">Ver grafo</a>
+                      <button class="btn" @click="$store.app.openModal('project')"><svg class="ic"><use href="#i-plus"/></svg> Novo project</button>
+                    </div>
                   </div>
 
-                  <div class="filterbar">
+                  <div class="searchbar">
                     <label class="searchbox">
                       <svg class="ic"><use href="#i-search"/></svg>
                       <input type="search" class="input" x-model="$store.app.filters.q" placeholder="Buscar neste workspace…" aria-label="Buscar itens" autocomplete="off">
                     </label>
-                    <div class="type-chips" role="group" aria-label="Filtrar por tipo">
-                      <button class="tchip" :class="{ on: !filters.types.length }" :aria-pressed="!filters.types.length" @click="clearTypes()">
-                        Todos <span class="n" x-show="!searchMode" x-text="items.length"></span>
+                    <div class="filter-pop" x-data="{ open: false }" @keydown.escape.window="open = false">
+                      <button type="button" class="btn icon" :class="{ active: filtering }" @click="open = !open" :aria-expanded="open" aria-haspopup="true" aria-label="Filtros">
+                        <svg class="ic"><use href="#i-filter"/></svg>
                       </button>
-                      <template x-for="c in chipTypes" :key="c.type">
-                        <button class="tchip" :class="[$tc(c.type), { on: filters.types.includes(c.type) }]"
-                                :aria-pressed="filters.types.includes(c.type)" @click="toggleType(c.type)">
-                          <span class="tdot" aria-hidden="true"></span>
-                          <span x-text="c.label"></span> <span class="n" x-show="c.count != null" x-text="c.count"></span>
-                        </button>
-                      </template>
-                      <button class="btn ghost sm" x-show="filtering" @click="clearFilters()">Limpar filtros</button>
+                      <div class="filter-popover" x-show="open" x-cloak x-transition @click.outside="open = false">
+                        <div class="filter-group" x-show="projectFilterOptions.length">
+                          <div class="filter-group-title">Project</div>
+                          <div class="filter-check-list">
+                            <template x-for="p in projectFilterOptions" :key="p.id">
+                              <label class="filter-check">
+                                <input type="checkbox" :checked="filters.projectIds.includes(p.id)" @change="toggleProjectFilter(p.id)">
+                                <span x-text="p.name"></span>
+                              </label>
+                            </template>
+                          </div>
+                        </div>
+                        <div class="filter-group" x-show="subjectFilterOptions.length">
+                          <div class="filter-group-title">Assunto</div>
+                          <div class="filter-check-list">
+                            <template x-for="s in subjectFilterOptions" :key="s.id">
+                              <label class="filter-check">
+                                <input type="checkbox" :checked="filters.subjectIds.includes(s.id)" @change="toggleSubjectFilter(s.id)">
+                                <span x-text="s.name"></span>
+                              </label>
+                            </template>
+                          </div>
+                        </div>
+                        <div class="filter-group">
+                          <div class="filter-group-title">Tipo</div>
+                          <div class="type-chips" role="group" aria-label="Filtrar por tipo">
+                            <button class="tchip" :class="{ on: !filters.types.length }" :aria-pressed="!filters.types.length" @click="clearTypes()">
+                              Todos <span class="n" x-show="!searchMode" x-text="items.length"></span>
+                            </button>
+                            <template x-for="c in chipTypes" :key="c.type">
+                              <button class="tchip" :class="[$tc(c.type), { on: filters.types.includes(c.type) }]"
+                                      :aria-pressed="filters.types.includes(c.type)" @click="toggleType(c.type)">
+                                <span class="tdot" aria-hidden="true"></span>
+                                <span x-text="c.label"></span> <span class="n" x-show="c.count != null" x-text="c.count"></span>
+                              </button>
+                            </template>
+                          </div>
+                        </div>
+                        <div class="filter-group">
+                          <div class="filter-group-title">Ordenar</div>
+                          <select class="select sm" x-model="sort" aria-label="Ordenar">
+                            <option value="title">Ordem alfabética</option>
+                            <option value="recent">Mais recentes</option>
+                          </select>
+                        </div>
+                        <button class="btn ghost sm" x-show="filtering" @click="clearFilters()">Limpar filtros</button>
+                      </div>
                     </div>
                   </div>
                   <div class="banner" role="alert" x-show="searchError">
                     <svg class="ic"><use href="#i-alert"/></svg><span x-text="'Busca indisponível: ' + searchError"></span>
-                  </div>
-
-                  <template x-if="!filtering">
-                  <div>
-                  <div class="section-title"><span>Projects</span>
-                    <button class="btn" @click="$store.app.openModal('project')"><svg class="ic"><use href="#i-plus"/></svg> Novo project</button></div>
-                  <div class="card-grid">
-                    <template x-for="p in $store.app.tree?.projects || []" :key="p.id">
-                      <a class="card" :href="$store.app.hProject(p.id)">
-                        <span class="card-title"><svg class="ic"><use href="#i-folder"/></svg><span class="tl-text" x-text="p.name"></span><span class="count" x-text="p.item_count"></span></span>
-                        <span class="card-desc" x-show="p.description" x-text="p.description"></span>
-                        <ul class="mini-list">
-                          <template x-for="it in previewItems(p)" :key="it.id"><li x-text="'· ' + it.title"></li></template>
-                        </ul>
-                      </a>
-                    </template>
-                  </div>
-                  </div>
-                  </template>
-                  <div class="state" x-show="$store.app.tree && !$store.app.tree.projects.length">
-                    <svg class="logo"><use href="#logo"/></svg>
-                    <h3>Sem projects</h3>
-                    <p>Este workspace ainda não tem projects.</p>
                   </div>
 
                   <template x-if="recent.length && !filtering">
@@ -498,6 +513,7 @@
             <div class="page" x-data="projectView"><div class="doc">
               <template x-if="$store.app.project">
                 <div>
+                  <a class="back-link" :href="backHref()"><svg class="ic"><use href="#i-arrow-left"/></svg> Voltar</a>
                   <nav class="crumbs">
                     <a :href="$store.app.hConn()" x-text="$store.app.connName"></a><span class="sep">/</span>
                     <a :href="$store.app.hWs()" x-text="$store.app.workspace?.name"></a><span class="sep">/</span>
@@ -510,37 +526,56 @@
                       <button class="btn primary" @click="$store.app.openModal('item')"><svg class="ic"><use href="#i-plus"/></svg> Novo item</button>
                     </div>
                   </div>
-                  <div class="page-meta"><span><b x-text="$store.app.project.item_count"></b> itens</span></div>
 
-                  <div class="filterbar">
+                  <div class="searchbar">
                     <label class="searchbox">
                       <svg class="ic"><use href="#i-search"/></svg>
                       <input type="search" class="input" x-model="$store.app.filters.q" placeholder="Buscar neste project…" aria-label="Buscar itens" autocomplete="off">
                     </label>
-                    <div class="type-chips" role="group" aria-label="Filtrar por tipo">
-                      <button class="tchip" :class="{ on: !filters.types.length }" :aria-pressed="!filters.types.length" @click="clearTypes()">
-                        Todos <span class="n" x-show="!searchMode" x-text="items.length"></span>
+                    <div class="filter-pop" x-data="{ open: false }" @keydown.escape.window="open = false">
+                      <button type="button" class="btn icon" :class="{ active: filtering }" @click="open = !open" :aria-expanded="open" aria-haspopup="true" aria-label="Filtros">
+                        <svg class="ic"><use href="#i-filter"/></svg>
                       </button>
-                      <template x-for="c in chipTypes" :key="c.type">
-                        <button class="tchip" :class="[$tc(c.type), { on: filters.types.includes(c.type) }]"
-                                :aria-pressed="filters.types.includes(c.type)" @click="toggleType(c.type)">
-                          <span class="tdot" aria-hidden="true"></span>
-                          <span x-text="c.label"></span> <span class="n" x-show="c.count != null" x-text="c.count"></span>
-                        </button>
-                      </template>
-                      <button class="btn ghost sm" x-show="filtering" @click="clearFilters()">Limpar filtros</button>
+                      <div class="filter-popover" x-show="open" x-cloak x-transition @click.outside="open = false">
+                        <div class="filter-group" x-show="subjectFilterOptions.length">
+                          <div class="filter-group-title">Assunto</div>
+                          <div class="filter-check-list">
+                            <template x-for="s in subjectFilterOptions" :key="s.id">
+                              <label class="filter-check">
+                                <input type="checkbox" :checked="filters.subjectIds.includes(s.id)" @change="toggleSubjectFilter(s.id)">
+                                <span x-text="s.name"></span>
+                              </label>
+                            </template>
+                          </div>
+                        </div>
+                        <div class="filter-group">
+                          <div class="filter-group-title">Tipo</div>
+                          <div class="type-chips" role="group" aria-label="Filtrar por tipo">
+                            <button class="tchip" :class="{ on: !filters.types.length }" :aria-pressed="!filters.types.length" @click="clearTypes()">
+                              Todos <span class="n" x-show="!searchMode" x-text="items.length"></span>
+                            </button>
+                            <template x-for="c in chipTypes" :key="c.type">
+                              <button class="tchip" :class="[$tc(c.type), { on: filters.types.includes(c.type) }]"
+                                      :aria-pressed="filters.types.includes(c.type)" @click="toggleType(c.type)">
+                                <span class="tdot" aria-hidden="true"></span>
+                                <span x-text="c.label"></span> <span class="n" x-show="c.count != null" x-text="c.count"></span>
+                              </button>
+                            </template>
+                          </div>
+                        </div>
+                        <div class="filter-group">
+                          <div class="filter-group-title">Ordenar</div>
+                          <select class="select sm" x-model="sort" aria-label="Ordenar">
+                            <option value="title">Ordem alfabética</option>
+                            <option value="recent">Mais recentes</option>
+                          </select>
+                        </div>
+                        <button class="btn ghost sm" x-show="filtering" @click="clearFilters()">Limpar filtros</button>
+                      </div>
                     </div>
                   </div>
                   <div class="banner" role="alert" x-show="searchError">
                     <svg class="ic"><use href="#i-alert"/></svg><span x-text="'Busca indisponível: ' + searchError"></span>
-                  </div>
-                  <div class="toolbar" x-show="items.length && !searchMode">
-                    <select class="select sm" x-model="sort" aria-label="Ordenar">
-                      <option value="title">Ordem alfabética</option>
-                      <option value="recent">Mais recentes</option>
-                    </select>
-                    <span class="grow"></span>
-                    <span class="muted" style="font-size:13px" x-text="visible.length + ' de ' + items.length"></span>
                   </div>
                   <span class="muted" x-show="searching">Buscando…</span>
                   <template x-for="g in groups" :key="g.type">
@@ -608,6 +643,7 @@
             <div class="page" x-data="subjectView"><div class="doc">
               <template x-if="$store.app.subject">
                 <div>
+                  <a class="back-link" :href="backHref()"><svg class="ic"><use href="#i-arrow-left"/></svg> Voltar</a>
                   <nav class="crumbs">
                     <a :href="$store.app.hConn()" x-text="$store.app.connName"></a><span class="sep">/</span>
                     <a :href="$store.app.hWs()" x-text="$store.app.workspace?.name"></a><span class="sep">/</span>
@@ -618,25 +654,41 @@
                     <h1 class="page-title" x-text="$store.app.subject.name"></h1>
                     <div class="toolbar"><a class="btn" :href="graphHref()">Ver grafo</a></div>
                   </div>
-                  <div class="page-meta"><span><b x-text="$store.app.subject.item_count"></b> itens</span></div>
 
-                  <div class="filterbar">
+                  <div class="searchbar">
                     <label class="searchbox">
                       <svg class="ic"><use href="#i-search"/></svg>
                       <input type="search" class="input" x-model="$store.app.filters.q" placeholder="Buscar neste assunto…" aria-label="Buscar itens" autocomplete="off">
                     </label>
-                    <div class="type-chips" role="group" aria-label="Filtrar por tipo">
-                      <button class="tchip" :class="{ on: !filters.types.length }" :aria-pressed="!filters.types.length" @click="clearTypes()">
-                        Todos <span class="n" x-show="!searchMode" x-text="items.length"></span>
+                    <div class="filter-pop" x-data="{ open: false }" @keydown.escape.window="open = false">
+                      <button type="button" class="btn icon" :class="{ active: filtering }" @click="open = !open" :aria-expanded="open" aria-haspopup="true" aria-label="Filtros">
+                        <svg class="ic"><use href="#i-filter"/></svg>
                       </button>
-                      <template x-for="c in chipTypes" :key="c.type">
-                        <button class="tchip" :class="[$tc(c.type), { on: filters.types.includes(c.type) }]"
-                                :aria-pressed="filters.types.includes(c.type)" @click="toggleType(c.type)">
-                          <span class="tdot" aria-hidden="true"></span>
-                          <span x-text="c.label"></span> <span class="n" x-show="c.count != null" x-text="c.count"></span>
-                        </button>
-                      </template>
-                      <button class="btn ghost sm" x-show="filtering" @click="clearFilters()">Limpar filtros</button>
+                      <div class="filter-popover" x-show="open" x-cloak x-transition @click.outside="open = false">
+                        <div class="filter-group">
+                          <div class="filter-group-title">Tipo</div>
+                          <div class="type-chips" role="group" aria-label="Filtrar por tipo">
+                            <button class="tchip" :class="{ on: !filters.types.length }" :aria-pressed="!filters.types.length" @click="clearTypes()">
+                              Todos <span class="n" x-show="!searchMode" x-text="items.length"></span>
+                            </button>
+                            <template x-for="c in chipTypes" :key="c.type">
+                              <button class="tchip" :class="[$tc(c.type), { on: filters.types.includes(c.type) }]"
+                                      :aria-pressed="filters.types.includes(c.type)" @click="toggleType(c.type)">
+                                <span class="tdot" aria-hidden="true"></span>
+                                <span x-text="c.label"></span> <span class="n" x-show="c.count != null" x-text="c.count"></span>
+                              </button>
+                            </template>
+                          </div>
+                        </div>
+                        <div class="filter-group">
+                          <div class="filter-group-title">Ordenar</div>
+                          <select class="select sm" x-model="sort" aria-label="Ordenar">
+                            <option value="title">Ordem alfabética</option>
+                            <option value="recent">Mais recentes</option>
+                          </select>
+                        </div>
+                        <button class="btn ghost sm" x-show="filtering" @click="clearFilters()">Limpar filtros</button>
+                      </div>
                     </div>
                   </div>
                   <div class="banner" role="alert" x-show="searchError">
@@ -710,6 +762,7 @@
 
                 <template x-if="item">
                   <article>
+                    <a class="back-link" :href="backHref()"><svg class="ic"><use href="#i-arrow-left"/></svg> Voltar</a>
                     <nav class="crumbs">
                       <a :href="$store.app.hConn()" x-text="$store.app.connName"></a><span class="sep">/</span>
                       <a :href="$store.app.hWs()" x-text="$store.app.workspace?.name"></a><span class="sep">/</span>

@@ -24,6 +24,11 @@ export function register(Alpine) {
           const p = this.app.route.params;
           return hrefs.subjectGraph(this.app.connId, p.ws, p.pj, p.subj);
         },
+        /** Sobe um nível: pro project deste assunto. */
+        backHref() {
+          const p = this.app.route.params;
+          return hrefs.project(this.app.connId, p.ws, p.pj);
+        },
       },
       listingMixin(Alpine),
     ),
