@@ -525,7 +525,7 @@ def test_grafo_abre_item_sem_depender_do_indice_da_sidebar():
 def test_grafo_do_workspace_agrupa_por_project_e_assunto():
     graph = _js("views/graph.js")
     assert "forceX" in graph and "forceY" in graph
-    assert "groupKey" in graph
+    assert "projectKey" in graph and "subjectKey" in graph
     assert "n.subject_id" in graph
     # rótulo do agrupamento — sem isso dá pra ver que os nós se afastaram, mas não de quê
     assert "gcluster-label" in graph
@@ -534,6 +534,25 @@ def test_grafo_do_workspace_agrupa_por_project_e_assunto():
         STATIC / "index.html"
     ).read_text(encoding="utf-8")
     assert ".gcluster-label" in css
+
+
+def test_grafo_do_workspace_agrupa_em_hierarquia_project_depois_assunto():
+    """Cada project vira uma região maior (força fraca 'x-project'/'y-project'); os
+    assuntos daquele project formam sub-regiões dentro dela (força mais forte
+    'x-subject'/'y-subject') — não um grid achatado de project+assunto lado a lado. Item
+    sem assunto cai no próprio balde "Sem assunto", não se mistura com quem tem assunto."""
+    graph = _js("views/graph.js")
+    assert "force('x-project'" in graph and "force('y-project'" in graph
+    assert "force('x-subject'" in graph and "force('y-subject'" in graph
+    assert "'Sem assunto'" in graph
+    assert "gcluster-label-project" in graph
+    assert "gcluster-label-subject" in graph
+    # grafo de um project só: nível de project seria redundante, agrupa direto por assunto
+    assert "scope === 'project-graph'" in graph
+    css = (STATIC / "css" / "app.css").read_text(encoding="utf-8") + (
+        STATIC / "index.html"
+    ).read_text(encoding="utf-8")
+    assert ".gcluster-label-project" in css and ".gcluster-label-subject" in css
 
 
 def test_grafo_nao_usa_template_x_for_dentro_de_svg():
