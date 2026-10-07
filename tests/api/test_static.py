@@ -545,14 +545,45 @@ def test_grafo_do_workspace_agrupa_em_hierarquia_project_depois_assunto():
     assert "force('x-project'" in graph and "force('y-project'" in graph
     assert "force('x-subject'" in graph and "force('y-subject'" in graph
     assert "'Sem assunto'" in graph
-    assert "gcluster-label-project" in graph
-    assert "gcluster-label-subject" in graph
+    assert "gcluster-label-planet" in graph
+    assert "gcluster-label-country" in graph
     # grafo de um project só: nível de project seria redundante, agrupa direto por assunto
     assert "scope === 'project-graph'" in graph
     css = (STATIC / "css" / "app.css").read_text(encoding="utf-8") + (
         STATIC / "index.html"
     ).read_text(encoding="utf-8")
-    assert ".gcluster-label-project" in css and ".gcluster-label-subject" in css
+    assert ".gcluster-label-planet" in css and ".gcluster-label-country" in css
+
+
+def test_grafo_do_workspace_tem_rotulo_de_galaxia_acima_de_tudo():
+    """Hierarquia galáxia (workspace) > planeta (project) > país (assunto), nessa ordem de
+    tamanho. O rótulo só existe no grafo do workspace inteiro — num grafo de um project ou
+    assunto só, o nível de cima já não existe (decisão da entrega anterior), repetir aqui
+    seria redundante."""
+    graph = _js("views/graph.js")
+    assert "gcluster-label-galaxy" in graph
+    assert "this.app.workspace?.name" in graph
+    assert "scope === 'graph'" in graph
+    css = (STATIC / "css" / "app.css").read_text(encoding="utf-8") + (
+        STATIC / "index.html"
+    ).read_text(encoding="utf-8")
+    assert ".gcluster-label-galaxy" in css
+
+
+def test_grafo_rotulos_colados_no_topo_do_proprio_aglomerado_e_por_cima_dos_nos():
+    """Rótulo não é posicionado por uma célula nominal da grade (a física é frouxa e o
+    grupo se espalha além dela) — é calculado depois que a simulação assenta, pela borda de
+    cima de onde os nós do próprio grupo realmente pararam. Por isso nunca fica longe do
+    que nomeia, e por ser desenhado por último (depois de nós e linhas), nunca fica coberto
+    por um nó — no máximo uma linha de relação passa por baixo dele."""
+    graph = _js("views/graph.js")
+    assert "const bbox = (ns) =>" in graph
+    tick_idx = graph.index("this.sim.stop();\n      for (let i = 0; i < 150")
+    labels_idx = graph.index("addClusterLabel('gcluster-label gcluster-label-galaxy'")
+    nodes_idx = graph.index("const nodeEls = this.nodes.map")
+    # nós e linhas entram no DOM antes dos rótulos (ordem de pintura do SVG = ordem no DOM)
+    assert nodes_idx < labels_idx
+    assert tick_idx < labels_idx
 
 
 def test_grafo_nao_usa_template_x_for_dentro_de_svg():

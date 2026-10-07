@@ -14,6 +14,7 @@ import { zoom } from '../../vendor/d3-zoom.esm.js';
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const WIDTH = 900;
 const HEIGHT = 560;
+const MAX_RADIUS = 16;
 // Tamanho mínimo de célula por project na grade do workspace: grande o bastante pra caber
 // um rótulo + sub-grupos de assunto sem amontoar. Com mais projects, o canvas cresce (zoom
 // e pan já dão conta de navegar nele), em vez de espremer tudo no mesmo 900x560.
@@ -141,17 +142,10 @@ export function register(Alpine) {
       viewport.setAttribute('class', 'graph-viewport');
       svg.appendChild(viewport);
 
-      const addClusterLabel = (cls, x, y, text) => {
-        const label = document.createElementNS(SVG_NS, 'text');
-        label.setAttribute('class', cls);
-        label.setAttribute('x', String(x));
-        label.setAttribute('y', String(y));
-        label.textContent = text;
-        viewport.appendChild(label);
-      };
-
       // Grade genérica: distribui `keys` dentro de uma região retangular, com uma margem
-      // (fração da região) deixando um respiro visível entre clusters vizinhos.
+      // (fração da região) deixando um respiro visível entre clusters vizinhos. Só serve
+      // pra mirar a força de atração (x-project/x-subject) — não decide onde o rótulo vai
+      // (isso só dá pra saber depois que a simulação assentar de verdade, ver mais abaixo).
       const gridCenters = (keys, region, margin) => {
         const cols = Math.ceil(Math.sqrt(keys.length));
         const rows = Math.ceil(keys.length / cols);
@@ -175,10 +169,6 @@ export function register(Alpine) {
       let projectCenters = null;
       if (projectIds.length > 1) {
         projectCenters = gridCenters(projectIds, { x: this.width / 2, y: this.height / 2, w: this.width, h: this.height }, 0.04);
-        const labelByProject = new Map(this.nodes.map((n) => [projectKey(n), projectLabel(n)]));
-        for (const [id, c] of projectCenters) {
-          addClusterLabel('gcluster-label gcluster-label-project', c.x, c.y - c.h / 2 + 20, labelByProject.get(id));
-        }
       }
 
       let subjectCenters = null;
@@ -192,16 +182,8 @@ export function register(Alpine) {
           const full = parent !== null
             ? projectCenters.get(parent)
             : { x: this.width / 2, y: this.height / 2, w: this.width, h: this.height };
-          // Reserva a faixa de cima da região (onde fica o rótulo do project, se houver)
-          // pros sub-grupos não nascerem por baixo dele.
-          const topStrip = parent !== null ? 40 : 0;
-          const region = { x: full.x, y: full.y + topStrip / 2, w: full.w, h: full.h - topStrip };
-          const centers = gridCenters(keys, region, 0.08);
-          const labelBySubject = new Map(nodesIn.map((n) => [subjectKey(n), subjectLabel(n)]));
-          for (const [k, c] of centers) {
-            subjectCenters.set(k, c);
-            addClusterLabel('gcluster-label gcluster-label-subject', c.x, c.y - c.h / 2 + 13, labelBySubject.get(k));
-          }
+          const centers = gridCenters(keys, full, 0.1);
+          for (const [k, c] of centers) subjectCenters.set(k, c);
         }
         if (subjectCenters.size === 0) subjectCenters = null;
       }
@@ -290,6 +272,73 @@ export function register(Alpine) {
       for (let i = 0; i < 150; i++) this.sim.tick();
       tick();
       this.sim.stop();
+
+      // Rótulos por hierarquia — galáxia (workspace) > planeta (project) > país (assunto) —
+      // colados em cima de onde os nós REALMENTE pararam (não uma célula fixa da grade: a
+      // física é frouxa de propósito e o grupo se espalha além da célula nominal). Cada um
+      // fica o mais perto possível do próprio aglomerado (BASE_GAP), mas um país pode ser o
+      // próprio ponto mais alto do seu project (ou um project, do workspace inteiro) — nesse
+      // caso o rótulo de fora empurra pra cima só o suficiente pra não empacar no de dentro,
+      // em vez de ficar sempre numa distância fixa (que ou sobrepõe, ou afasta à toa quando
+      // não tem ninguém por perto). Desenhados por último: pintam por cima de nós e linhas
+      // (linhas podem passar por baixo de um rótulo sem problema; um nó, nunca).
+      const BASE_GAP = 12;
+      const HALF_HEIGHT = { galaxy: 12, planet: 9, country: 7 };
+      const STACK_GAP = 4;
+
+      const bbox = (ns) => {
+        let minX = Infinity, maxX = -Infinity, minY = Infinity;
+        for (const n of ns) {
+          if (n.x < minX) minX = n.x;
+          if (n.x > maxX) maxX = n.x;
+          if (n.y < minY) minY = n.y;
+        }
+        return { cx: (minX + maxX) / 2, top: minY };
+      };
+      const addClusterLabel = (cls, tier, ns, text, ceiling) => {
+        if (!ns.length) return null;
+        const { cx, top } = bbox(ns);
+        const natural = top - MAX_RADIUS - BASE_GAP;
+        const y = ceiling === null ? natural : Math.min(natural, ceiling);
+        const label = document.createElementNS(SVG_NS, 'text');
+        label.setAttribute('class', cls);
+        label.setAttribute('x', String(cx));
+        label.setAttribute('y', String(y));
+        label.textContent = text;
+        viewport.appendChild(label);
+        return y;
+      };
+
+      // Por project (não global): um país muito alto só empurra o rótulo do SEU project,
+      // nunca o de um project vizinho que não tem nada a ver com aquela colisão.
+      const minCountryYByProject = new Map();
+      if (subjectCenters) {
+        for (const k of subjectCenters.keys()) {
+          const ns = this.nodes.filter((n) => subjectKey(n) === k);
+          const y = addClusterLabel('gcluster-label gcluster-label-country', 'country', ns, subjectLabel(ns[0]), null);
+          if (y !== null) {
+            const pid = projectKey(ns[0]);
+            const prev = minCountryYByProject.get(pid);
+            if (prev === undefined || y < prev) minCountryYByProject.set(pid, y);
+          }
+        }
+      }
+      let minGalaxyY = Infinity;
+      if (projectCenters) {
+        const childClear = HALF_HEIGHT.country + HALF_HEIGHT.planet + STACK_GAP;
+        for (const id of projectIds) {
+          const ns = this.nodes.filter((n) => projectKey(n) === id);
+          const minCountryY = minCountryYByProject.get(id);
+          const ceiling = minCountryY === undefined ? null : minCountryY - childClear;
+          const y = addClusterLabel('gcluster-label gcluster-label-planet', 'planet', ns, projectLabel(ns[0]), ceiling);
+          if (y !== null && y < minGalaxyY) minGalaxyY = y;
+        }
+      }
+      if (scope === 'graph') {
+        const childClear = HALF_HEIGHT.planet + HALF_HEIGHT.galaxy + STACK_GAP;
+        const ceiling = minGalaxyY === Infinity ? null : minGalaxyY - childClear;
+        addClusterLabel('gcluster-label gcluster-label-galaxy', 'galaxy', this.nodes, this.app.workspace?.name || '', ceiling);
+      }
 
       // Clique abre o item; arrastar não deve contar como clique (d3-drag não distingue,
       // então só navega se o nó não se mexeu entre mousedown e mouseup).
