@@ -135,6 +135,8 @@ class ItemSearchResult(BaseModel):
     summary: str
     score: float
     uses: int = 0  # quantas vezes o item foi devolvido de propósito (busca, foco do contexto)
+    tags: list[str] = []
+    labels: list[str] = []
 
 
 def _has_value(item: Item) -> bool:

@@ -774,6 +774,8 @@ class ItemService:
         limit: int = 10,
         include_inactive: bool = False,
         track: bool = True,
+        tags: list[str] | None = None,
+        labels: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Busca FTS5 em title+summary+keywords+content. Nunca inclui content.
 
@@ -783,6 +785,10 @@ class ItemService:
         obsoletos e ephemeral vencidos, salvo `include_inactive`. Em SQLite, a consulta é
         normalizada para PT-BR (sem acento, radical, prefixo); se exigir todos os termos não
         acha nada, tenta qualquer termo. Com `track`, incrementa access_count dos retornados.
+
+        `tags` e `labels` filtram por conjunção: o item precisa ter **todas** as informadas
+        (buscar por `pagamentos` + `critical` traz só o que é as duas coisas). São filtros,
+        não termos de busca — o que faz o item ser encontrado por texto é `keywords`.
         """
         if limit < 1:
             raise ValidationError("limit deve ser >= 1")
@@ -819,6 +825,22 @@ class ItemService:
             where.append("i.memory_class IN :mclasses")
             params["mclasses"] = list(memory_classes)
             expanding.append("mclasses")
+        # Conjunção: COUNT(DISTINCT) dos que casam tem de bater com o total pedido.
+        for kind, wanted in (("tag", tags), ("label", labels)):
+            if not wanted:
+                continue
+            names = sorted({n.strip() for n in wanted if n and n.strip()})
+            if not names:
+                continue
+            key = f"{kind}s"
+            where.append(
+                f"(SELECT COUNT(DISTINCT t.name) FROM item_{key} it"
+                f" JOIN {key} t ON t.id = it.{kind}_id"
+                f" WHERE it.item_id = i.id AND t.name IN :{key}) = :{key}_n"
+            )
+            params[key] = names
+            params[f"{key}_n"] = len(names)
+            expanding.append(key)
         if not include_inactive:
             where.append("COALESCE(i.status, 'active') IN ('active', 'done')")
             where.append("(i.expires_at IS NULL OR i.expires_at > :now)")
@@ -831,7 +853,11 @@ class ItemService:
         columns = (
             "i.id AS id, i.item_key AS item_key, i.type AS type, i.memory_class AS memory_class, "
             "d.name AS project, sb.name AS subject, i.title AS title, i.summary AS summary, "
-            "COALESCE(i.access_count, 0) AS uses"
+            "COALESCE(i.access_count, 0) AS uses, "
+            "(SELECT GROUP_CONCAT(t.name) FROM item_tags it JOIN tags t ON t.id = it.tag_id"
+            " WHERE it.item_id = i.id) AS tags, "
+            "(SELECT GROUP_CONCAT(l.name) FROM item_labels il JOIN labels l ON l.id = il.label_id"
+            " WHERE il.item_id = i.id) AS labels"
         )
         subject_join = " LEFT JOIN subjects sb ON sb.id = i.subject_id"
         if not query:
@@ -875,6 +901,8 @@ class ItemService:
                     "subject": r["subject"],
                     "title": r["title"], "summary": r["summary"], "score": float(r["score"]),
                     "uses": int(r["uses"] or 0),
+                    "tags": sorted((r["tags"] or "").split(",")) if r["tags"] else [],
+                    "labels": sorted((r["labels"] or "").split(",")) if r["labels"] else [],
                 }
                 for r in rows
             ]

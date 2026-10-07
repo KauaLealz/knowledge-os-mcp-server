@@ -95,3 +95,35 @@ def test_search_limit_up_to_50(client):
 def test_search_unknown_workspace_is_404(client):
     r = client.get("/api/items/search", params={"query": "x", "workspace_id": "nope"})
     assert r.status_code == 404
+
+
+def test_search_filtra_por_tag_e_por_label(client, mk):
+    ws, dm, _ = mk.tree()
+    mk.item(ws["id"], dm["id"], title="Cobrança conditional recorrente",
+            tags=["pagamentos", "billing"], labels=["critical"])
+    mk.item(ws["id"], dm["id"], title="Cobrança conditional avulsa", tags=["pagamentos"])
+    mk.item(ws["id"], dm["id"], title="Relatório conditional mensal", tags=["relatorios"])
+
+    def titles(**params):
+        r = client.get("/api/items/search",
+                       params={"query": "conditional", "workspace_id": ws["id"], **params})
+        assert r.status_code == 200, r.text
+        return {x["title"] for x in r.json()["results"]}
+
+    assert len(titles()) == 4  # os 3 + o item da fixture
+    assert len(titles(tags="pagamentos")) == 2
+    assert titles(labels="critical") == {"Cobrança conditional recorrente"}
+    # conjunção: precisa ter as duas tags, não qualquer uma
+    assert titles(tags="pagamentos,billing") == {"Cobrança conditional recorrente"}
+    assert titles(tags="pagamentos,inexistente") == set()
+
+
+def test_search_devolve_tags_e_labels_do_item(client, mk):
+    ws, dm, _ = mk.tree()
+    mk.item(ws["id"], dm["id"], title="Com rótulos conditional",
+            tags=["b", "a"], labels=["official"])
+    r = client.get("/api/items/search",
+                   params={"query": "rótulos", "workspace_id": ws["id"]})
+    (found,) = [x for x in r.json()["results"] if x["title"] == "Com rótulos conditional"]
+    assert found["tags"] == ["a", "b"]  # ordenadas
+    assert found["labels"] == ["official"]

@@ -92,6 +92,12 @@ def search_items(
         default=None, description="um id, ou vários separados por vírgula"
     ),
     types: str | None = Query(default=None, description="types separados por vírgula"),
+    tags: str | None = Query(
+        default=None, description="tags separadas por vírgula; o item precisa ter todas"
+    ),
+    labels: str | None = Query(
+        default=None, description="labels separados por vírgula; o item precisa ter todos"
+    ),
     limit: int = Query(default=10, ge=1, le=50),
     engine: Engine = Depends(get_engine_dep),
     session: Session = Depends(get_session_dep),
@@ -111,8 +117,11 @@ def search_items(
     if pj_ids and len(pj_ids) == 1 and ws_id:
         pj_ids = [service.resolve_project_id(ws_id, pj_ids[0])]
     sj_ids = [s.strip() for s in subject_id.split(",") if s.strip()] if subject_id else None
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
+    label_list = [lb.strip() for lb in labels.split(",") if lb.strip()] if labels else None
     rows = service.search(
-        ws_id, pj_ids, query, subject_id=sj_ids, types=type_list or None, limit=limit
+        ws_id, pj_ids, query, subject_id=sj_ids, types=type_list or None, limit=limit,
+        tags=tag_list, labels=label_list,
     )
     links = {}
     if rows:

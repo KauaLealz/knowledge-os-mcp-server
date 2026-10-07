@@ -433,6 +433,8 @@ def item_search(
     subject: str | None = None,
     types: list[str] | None = None,
     memory_classes: list[str] | None = None,
+    tags: list[str] | None = None,
+    labels: list[str] | None = None,
     limit: int = 10,
     include_inactive: bool = False,
     everywhere: bool = False,
@@ -441,12 +443,17 @@ def item_search(
     """Busca por texto. Devolve resumos, nunca o conteúdo completo.
 
     **Use quando:** Procurar algo que pode já estar guardado (decisão, gotcha, procedimento).
-    **Retorna:** [{id, key, type, memory_class, project, subject, title, summary, score, uses}].
+    **Retorna:** [{id, key, type, memory_class, project, subject, title, summary, score, uses,
+        tags, labels}].
     **Exemplo:** item_search(query="migração flyway", limit=5)
     **Notas:** Sem repo/workspace, busca no projeto da pasta atual (se ligado) — não vaza para
         outros projetos; `everywhere=True` busca em todos. Relevância primeiro; acentos e plurais
         não atrapalham. include_inactive traz substituídos, obsoletos e ephemeral vencidos.
         `subject` filtra pelo assunto (nome ou id) dentro do project; exige project resolvido.
+        `tags` e `labels` filtram por conjunção: o item precisa ter **todas** as informadas
+        (`tags=["pagamentos"], labels=["critical"]` traz só o que é as duas coisas). São
+        filtros, não termos de busca — quem faz o item ser achado por texto é o campo
+        `keywords` dele.
     """
     svc = ItemService(connection_id=connection_id)
     workspace_id = project_id = subject_id = None
