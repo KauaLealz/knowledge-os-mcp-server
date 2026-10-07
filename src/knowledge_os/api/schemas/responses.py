@@ -20,6 +20,7 @@ __all__ = [
     "ConnectionTestResponse",
     "GraphEdge",
     "GraphNode",
+    "ItemListResponse",
     "ItemResponse",
     "ItemSearchResult",
     "LabelResponse",
@@ -97,6 +98,13 @@ class WorkspaceGraph(BaseModel):
 
 class ProjectStats(BaseModel):
     items: int
+
+
+class ItemListResponse(BaseModel):
+    """Página de `GET /items`: os itens da página + o total real (sem o filtro de limit/offset)."""
+
+    items: list[ItemResponse]
+    total: int
 
 
 class SearchResponse(BaseModel):

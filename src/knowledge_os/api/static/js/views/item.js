@@ -1,6 +1,7 @@
 // Página de item em modo leitura: selo de tipo, Markdown, TOC, relações, artifacts, prev/next.
 import { api, download } from '../api.js';
 import { renderTo } from '../markdown.js';
+import { go } from '../router.js';
 import { formatDate } from '../util.js';
 
 function copyText(text) {
@@ -89,6 +90,8 @@ export function register(Alpine) {
     notFound: false,
     showRaw: false,
     seq: 0,
+    deleting: false,
+    confirmingDelete: false,
 
     get app() {
       return Alpine.store('app');
@@ -113,6 +116,7 @@ export function register(Alpine) {
       this.error = null;
       this.notFound = false;
       this.showRaw = false;
+      this.confirmingDelete = false;
       this.headings = [];
       this.active = '';
       observer?.disconnect();
@@ -236,6 +240,25 @@ export function register(Alpine) {
         await download(`/artifacts/${a.id}`, a.filename);
       } catch (e) {
         this.app.toast(e.message, 'error');
+      }
+    },
+    async remove() {
+      if (!this.confirmingDelete) {
+        this.confirmingDelete = true;
+        return;
+      }
+      this.deleting = true;
+      this.error = null;
+      try {
+        const pjId = this.item.project_id;
+        await api('DELETE', `/items/${this.item.id}`);
+        this.app.toast('Item excluído');
+        go(this.app.hProject(pjId));
+      } catch (e) {
+        this.error = e.message;
+      } finally {
+        this.deleting = false;
+        this.confirmingDelete = false;
       }
     },
   };

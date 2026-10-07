@@ -149,6 +149,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .section-title { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-3); font-weight: 650; margin: 32px 0 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
 .toolbar .grow { flex: 1; }
+/* Título + ações na mesma linha (botões à direita do h1, não abaixo) — mesmo padrão de .item-head. */
+.page-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px 16px; }
+.page-head .page-title { flex: 1 1 320px; margin-bottom: 0; }
+.page-head .toolbar { margin-bottom: 0; }
 
 .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
 .card {
@@ -364,7 +368,8 @@ body { overflow-x: clip; }
 @media (max-width: 768px) {
   .item-actions .btn kbd { display: none; }
   .item-actions { width: 100%; padding-top: 0; }
-  .item-head .page-title { flex-basis: 100%; }
+  .item-head .page-title, .page-head .page-title { flex-basis: 100%; }
+  .page-head .toolbar { width: 100%; }
   .page.editing { --content-w: 100%; }
   .rel-cols { grid-template-columns: minmax(0, 1fr); }
   .pager { grid-template-columns: minmax(0, 1fr); }

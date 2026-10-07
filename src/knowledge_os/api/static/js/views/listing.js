@@ -4,7 +4,7 @@
 import { api } from '../api.js';
 import { TYPE_ORDER, groupByType, parseDate, typeLabel } from '../util.js';
 
-export const PAGE_SIZE = 50; // itens por página no "Carregar mais" (mesmo tamanho da busca)
+export const PAGE_SIZE = 50; // itens por página (mesmo tamanho da busca)
 const SEARCH_LIMIT = 50; // máximo aceito pela busca
 const MIN_QUERY = 2;
 
@@ -28,9 +28,8 @@ export function listingMixin(Alpine) {
     loading: false,
     error: null,
     pageSize: PAGE_SIZE,
-    offset: 0,
-    hasMore: true,
-    loadingMore: false,
+    page: 1,
+    total: 0,
     remote: [],
     searching: false,
     searchError: null,
@@ -60,21 +59,31 @@ export function listingMixin(Alpine) {
       this.runSearch();
     },
 
-    /** Carga inicial (ou recarga ao trocar de workspace/project): busca a primeira página. */
+    /** Carga inicial (ou recarga ao trocar de workspace/project): busca a página 1. */
     async loadItems() {
+      await this.goToPage(1);
+    },
+
+    get totalPages() {
+      return Math.max(1, Math.ceil(this.total / this.pageSize));
+    },
+
+    /** Busca uma página específica e substitui a lista exibida (sem acumular). */
+    async goToPage(n) {
       const scope = this.scope();
       if (!scope.workspace_id) return;
+      const target = Math.min(Math.max(1, n), this.total ? this.totalPages : n);
       const seq = ++loadSeq;
       this.loading = true;
       this.error = null;
-      this.offset = 0;
-      this.hasMore = true;
       try {
-        const items = await api('GET', '/items', { query: { ...scope, limit: this.pageSize, offset: 0 } });
+        const res = await api('GET', '/items', {
+          query: { ...scope, limit: this.pageSize, offset: (target - 1) * this.pageSize },
+        });
         if (seq === loadSeq) {
-          this.items = items;
-          this.offset = items.length;
-          this.hasMore = items.length === this.pageSize;
+          this.items = res.items;
+          this.total = res.total;
+          this.page = target;
         }
       } catch (e) {
         if (seq === loadSeq) this.error = e.message;
@@ -82,28 +91,11 @@ export function listingMixin(Alpine) {
         if (seq === loadSeq) this.loading = false;
       }
     },
-
-    /** "Carregar mais": busca a próxima página e concatena ao que já está carregado. */
-    async loadMore() {
-      const scope = this.scope();
-      if (!scope.workspace_id || !this.hasMore || this.loadingMore) return;
-      const seq = loadSeq;
-      this.loadingMore = true;
-      this.error = null;
-      try {
-        const items = await api('GET', '/items', {
-          query: { ...scope, limit: this.pageSize, offset: this.items.length },
-        });
-        if (seq === loadSeq) {
-          this.items = this.items.concat(items);
-          this.offset = this.items.length;
-          this.hasMore = items.length === this.pageSize;
-        }
-      } catch (e) {
-        if (seq === loadSeq) this.error = e.message;
-      } finally {
-        if (seq === loadSeq) this.loadingMore = false;
-      }
+    prevPage() {
+      if (this.page > 1) this.goToPage(this.page - 1);
+    },
+    nextPage() {
+      if (this.page < this.totalPages) this.goToPage(this.page + 1);
     },
 
     runSearch() {

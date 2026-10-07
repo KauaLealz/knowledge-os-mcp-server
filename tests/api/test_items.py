@@ -1,5 +1,5 @@
 def test_list_empty(client):
-    assert client.get("/api/items").json() == []
+    assert client.get("/api/items").json() == {"items": [], "total": 0}
 
 
 def test_create_returns_full_item(client, mk):
@@ -56,21 +56,31 @@ def test_list_filters(client, mk):
     ws, dm, _ = mk.tree()
     dm2 = mk.project(ws["id"], "Dom2")
     mk.item(ws["id"], dm2["id"], "Other", type="rule")
-    assert len(client.get("/api/items").json()) == 2
+    assert len(client.get("/api/items").json()["items"]) == 2
     r = client.get("/api/items", params={"project_id": dm2["id"]})
-    assert [i["title"] for i in r.json()] == ["Other"]
+    assert [i["title"] for i in r.json()["items"]] == ["Other"]
     r = client.get("/api/items", params={"workspace_id": ws["id"], "type": "rule"})
-    assert len(r.json()) == 1
+    assert len(r.json()["items"]) == 1
     r = client.get("/api/items", params={"workspace_id": "nope"})
-    assert r.json() == []
+    assert r.json() == {"items": [], "total": 0}
 
 
 def test_list_limit_offset(client, mk):
     ws, dm, _ = mk.tree()
     mk.item(ws["id"], dm["id"], "B")
     mk.item(ws["id"], dm["id"], "C")
-    assert len(client.get("/api/items", params={"limit": 2}).json()) == 2
-    assert len(client.get("/api/items", params={"limit": 2, "offset": 2}).json()) == 1
+    assert len(client.get("/api/items", params={"limit": 2}).json()["items"]) == 2
+    assert len(client.get("/api/items", params={"limit": 2, "offset": 2}).json()["items"]) == 1
+
+
+def test_list_total_independe_do_limit(client, mk):
+    """`total` é o total real sem o corte de limit/offset — é o que a paginação usa."""
+    ws, dm, _ = mk.tree()
+    mk.item(ws["id"], dm["id"], "B")
+    mk.item(ws["id"], dm["id"], "C")
+    r = client.get("/api/items", params={"limit": 1})
+    assert r.json()["total"] == 3
+    assert len(r.json()["items"]) == 1
 
 
 def test_update(client, mk):

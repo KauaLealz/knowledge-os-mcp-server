@@ -179,6 +179,16 @@ def test_pagina_de_item_tem_toc_relacoes_e_banner():
     assert "IntersectionObserver" in _js("views/item.js")
 
 
+def test_pagina_de_item_tem_acao_de_excluir():
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert '@click="remove()"' in html
+    it = _js("views/item.js")
+    assert "async remove()" in it
+    assert "DELETE', `/items/" in it
+    # arma com um clique, apaga só no segundo (mesmo padrão do clear() de secretForm)
+    assert "confirmingDelete" in it
+
+
 def test_paleta_e_atalhos():
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     assert 'x-data="palette"' in html and 'role="dialog"' in html
@@ -216,6 +226,14 @@ def test_responsivo_e_estados():
     assert "Tentar de novo" in html and 'role="alert"' in html
 
 
+def test_botoes_de_acao_ficam_ao_lado_do_titulo_nao_abaixo():
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    css = (STATIC / "css" / "app.css").read_text(encoding="utf-8")
+    assert css.count(".page-head") >= 3
+    # Workspaces, Workspace, Project e Conexões: título + toolbar na mesma div.page-head
+    assert html.count('<div class="page-head">') >= 4
+
+
 def test_editor_so_renderiza_com_o_item_da_rota():
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     assert "route.params.edit && item && item.id === $store.app.route.params.item" in html
@@ -236,13 +254,15 @@ def test_load_workspaces_descarta_resposta_antiga():
     assert "++this.wsSeq" in st and st.count("seq !== this.wsSeq") >= 2
 
 
-def test_listagem_carrega_por_paginas_com_botao_carregar_mais():
+def test_listagem_pagina_com_anterior_proxima_em_vez_de_carregar_tudo():
     lst = _js("views/listing.js")
-    assert "pageSize" in lst and "hasMore" in lst and "loadMore" in lst
+    assert "pageSize" in lst and "totalPages" in lst and "goToPage" in lst
+    assert "nextPage" in lst and "prevPage" in lst
     assert "limit: this.pageSize" in lst
     html = (STATIC / "index.html").read_text(encoding="utf-8")
-    assert html.count('@click="loadMore()"') == 2
-    assert "hasMore" in html and "loadingMore" in html
+    assert html.count('@click="prevPage()"') == 2
+    assert html.count('@click="nextPage()"') == 2
+    assert "totalPages" in html
 
 
 def test_nenhum_arquivo_estatico_menciona_401():

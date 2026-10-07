@@ -237,9 +237,11 @@
           <template x-if="$store.app.route.name === 'connection'">
             <div class="page"><div class="doc">
               <nav class="crumbs"><span x-text="$store.app.connName"></span></nav>
-              <h1 class="page-title">Workspaces</h1>
+              <div class="page-head">
+                <h1 class="page-title">Workspaces</h1>
+                <div class="toolbar"><button class="btn primary" @click="$store.app.openModal('workspace')"><svg class="ic"><use href="#i-plus"/></svg> Novo workspace</button></div>
+              </div>
               <p class="page-lead">Escolha um workspace para navegar pelo conhecimento.</p>
-              <div class="toolbar"><button class="btn primary" @click="$store.app.openModal('workspace')"><svg class="ic"><use href="#i-plus"/></svg> Novo workspace</button></div>
               <div class="state error" x-show="$store.app.wsError" role="alert">
                 <svg class="logo"><use href="#logo"/></svg>
                 <h3>Não foi possível listar os workspaces</h3>
@@ -275,15 +277,16 @@
                     <a :href="$store.app.hConn()" x-text="$store.app.connName"></a><span class="sep">/</span>
                     <span x-text="$store.app.workspace.name"></span>
                   </nav>
-                  <h1 class="page-title" x-text="$store.app.workspace.name"></h1>
+                  <div class="page-head">
+                    <h1 class="page-title" x-text="$store.app.workspace.name"></h1>
+                    <div class="toolbar"><a class="btn" :href="graphHref()">Ver grafo</a></div>
+                  </div>
                   <p class="page-lead" x-show="$store.app.workspace.description" x-text="$store.app.workspace.description"></p>
                   <div class="page-meta" x-show="$store.app.tree">
-                    <span><b x-text="$store.app.tree?.projects.length"></b> projects</span>
+                    <span><b x-text="$store.app.tree?.projects?.length"></b> projects</span>
                     <span><b x-text="totalItems"></b> itens</span>
                     <span>criado <b x-text="$ago($store.app.workspace.created_at)"></b></span>
                   </div>
-
-                  <div class="toolbar"><a class="btn" :href="graphHref()">Ver grafo</a></div>
 
                   <div class="filterbar">
                     <label class="searchbox">
@@ -380,10 +383,13 @@
                       </div>
                     </section>
                   </template>
-                  <div class="toolbar" x-show="!searchMode && hasMore">
-                    <span class="muted" style="font-size:13px" x-text="items.length + ' itens carregados'"></span>
-                    <button class="btn" :disabled="loadingMore" @click="loadMore()">
-                      <span x-text="loadingMore ? 'Carregando…' : 'Carregar mais'"></span>
+                  <div class="toolbar" x-show="!searchMode && totalPages > 1">
+                    <button class="btn icon ghost" :disabled="page <= 1 || loading" @click="prevPage()" aria-label="Página anterior">
+                      <svg class="ic"><use href="#i-arrow-left"/></svg>
+                    </button>
+                    <span class="muted" style="font-size:13px">Página <b x-text="page"></b> de <b x-text="totalPages"></b> · <span x-text="total"></span> itens</span>
+                    <button class="btn icon ghost" :disabled="page >= totalPages || loading" @click="nextPage()" aria-label="Próxima página">
+                      <svg class="ic"><use href="#i-arrow-right"/></svg>
                     </button>
                   </div>
                   <div class="state" x-show="filtering && !visible.length && !searching && !searchError">
@@ -479,10 +485,12 @@
                     <a :href="$store.app.hWs()" x-text="$store.app.workspace?.name"></a><span class="sep">/</span>
                     <span x-text="$store.app.project.name"></span>
                   </nav>
-                  <h1 class="page-title" x-text="$store.app.project.name"></h1>
+                  <div class="page-head">
+                    <h1 class="page-title" x-text="$store.app.project.name"></h1>
+                    <div class="toolbar"><button class="btn primary" @click="$store.app.openModal('item')"><svg class="ic"><use href="#i-plus"/></svg> Novo item</button></div>
+                  </div>
                   <p class="page-lead" x-show="$store.app.project.description" x-text="$store.app.project.description"></p>
                   <div class="page-meta"><span><b x-text="$store.app.project.item_count"></b> itens</span></div>
-                  <div class="toolbar"><button class="btn primary" @click="$store.app.openModal('item')"><svg class="ic"><use href="#i-plus"/></svg> Novo item</button></div>
 
                   <div class="filterbar">
                     <label class="searchbox">
@@ -538,10 +546,13 @@
                       </div>
                     </section>
                   </template>
-                  <div class="toolbar" x-show="!searchMode && hasMore">
-                    <span class="muted" style="font-size:13px" x-text="items.length + ' itens carregados'"></span>
-                    <button class="btn" :disabled="loadingMore" @click="loadMore()">
-                      <span x-text="loadingMore ? 'Carregando…' : 'Carregar mais'"></span>
+                  <div class="toolbar" x-show="!searchMode && totalPages > 1">
+                    <button class="btn icon ghost" :disabled="page <= 1 || loading" @click="prevPage()" aria-label="Página anterior">
+                      <svg class="ic"><use href="#i-arrow-left"/></svg>
+                    </button>
+                    <span class="muted" style="font-size:13px">Página <b x-text="page"></b> de <b x-text="totalPages"></b> · <span x-text="total"></span> itens</span>
+                    <button class="btn icon ghost" :disabled="page >= totalPages || loading" @click="nextPage()" aria-label="Próxima página">
+                      <svg class="ic"><use href="#i-arrow-right"/></svg>
                     </button>
                   </div>
                   <div class="state" x-show="filtering && !visible.length && !searching && !searchError">
@@ -597,6 +608,10 @@
                         <button class="btn" x-show="!$store.app.route.params.edit && item.type !== 'secret'" @click="copyMarkdown()"><svg class="ic"><use href="#i-copy"/></svg> Copiar como Markdown</button>
                         <button class="btn" x-show="!$store.app.route.params.edit && item.type !== 'secret'" :aria-pressed="showRaw" @click="showRaw = !showRaw">
                           <svg class="ic"><use href="#i-eye"/></svg> <span x-text="showRaw ? 'Ver renderizado' : 'Ver Markdown'"></span>
+                        </button>
+                        <button class="btn danger" x-show="!$store.app.route.params.edit" :disabled="deleting" @click="remove()">
+                          <svg class="ic"><use href="#i-x"/></svg>
+                          <span x-text="confirmingDelete ? 'Confirmar: excluir' : 'Excluir'"></span>
                         </button>
                       </div>
                     </div>
@@ -768,9 +783,11 @@
               <!-- Lista -->
               <template x-if="!sub">
                 <div>
-                  <h1 class="page-title">Conexões</h1>
+                  <div class="page-head">
+                    <h1 class="page-title">Conexões</h1>
+                    <div class="toolbar"><a class="btn primary" href="#/settings/connections/new"><svg class="ic"><use href="#i-plus"/></svg> Nova conexão</a></div>
+                  </div>
                   <p class="page-lead">Repositórios git usados pela API e pelas tools MCP. O cadastro vive no <code>connections.json</code> do home.</p>
-                  <div class="toolbar"><a class="btn primary" href="#/settings/connections/new"><svg class="ic"><use href="#i-plus"/></svg> Nova conexão</a></div>
                   <div class="state error" x-show="error || $store.app.connError" role="alert">
                     <svg class="logo"><use href="#logo"/></svg>
                     <h3>Não foi possível listar as conexões</h3>

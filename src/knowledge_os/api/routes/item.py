@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
 from knowledge_os.api.deps import get_engine_dep, get_session_dep
@@ -13,7 +13,7 @@ from knowledge_os.api.schemas.requests import (
     ItemUpdate,
     MemoryClassUpdate,
 )
-from knowledge_os.api.schemas.responses import ItemResponse, SearchResponse
+from knowledge_os.api.schemas.responses import ItemListResponse, ItemResponse, SearchResponse
 from knowledge_os.db.models import Item
 from knowledge_os.schemas.item_schemas import ITEM_TYPES, ItemSearchResult
 from knowledge_os.services._common import tiebreak
@@ -24,7 +24,7 @@ from knowledge_os.services.secret_service import SecretService
 router = APIRouter()
 
 
-@router.get("/items", response_model=list[ItemResponse])
+@router.get("/items", response_model=ItemListResponse)
 def list_items(
     workspace_id: str | None = None,
     project_id: str | None = None,
@@ -34,19 +34,25 @@ def list_items(
     offset: int = Query(default=0, ge=0),
     session: Session = Depends(get_session_dep),
 ):
-    stmt = select(Item)
+    filters = []
     if workspace_id:
-        stmt = stmt.where(Item.workspace_id == workspace_id)
+        filters.append(Item.workspace_id == workspace_id)
     if project_id:
-        stmt = stmt.where(Item.project_id == project_id)
+        filters.append(Item.project_id == project_id)
     if type:
-        stmt = stmt.where(Item.type == type)
+        filters.append(Item.type == type)
     if memory_class:
-        stmt = stmt.where(Item.memory_class == memory_class)
+        filters.append(Item.memory_class == memory_class)
+    total = session.scalar(select(func.count()).select_from(Item).where(*filters)) or 0
     stmt = (
-        stmt.order_by(Item.created_at, *tiebreak(session, "items")).limit(limit).offset(offset)
+        select(Item)
+        .where(*filters)
+        .order_by(Item.created_at, *tiebreak(session, "items"))
+        .limit(limit)
+        .offset(offset)
     )
-    return [ItemResponse.from_item(i) for i in session.scalars(stmt)]
+    items = [ItemResponse.from_item(i) for i in session.scalars(stmt)]
+    return ItemListResponse(items=items, total=total)
 
 
 @router.post("/items", status_code=status.HTTP_201_CREATED, response_model=ItemResponse)
