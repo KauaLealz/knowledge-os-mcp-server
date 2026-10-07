@@ -40,7 +40,7 @@ export function register(Alpine) {
       return !this.conn?.is_catalog;
     },
     get canDelete() {
-      return !!this.conn && !this.conn.is_catalog && !this.conn.is_default;
+      return !!this.conn && !this.conn.is_catalog;
     },
     get dangerReady() {
       return this.canDelete && this.confirmName === this.conn.name;

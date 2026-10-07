@@ -1076,9 +1076,9 @@
 
                         <div class="danger-zone" x-show="editable">
                           <h2 class="section-title">Danger zone</h2>
-                          <p x-show="!canDelete">This is the default connection: set another as default before deleting it.</p>
                           <div x-show="canDelete">
-                            <p>Deletes the connection record (database data is untouched). Type <b x-text="conn.name"></b> to confirm.</p>
+                            <p>Removes the connection from the list — the repository folder and its files stay untouched. Type <b x-text="conn.name"></b> to confirm.</p>
+                            <p class="form-hint-text" x-show="conn.is_default">This is the current default: another connection takes over automatically.</p>
                             <div class="toolbar">
                               <input class="input" type="text" x-model="confirmName" :placeholder="conn.name" aria-label="Connection name to confirm" autocomplete="off" style="max-width:260px">
                               <button class="btn danger" :disabled="!dangerReady || deleting" @click="remove()">Delete connection</button>

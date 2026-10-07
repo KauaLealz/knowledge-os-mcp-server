@@ -148,18 +148,16 @@ def test_delete_204_then_404(client, tmp_path):
     assert client.delete(f"/api/connections/{cid}").status_code == 404
 
 
-def test_set_default_and_delete_default_blocked(client, tmp_path):
+def test_set_default_e_delete_da_default_passa_o_posto(client, tmp_path):
     cid = _create(client, tmp_path).json()["id"]
     r = client.put(f"/api/connections/{cid}/default")
     assert r.status_code == 200 and r.json()["is_default"] is True
     assert ConfigManager.load_or_create().default == cid
     rows = {c["id"]: c for c in client.get("/api/connections").json()}
     assert rows["default"]["is_default"] is False and rows[cid]["is_default"] is True
-    assert client.delete(f"/api/connections/{cid}").status_code == 422
-    # volta para o catálogo
-    r = client.put("/api/connections/default/default")
-    assert r.status_code == 200 and ConfigManager.load_or_create().default == "default"
+    # apagar a default é permitido: sem outra habilitada, o posto volta para o catálogo
     assert client.delete(f"/api/connections/{cid}").status_code == 204
+    assert ConfigManager.load_or_create().default == "default"
 
 
 def test_set_default_disabled_is_422_and_missing_is_404(client, tmp_path):

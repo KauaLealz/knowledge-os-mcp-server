@@ -270,19 +270,25 @@ class ConnectionService:
     def delete(self, connection_id: str) -> bool:
         """Remove a conexão do JSON e os workspaces do catálogo ligados a ela.
 
-        Retorna False se não existe. O clone git e o índice SQLite NÃO são apagados:
-        são dados do usuário, e removê-los sem confirmação explícita é destrutivo
-        demais para fazer aqui — fica para uma limpeza manual ou um comando à parte.
+        Apagar a que está marcada como default é permitido: o default passa para outra
+        conexão habilitada (ou volta para o catálogo, se não sobrar nenhuma). Só o
+        catálogo em si (id reservado `default`) não pode ser removido — ele sempre existe.
+
+        Retorna False se não existe. A pasta do repositório e o índice SQLite NÃO são
+        apagados: são dados do usuário, e removê-los sem confirmação explícita é
+        destrutivo demais para fazer aqui — fica para uma limpeza manual.
         """
         if connection_id == DEFAULT_CONNECTION_ID:
-            raise ValidationError("A conexão default não pode ser removida")
+            raise ValidationError("O catálogo não pode ser removido")
         with _json_lock:
             config = _load()
             if connection_id not in [c.id for c in config.connections]:
                 return False
-            if connection_id == config.default:
-                raise ValidationError("A conexão default não pode ser removida")
             config.connections = [c for c in config.connections if c.id != connection_id]
+            if config.default == connection_id:
+                successor = next((c.id for c in config.connections if c.enabled), CATALOG_ID)
+                config.default = successor
+                logger.info("Default passou para %s (a anterior foi removida)", successor)
             ConfigManager.save(config)
         with session_scope(self._session, DEFAULT_CONNECTION_ID) as s:  # espelho no catálogo
             mirror = s.get(Connection, connection_id)

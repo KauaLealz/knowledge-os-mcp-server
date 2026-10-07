@@ -182,9 +182,25 @@ def test_connection_delete_nao_apaga_clone_nem_indice(svc):
     assert clone_path.exists()  # dado do usuário: não é apagado automaticamente
 
 
-def test_connection_delete_default_proibido(svc):
+def test_connection_delete_catalogo_proibido(svc):
+    """Só o catálogo (id reservado) é intocável — ele sempre precisa existir."""
     with pytest.raises(ValidationError):
         svc.delete(DEFAULT_CONNECTION_ID)
+
+
+def test_connection_delete_da_default_passa_o_posto_para_outra(svc):
+    a, b = svc.create("A"), svc.create("B")
+    svc.set_default(a.id)
+    assert svc.delete(a.id) is True
+    assert ConfigManager.load_or_create().default == b.id
+    assert svc.get(b.id).is_default is True
+
+
+def test_connection_delete_da_unica_default_volta_pro_catalogo(svc):
+    only = svc.create("Only")
+    svc.set_default(only.id)
+    assert svc.delete(only.id) is True
+    assert ConfigManager.load_or_create().default == DEFAULT_CONNECTION_ID
 
 
 def test_workspace_with_connection(svc):
