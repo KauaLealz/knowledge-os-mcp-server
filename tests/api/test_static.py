@@ -527,13 +527,7 @@ def test_grafo_do_workspace_agrupa_por_project_e_assunto():
     assert "forceX" in graph and "forceY" in graph
     assert "projectKey" in graph and "subjectKey" in graph
     assert "n.subject_id" in graph
-    # rótulo do agrupamento — sem isso dá pra ver que os nós se afastaram, mas não de quê
-    assert "gcluster-label" in graph
     assert "n.project_name" in graph and "n.subject_name" in graph
-    css = (STATIC / "css" / "app.css").read_text(encoding="utf-8") + (
-        STATIC / "index.html"
-    ).read_text(encoding="utf-8")
-    assert ".gcluster-label" in css
 
 
 def test_grafo_do_workspace_agrupa_em_hierarquia_project_depois_assunto():
@@ -545,56 +539,39 @@ def test_grafo_do_workspace_agrupa_em_hierarquia_project_depois_assunto():
     assert "force('x-project'" in graph and "force('y-project'" in graph
     assert "force('x-subject'" in graph and "force('y-subject'" in graph
     assert "'Sem assunto'" in graph
-    assert "gcluster-label-planet" in graph
-    assert "gcluster-label-country" in graph
     # grafo de um project só: nível de project seria redundante, agrupa direto por assunto
     assert "scope === 'project-graph'" in graph
-    css = (STATIC / "css" / "app.css").read_text(encoding="utf-8") + (
-        STATIC / "index.html"
-    ).read_text(encoding="utf-8")
-    assert ".gcluster-label-planet" in css and ".gcluster-label-country" in css
 
 
-def test_grafo_do_workspace_tem_rotulo_de_galaxia_acima_de_tudo():
-    """Hierarquia galáxia (workspace) > planeta (project) > país (assunto), nessa ordem de
-    tamanho. O rótulo só existe no grafo do workspace inteiro — num grafo de um project ou
-    assunto só, o nível de cima já não existe (decisão da entrega anterior), repetir aqui
-    seria redundante."""
+def test_grafo_identifica_grupo_por_contorno_e_cor_nao_por_texto_flutuante():
+    """Tentamos texto flutuando perto do grupo (rótulo "galáxia/planeta/país"): a física
+    podia arrastar um grupo pequeno pra longe de onde o texto nominal ficaria, descolando
+    o nome do que ele nomeava — e ajustar a distância entre rótulos nunca convergia (três
+    rodadas de ajuste fino, sempre sobrando um caso de sobreposição). A troca: um contorno
+    (retângulo) desenhado DEPOIS que a simulação assenta, ao redor de onde os nós do grupo
+    realmente pararam — por definição nunca descola — e o nome de cada cor mora na legenda
+    (HTML comum, fora da física: nunca compete por espaço com o layout do grafo)."""
     graph = _js("views/graph.js")
-    assert "gcluster-label-galaxy" in graph
-    assert "this.app.workspace?.name" in graph
-    assert "scope === 'graph'" in graph
-    css = (STATIC / "css" / "app.css").read_text(encoding="utf-8") + (
-        STATIC / "index.html"
-    ).read_text(encoding="utf-8")
-    assert ".gcluster-label-galaxy" in css
-
-
-def test_grafo_rotulos_tem_distancia_fixa_e_nunca_cobertos_por_no():
-    """Rótulo não é posicionado a partir de onde os nós acabaram parando (isso fazia a
-    distância entre rótulos variar de cluster pra cluster, e um país podia nascer na mesma
-    altura do planeta dele) — cada nível reserva uma faixa de altura FIXA no topo da sua
-    região (galáxia/planeta/país sempre à mesma distância do nível de dentro, em qualquer
-    cluster) e nenhum nó pode entrar nela (nodeFloor, aplicado a cada tick, inclusive
-    durante um drag). Rótulo desenhado por último: pinta por cima de nó e linha — uma linha
-    pode passar por baixo dele, um nó nunca."""
-    graph = _js("views/graph.js")
-    assert "const GALAXY_BAND" in graph
-    assert "const PLANET_BAND" in graph and "const COUNTRY_BAND" in graph
-    assert "const reserveTopBand = (region, band) =>" in graph
-    assert "const nodeFloor = (n) =>" in graph
-    # piso aplicado dentro do próprio tick (não só no acerto inicial) — vale também durante
-    # um drag, que reinicia a simulação com alphaTarget
-    tick_fn_idx = graph.index("const tick = () => {")
-    floor_in_tick_idx = graph.index("if (n.y < floor) n.y = floor;")
-    tick_body_end_idx = graph.index("this.sim = forceSimulation")
-    assert tick_fn_idx < floor_in_tick_idx < tick_body_end_idx
+    assert "gcluster-label" not in graph  # o texto flutuante por cluster saiu de vez
+    assert "function hueOf(id)" in graph
+    assert "colorMaps()" in graph
+    assert "get legendProjects()" in graph and "get legendSubjects()" in graph
+    assert "const addShape = (cls, ns, hue, light, pad, rx) =>" in graph
+    # contorno calculado a partir do bbox dos nós já assentados (nunca da célula nominal)
     tick_idx = graph.index("this.sim.stop();\n      for (let i = 0; i < 150")
-    labels_idx = graph.index("addClusterLabel('gcluster-label gcluster-label-galaxy'")
+    bbox_uses_node_xy_idx = graph.index("if (n.x < minX) minX = n.x;")
+    shape_idx = graph.index("const addShape = (cls")
+    assert tick_idx < bbox_uses_node_xy_idx < shape_idx
+    # contorno entra no DOM antes de nó/linha (pintura em ordem de documento) — fica atrás,
+    # nunca cobre um nó
+    insert_idx = graph.index("viewport.insertBefore(rect, viewport.firstChild)")
     nodes_idx = graph.index("const nodeEls = this.nodes.map")
-    # nós e linhas entram no DOM antes dos rótulos (ordem de pintura do SVG = ordem no DOM)
-    assert nodes_idx < labels_idx
-    assert tick_idx < labels_idx
+    assert nodes_idx < insert_idx
+
+    html = _index()
+    assert 'class="graph-legend"' in html
+    assert "legendProjects" in html and "legendSubjects" in html
+    assert "legend-square" in html and "legend-triangle" in html
 
 
 def test_grafo_nao_usa_template_x_for_dentro_de_svg():
@@ -605,7 +582,11 @@ def test_grafo_nao_usa_template_x_for_dentro_de_svg():
     gerar HTML bruto que vale pro resto do app (markdown.js é a única exceção, via
     DOMPurify)."""
     html = _index()
-    inside = html[html.index("<!-- Grafo") : html.index("<!-- Project -->")]
+    block = html[html.index("<!-- Grafo") : html.index("<!-- Project -->")]
+    # só dentro do próprio elemento <svg> importa pra esse bug — a legenda (fora do svg,
+    # HTML comum) pode usar x-for à vontade, não tem namespace nenhum envolvido
+    svg_start = block.index("<svg class=\"graph-svg\"")
+    inside = block[svg_start : block.index("</svg>", svg_start)]
     assert "<template x-for" not in inside
     assert "x-html" not in inside
     assert 'x-effect="renderSvg($el)"' in inside

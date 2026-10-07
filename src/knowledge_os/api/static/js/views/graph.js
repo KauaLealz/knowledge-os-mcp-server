@@ -3,6 +3,13 @@
 // em vendor/, sem CDN em runtime). DOM sempre via createElementNS/setAttribute — nunca
 // atribuição direta de marcação bruta (x-html), mesma regra do resto do app (markdown.js é
 // a única exceção, com DOMPurify).
+//
+// Project/assunto não viram texto flutuando perto dos nós (tentamos isso antes: a física
+// pode arrastar um grupo pequeno pra longe de onde o rótulo nominal ficaria, e o texto
+// descolava do que nomeava). Em vez disso: um contorno desenhado DEPOIS que a simulação
+// assenta, ao redor de onde os nós daquele grupo realmente pararam (sempre abraça a
+// posição real, nunca descola) — e o nome de cada cor/contorno mora numa legenda fixa
+// acima do SVG (HTML comum, fora da física: nunca comprime, nunca sobrepõe).
 import { api } from '../api.js';
 import { go, hrefs } from '../router.js';
 import { typeClass } from '../util.js';
@@ -14,18 +21,19 @@ import { zoom } from '../../vendor/d3-zoom.esm.js';
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const WIDTH = 900;
 const HEIGHT = 560;
-// Tamanho mínimo de célula por project na grade do workspace: grande o bastante pra caber
-// um rótulo + sub-grupos de assunto sem amontoar. Com mais projects, o canvas cresce (zoom
-// e pan já dão conta de navegar nele), em vez de espremer tudo no mesmo 900x560.
-const PROJECT_CELL_W = 360;
-const PROJECT_CELL_H = 300;
-// Faixa reservada no topo de cada nível — sempre a mesma altura, nunca calculada a partir
-// de onde os nós pararam. É isso que garante distância fixa entre rótulos (galáxia sempre
-// a mesma distância do planeta, planeta sempre a mesma distância do país): a faixa é física
-// (nenhum nó entra nela, ver nodeFloor), não só uma sugestão de posição do rótulo.
-const GALAXY_BAND = 46;
-const PLANET_BAND = 34;
-const COUNTRY_BAND = 26;
+// Tamanho mínimo de célula por project na grade do workspace: espaço de verdade pro
+// contorno do project e os sub-grupos de assunto não ficarem espremidos. Com mais
+// projects, o canvas cresce (zoom e pan já dão conta de navegar nele).
+const PROJECT_CELL_W = 340;
+const PROJECT_CELL_H = 260;
+
+/** Hash determinístico de um id pra um matiz (0-359) — mesmo id sempre a mesma cor,
+ * entre recarregamentos e entre o SVG e a legenda. */
+function hueOf(id) {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return h % 360;
+}
 
 export function register(Alpine) {
   Alpine.data('graphView', () => ({
@@ -50,6 +58,56 @@ export function register(Alpine) {
       }
       if (this.app.route.name === 'subject-graph') q.subject_id = p.subj;
       return q;
+    },
+
+    /** Mapas de cor/nome por project e por assunto, únicos pros dois usos que precisam
+     * concordar entre si: a legenda (HTML, estática) e o contorno desenhado no SVG. Um
+     * assunto só entra no mapa quando o project dele tem 2+ (mesma regra de quando o
+     * sub-agrupamento entra no layout, ver groupCenters). */
+    colorMaps() {
+      const projectHue = new Map();
+      const projectName = new Map();
+      const subjectHue = new Map(); // key `${project_id}:${subject_id||'none'}` -> {h, l}
+      const subjectName = new Map();
+      const byProject = new Map(); // project_id -> Map(key -> nome)
+      for (const n of this.nodes) {
+        if (!projectHue.has(n.project_id)) {
+          projectHue.set(n.project_id, hueOf(n.project_id));
+          projectName.set(n.project_id, n.project_name);
+        }
+        const key = `${n.project_id}:${n.subject_id || 'none'}`;
+        if (!byProject.has(n.project_id)) byProject.set(n.project_id, new Map());
+        if (!byProject.get(n.project_id).has(key)) {
+          byProject.get(n.project_id).set(key, n.subject_id ? n.subject_name : 'Sem assunto');
+        }
+      }
+      for (const [pid, bykey] of byProject) {
+        if (bykey.size < 2) continue;
+        const h = hueOf(pid);
+        let i = 0;
+        for (const [key, name] of bykey) {
+          subjectHue.set(key, { h, l: 38 + ((i * 15) % 45) });
+          subjectName.set(key, name);
+          i++;
+        }
+      }
+      return { projectHue, projectName, subjectHue, subjectName };
+    },
+
+    /** Legenda de projects — só faz sentido com 2+ (grafo do workspace); um project só
+     * já está no breadcrumb. */
+    get legendProjects() {
+      if (this.app.route.name !== 'graph') return [];
+      const { projectHue, projectName } = this.colorMaps();
+      if (projectHue.size < 2) return [];
+      return [...projectHue].map(([id, h]) => ({ id, name: projectName.get(id), color: `hsl(${h}, 62%, 58%)` }));
+    },
+
+    get legendSubjects() {
+      const scope = this.app.route.name;
+      if (scope !== 'graph' && scope !== 'project-graph') return [];
+      const { subjectHue, subjectName } = this.colorMaps();
+      return [...subjectHue].map(([key, { h, l }]) => ({ id: key, name: subjectName.get(key), color: `hsl(${h}, 55%, ${l}%)` }));
     },
 
     init() {
@@ -115,34 +173,27 @@ export function register(Alpine) {
         return;
       }
 
-      // Agrupamento em duas camadas: no grafo do workspace, cada project vira uma região
-      // maior numa grade; dentro de cada região, os assuntos daquele project (mais um balde
-      // "Sem assunto" pros itens soltos) formam sub-regiões menores, só na metade de baixo
-      // da região (a de cima é reservada pro rótulo do project, senão um cobre o outro). No
-      // grafo de um project só, não existe nível de project (seria redundante) — vai direto
-      // pro nível de assunto, usando o canvas inteiro como região única. No grafo de um
-      // assunto, nada disso entra: já é um grupo só.
+      // Agrupamento em duas camadas: no grafo do workspace, cada project puxa os próprios
+      // nós pra uma região da grade; dentro dela, os assuntos daquele project (mais um
+      // balde "Sem assunto" pros itens soltos) puxam pra sub-regiões. No grafo de um
+      // project só, não existe nível de project (seria redundante) — vai direto pro nível
+      // de assunto, usando o canvas inteiro como região única. No grafo de um assunto,
+      // nada disso entra: já é um grupo só. É só um alvo de força (fraco — o grupo pode
+      // se espalhar além dele): o contorno visual é desenhado depois, ao redor de onde os
+      // nós realmente pararam, nunca da célula nominal.
       const scope = this.app.route.name;
       const projectKey = (n) => n.project_id;
-      const projectLabel = (n) => n.project_name;
       const subjectKey = (n) => `${n.project_id}:${n.subject_id || 'none'}`;
-      const subjectLabel = (n) => (n.subject_id ? n.subject_name : 'Sem assunto');
 
-      // Canvas cresce com o nº de projects: cada um precisa de espaço de verdade pro
-      // rótulo e pros sub-grupos de assunto não ficarem espremidos. Zoom/pan (d3-zoom) já
-      // dão conta de navegar num canvas maior que a tela. Com o grafo do workspace, soma
-      // ainda a faixa da galáxia (ela fica por cima da grade de projects, não espremida
-      // dentro dela).
       const projectIds = scope === 'graph' ? [...new Set(this.nodes.map(projectKey))] : [];
-      const galaxyBand = scope === 'graph' ? GALAXY_BAND : 0;
       if (projectIds.length > 1) {
         const cols = Math.ceil(Math.sqrt(projectIds.length));
         const rows = Math.ceil(projectIds.length / cols);
         this.width = Math.max(WIDTH, cols * PROJECT_CELL_W);
-        this.height = Math.max(HEIGHT, rows * PROJECT_CELL_H) + galaxyBand;
+        this.height = Math.max(HEIGHT, rows * PROJECT_CELL_H);
       } else {
         this.width = WIDTH;
-        this.height = HEIGHT + galaxyBand;
+        this.height = HEIGHT;
       }
       svg.setAttribute('viewBox', `0 0 ${this.width} ${this.height}`);
       while (svg.firstChild) svg.removeChild(svg.firstChild);
@@ -173,68 +224,27 @@ export function register(Alpine) {
         );
       };
 
-      // Uma região que reserva `band` pixels fixos no topo pro rótulo: `target` é onde a
-      // força de atração mira (o centro do espaço que sobra, não o centro geométrico cheio
-      // — assim o grupo já nasce abaixo da faixa, em vez de brigar com o piso toda hora);
-      // `floor` é o piso físico (nenhum nó pode ficar acima dele, ver nodeFloor); `labelY` é
-      // o meio da própria faixa, sempre a mesma distância da borda de cima da região.
-      const reserveTopBand = (region, band) => ({
-        target: { x: region.x, y: region.y + band / 2, w: region.w, h: region.h - band },
-        floor: region.y - region.h / 2 + band,
-        labelY: region.y - region.h / 2 + band / 2,
-      });
-
-      const canvasRegion = { x: this.width / 2, y: galaxyBand + (this.height - galaxyBand) / 2, w: this.width, h: this.height - galaxyBand };
-
-      let projectCenters = null; // id -> {x,y,w,h} (célula inteira, antes de reservar a faixa do planeta)
-      let projectBands = null; // id -> {target, floor, labelY}
+      let projectCenters = null;
       if (projectIds.length > 1) {
-        projectCenters = gridCenters(projectIds, canvasRegion, 0.04);
-        projectBands = new Map();
-        for (const [id, c] of projectCenters) projectBands.set(id, reserveTopBand(c, PLANET_BAND));
+        projectCenters = gridCenters(projectIds, { x: this.width / 2, y: this.height / 2, w: this.width, h: this.height }, 0.04);
       }
 
-      let subjectCenters = null; // key -> {x,y,w,h}
-      let subjectBands = null; // key -> {target, floor, labelY}
+      let subjectCenters = null;
       if (scope === 'graph' || scope === 'project-graph') {
         subjectCenters = new Map();
-        subjectBands = new Map();
         const parents = scope === 'graph' ? projectIds : [null];
         for (const parent of parents) {
           const nodesIn = parent === null ? this.nodes : this.nodes.filter((n) => projectKey(n) === parent);
           const keys = [...new Set(nodesIn.map(subjectKey))];
           if (keys.length < 2) continue;
-          // Dentro do espaço que já sobra do planeta (ou do canvas inteiro, se não há
-          // planeta nesse escopo) — nunca da célula cheia, senão o sub-grupo nasceria por
-          // cima da faixa do planeta.
-          const parentArea = parent !== null ? projectBands.get(parent).target : canvasRegion;
-          const centers = gridCenters(keys, parentArea, 0.06);
-          for (const [k, c] of centers) {
-            subjectCenters.set(k, c);
-            subjectBands.set(k, reserveTopBand(c, COUNTRY_BAND));
-          }
+          const full = parent !== null
+            ? projectCenters.get(parent)
+            : { x: this.width / 2, y: this.height / 2, w: this.width, h: this.height };
+          const centers = gridCenters(keys, full, 0.1);
+          for (const [k, c] of centers) subjectCenters.set(k, c);
         }
-        if (subjectCenters.size === 0) {
-          subjectCenters = null;
-          subjectBands = null;
-        }
+        if (subjectCenters.size === 0) subjectCenters = null;
       }
-
-      // Piso de cada nó: o nível mais interno que ele tem (país, senão planeta, senão
-      // nenhum) decide até onde ele pode subir. Aplicado a cada tick (não só no acerto
-      // inicial), então mesmo arrastando um nó pra perto do topo durante um drag, ele é
-      // barrado antes de entrar na faixa do rótulo.
-      const nodeFloor = (n) => {
-        if (subjectBands) {
-          const band = subjectBands.get(subjectKey(n));
-          if (band) return band.floor;
-        }
-        if (projectBands) {
-          const band = projectBands.get(projectKey(n));
-          if (band) return band.floor;
-        }
-        return -Infinity;
-      };
 
       const edgeEls = this.edges.map((e) => {
         const line = document.createElementNS(SVG_NS, 'line');
@@ -276,10 +286,6 @@ export function register(Alpine) {
         .filter((e) => e.source && e.target);
 
       const tick = () => {
-        for (const n of this.nodes) {
-          const floor = nodeFloor(n);
-          if (n.y < floor) n.y = floor;
-        }
         edgeEls.forEach((line, i) => {
           const e = links[i];
           if (!e) return;
@@ -301,22 +307,21 @@ export function register(Alpine) {
         .force('collide', forceCollide((n) => radius(n) + 10))
         .on('tick', tick);
 
-      // Força fraca pro centro do project (já descontada a faixa do rótulo, ver
-      // reserveTopBand) e, por cima, uma força um pouco mais forte pro centro do sub-grupo
-      // de assunto dentro dela — o resultado é o aninhamento: o assunto puxa mais, mas o
-      // project continua por perto. As duas são propositalmente fracas (não uma gaiola
-      // rígida): a repulsão entre nós (charge) ganha espaço pra espalhar o grupo — quem
-      // garante que ninguém entra na faixa do rótulo é o piso (nodeFloor), não a força.
-      if (projectBands) {
+      // Força fraca pro centro do project e, por cima, uma força um pouco mais forte pro
+      // centro do sub-grupo de assunto — o resultado é o aninhamento: o assunto puxa mais,
+      // mas o project continua por perto. Propositalmente fracas (não uma gaiola rígida):
+      // a repulsão entre nós (charge) ganha espaço pra espalhar o grupo, e o contorno
+      // visual (desenhado depois de assentar) é que vai abraçar onde eles pararam de
+      // verdade — não depende de ninguém ficar exatamente no alvo.
+      if (projectCenters) {
         this.sim
-          .force('x-project', forceX((n) => projectBands.get(projectKey(n)).target.x).strength(0.05))
-          .force('y-project', forceY((n) => projectBands.get(projectKey(n)).target.y).strength(0.05));
+          .force('x-project', forceX((n) => projectCenters.get(projectKey(n)).x).strength(0.05))
+          .force('y-project', forceY((n) => projectCenters.get(projectKey(n)).y).strength(0.05));
       }
-      if (subjectBands) {
-        const fallback = projectBands ? null : { x: this.width / 2, y: this.height / 2 };
+      if (subjectCenters) {
         this.sim
-          .force('x-subject', forceX((n) => (subjectBands.get(subjectKey(n))?.target || fallback || projectBands.get(projectKey(n)).target).x).strength(0.1))
-          .force('y-subject', forceY((n) => (subjectBands.get(subjectKey(n))?.target || fallback || projectBands.get(projectKey(n)).target).y).strength(0.1));
+          .force('x-subject', forceX((n) => (subjectCenters.get(subjectKey(n)) || projectCenters?.get(projectKey(n)) || { x: this.width / 2 }).x).strength(0.1))
+          .force('y-subject', forceY((n) => (subjectCenters.get(subjectKey(n)) || projectCenters?.get(projectKey(n)) || { y: this.height / 2 }).y).strength(0.1));
       }
 
       // Deixa o layout assentar de uma vez antes do primeiro desenho: o timer do d3 usa
@@ -327,39 +332,50 @@ export function register(Alpine) {
       tick();
       this.sim.stop();
 
-      // Rótulos por hierarquia — galáxia (workspace) > planeta (project) > país (assunto) —
-      // sempre no meio da própria faixa reservada (reserveTopBand): mesma distância do que
-      // nomeia em todo canto, nunca calculada a partir de onde os nós pararam (isso que
-      // antes fazia a distância variar de cluster pra cluster). O piso (nodeFloor, aplicado
-      // a cada tick) garante que nenhum nó entra nessa faixa — não é só o rótulo que fica
-      // no lugar certo, é a física que não deixa ninguém se meter ali. Desenhados por
-      // último: pintam por cima de nós e linhas (uma linha pode passar por baixo de um
-      // rótulo sem problema; um nó, nunca).
-      const addClusterLabel = (cls, x, y, text) => {
-        const label = document.createElementNS(SVG_NS, 'text');
-        label.setAttribute('class', cls);
-        label.setAttribute('x', String(x));
-        label.setAttribute('y', String(y));
-        label.textContent = text;
-        viewport.appendChild(label);
+      // Contorno de cada grupo — desenhado DEPOIS que os nós assentaram, ao redor de onde
+      // eles realmente pararam (bounding box + folga), nunca da célula nominal da grade.
+      // É isso que garante que o contorno nunca descola do que ele cerca, mesmo quando a
+      // física espalha um grupo pequeno pra mais longe do alvo do que o esperado. Entram
+      // ANTES de nós e linhas no DOM (pintura em ordem de documento): ficam por trás,
+      // como um fundo, nunca cobrindo um nó.
+      const bbox = (ns) => {
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (const n of ns) {
+          if (n.x < minX) minX = n.x;
+          if (n.x > maxX) maxX = n.x;
+          if (n.y < minY) minY = n.y;
+          if (n.y > maxY) maxY = n.y;
+        }
+        return { minX, maxX, minY, maxY };
+      };
+      const addShape = (cls, ns, hue, light, pad, rx) => {
+        if (ns.length < 2) return; // um nó só não forma "grupo" visível — contorno em cima dele seria só ruído
+        const { minX, maxX, minY, maxY } = bbox(ns);
+        const rect = document.createElementNS(SVG_NS, 'rect');
+        rect.setAttribute('class', cls);
+        rect.setAttribute('x', String(minX - pad));
+        rect.setAttribute('y', String(minY - pad));
+        rect.setAttribute('width', String(maxX - minX + pad * 2));
+        rect.setAttribute('height', String(maxY - minY + pad * 2));
+        rect.setAttribute('rx', String(rx));
+        rect.setAttribute('stroke', `hsl(${hue}, 62%, ${light}%)`);
+        rect.setAttribute('fill', `hsla(${hue}, 62%, ${light}%, 0.07)`);
+        viewport.insertBefore(rect, viewport.firstChild);
       };
 
-      if (subjectBands) {
-        for (const [k, band] of subjectBands) {
-          const ns = this.nodes.filter((n) => subjectKey(n) === k);
-          if (!ns.length) continue;
-          addClusterLabel('gcluster-label gcluster-label-country', subjectCenters.get(k).x, band.labelY, subjectLabel(ns[0]));
-        }
-      }
-      if (projectBands) {
-        for (const [id, band] of projectBands) {
+      const { projectHue, subjectHue } = this.colorMaps();
+      if (projectCenters) {
+        for (const id of projectIds) {
           const ns = this.nodes.filter((n) => projectKey(n) === id);
-          if (!ns.length) continue;
-          addClusterLabel('gcluster-label gcluster-label-planet', projectCenters.get(id).x, band.labelY, projectLabel(ns[0]));
+          addShape('gshape gshape-planet', ns, projectHue.get(id), 58, 26, 20);
         }
       }
-      if (scope === 'graph') {
-        addClusterLabel('gcluster-label gcluster-label-galaxy', this.width / 2, galaxyBand / 2, this.app.workspace?.name || '');
+      if (subjectCenters) {
+        for (const k of subjectCenters.keys()) {
+          const ns = this.nodes.filter((n) => subjectKey(n) === k);
+          const { h, l } = subjectHue.get(k) || { h: 0, l: 50 };
+          addShape('gshape gshape-country', ns, h, l, 16, 12);
+        }
       }
 
       // Clique abre o item; arrastar não deve contar como clique (d3-drag não distingue,

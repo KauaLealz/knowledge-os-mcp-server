@@ -452,6 +452,15 @@
                 <p>Este escopo ainda não tem itens para mostrar no grafo.</p>
               </div>
 
+              <div class="graph-legend" x-show="legendProjects.length || legendSubjects.length">
+                <template x-for="p in legendProjects" :key="p.id">
+                  <span class="legend-item"><i class="legend-swatch legend-square" :style="{ background: p.color }"></i><span x-text="p.name"></span></span>
+                </template>
+                <template x-for="s in legendSubjects" :key="s.id">
+                  <span class="legend-item"><i class="legend-swatch legend-triangle" :style="{ background: s.color }"></i><span x-text="s.name"></span></span>
+                </template>
+              </div>
+
               <template x-if="!loading && !error && nodes.length">
                 <svg class="graph-svg" xmlns="http://www.w3.org/2000/svg" x-effect="renderSvg($el)"></svg>
               </template>
@@ -467,10 +476,14 @@
                 .gnode.hover text { fill: var(--text); opacity: 1; font-weight: 600; }
                 .gedge { stroke: var(--border-strong); stroke-width: 1px; opacity: 0.4; }
                 .gedge.supersedes { stroke: var(--t-rule); stroke-width: 1.5px; stroke-dasharray: 5 3; opacity: 0.7; }
-                .gcluster-label { font: 700 13px var(--font); fill: var(--text-3); opacity: 0.6; text-anchor: middle; pointer-events: none; text-transform: uppercase; letter-spacing: 0.04em; }
-                .gcluster-label-galaxy { font-size: 20px; opacity: 0.9; fill: var(--text); letter-spacing: 0.08em; }
-                .gcluster-label-planet { font-size: 15px; opacity: 0.8; fill: var(--text-2); }
-                .gcluster-label-country { font-size: 12px; opacity: 0.65; text-transform: none; letter-spacing: 0.02em; }
+                .gshape { pointer-events: none; }
+                .gshape-planet { stroke-width: 2px; }
+                .gshape-country { stroke-width: 1.5px; stroke-dasharray: 6 4; }
+                .graph-legend { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 0 0 14px; }
+                .legend-item { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-2); }
+                .legend-swatch { display: inline-block; width: 13px; height: 13px; flex: 0 0 auto; }
+                .legend-square { border-radius: 3px; }
+                .legend-triangle { clip-path: polygon(50% 0%, 0% 100%, 100% 100%); width: 15px; height: 13px; }
               </style>
             </div></div>
           </template>
