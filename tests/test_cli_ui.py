@@ -170,3 +170,22 @@ def test_knowledge_os_ui_0_desliga(monkeypatch):
     assert main_mod.ui_enabled() is False
     monkeypatch.delenv("KNOWLEDGE_OS_UI")
     assert main_mod.ui_enabled() is True
+
+
+def test_bind_rebinda_logo_apos_conexao_aceita_e_fechada():
+    """Sem SO_REUSEADDR, uma porta com conexão aceita (qualquer requisição HTTP real) fica em
+    TIME_WAIT por até ~60s depois do socket fechar — o processo seguinte não consegue reocupar
+    a porta mesmo sem ninguém mais escutando nela."""
+    port = _free_port()
+    sock = main_mod._bind_ui_socket(port)
+    assert sock is not None
+    sock.listen(1)
+    client = socket.create_connection(("127.0.0.1", port))
+    conn, _ = sock.accept()
+    conn.close()
+    sock.close()
+    client.close()
+
+    sock2 = main_mod._bind_ui_socket(port)
+    assert sock2 is not None, "porta deveria rebindar logo após fechar, sem esperar TIME_WAIT"
+    sock2.close()

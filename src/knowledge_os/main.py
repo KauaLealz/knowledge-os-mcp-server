@@ -160,12 +160,21 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 def _bind_ui_socket(port: int) -> socket.socket | None:
     """Reserva a porta em 127.0.0.1 com uso exclusivo; ocupada → None.
 
-    Exclusivo de verdade: no Windows, o SO_REUSEADDR que o uvicorn liga deixaria duas
-    instâncias na mesma porta, cada requisição caindo numa.
+    No POSIX, SO_REUSEADDR só permite rebindar uma porta presa em TIME_WAIT (todo fechamento
+    de conexão aceita deixa isso por ~60s) — não deixa dois processos escutando a mesma porta
+    ao mesmo tempo (isso exigiria SO_REUSEPORT, que não ligamos). Sem isso, qualquer requisição
+    HTTP real feita à UI trava o próximo bind por até um minuto, mesmo sem ninguém mais
+    escutando na porta — era a causa do servidor "não ficar de pé sempre".
+
+    Exclusivo de verdade no Windows: o SO_REUSEADDR que o uvicorn liga deixaria duas instâncias
+    na mesma porta, cada requisição caindo numa — por isso SO_EXCLUSIVEADDRUSE ali, não
+    SO_REUSEADDR (que no Windows tem semântica de permitir o compartilhamento).
     """
     sock = socket.socket()
     if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+    else:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
         sock.bind(("127.0.0.1", port))
     except OSError:
@@ -186,7 +195,7 @@ class BackgroundUI:
     ela ficar livre.
     """
 
-    def __init__(self, port: int = UI_DEFAULT_PORT, retry_seconds: float = 30.0) -> None:
+    def __init__(self, port: int = UI_DEFAULT_PORT, retry_seconds: float = 5.0) -> None:
         self.port = port
         self.retry_seconds = retry_seconds
         self.serving = False
@@ -225,6 +234,27 @@ class BackgroundUI:
             self.serving = False
             self._server = None
             sock.close()
+
+
+_background_ui: BackgroundUI | None = None
+
+
+@mcp.resource(
+    "knowledge-os://ui",
+    name="UI local",
+    description=(
+        "URL da interface web local do knowledge-os e se ela está respondendo agora. A UI "
+        "sobe junto com o MCP; com vários clientes abertos, só um serve por vez."
+    ),
+    mime_type="application/json",
+)
+def ui_resource() -> dict[str, object]:
+    ui = _background_ui
+    port = ui.port if ui is not None else UI_DEFAULT_PORT
+    return {
+        "url": f"http://127.0.0.1:{port}/ui/",
+        "serving": bool(ui is not None and ui.serving),
+    }
 
 
 def run_ui(port: int, open_browser: bool) -> None:
@@ -292,7 +322,9 @@ def main(argv: list[str] | None = None) -> int:
         threading.Thread(target=_report_connections_safely, daemon=True).start()
         threading.Thread(target=_run_daily_safely, daemon=True).start()
         if ui_enabled():
-            BackgroundUI().start()
+            global _background_ui
+            _background_ui = BackgroundUI()
+            _background_ui.start()
         register_all_tools()
         mcp.run()
         return 0
