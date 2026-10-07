@@ -575,7 +575,19 @@ def test_grafo_rotulo_e_camada_propria_nunca_coberto_por_outro_no():
     labels_idx = graph.index("const labelEls = allNodes.map")
     assert shapes_idx < labels_idx
     # projeto/assunto maiores que o teto do item (16): nunca devem parecer menores
-    assert "RADIUS = { project: 26, subject: 20 }" in graph
+    assert "RADIUS = { project: ITEM_MAX_RADIUS * 1.1, subject: ITEM_MAX_RADIUS * 1.05 }" in graph
+
+
+def test_grafo_project_e_assunto_tem_cor_propria_nao_cinza():
+    """`fill="..."` (atributo de apresentação) perde pra qualquer regra de CSS que declare
+    `fill`, mesmo sem !important e nascida depois no documento — a regra `.gnode circle,
+    .gnode rect, .gnode polygon { fill: var(--tc, var(--text-2)) }` sempre vencia o
+    `fill` setado via JS, caindo no fallback cinza (`--text-2`) pra todo nó de project e
+    assunto. Setar a própria variável `--tc` (que a regra já lê) resolve: variável CSS via
+    `style` tem prioridade mais alta que a regra, então o fallback nunca entra em jogo."""
+    graph = _js("views/graph.js")
+    assert "g.style.setProperty('--tc'" in graph
+    assert "shape.setAttribute('fill'" not in graph
     css = (STATIC / "css" / "app.css").read_text(encoding="utf-8") + (
         STATIC / "index.html"
     ).read_text(encoding="utf-8")

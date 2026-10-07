@@ -11,7 +11,7 @@
 import { api } from '../api.js';
 import { go, hrefs } from '../router.js';
 import { typeClass } from '../util.js';
-import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation } from '../../vendor/d3-force.esm.js';
+import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, forceX, forceY } from '../../vendor/d3-force.esm.js';
 import { select } from '../../vendor/d3-selection.esm.js';
 import { drag } from '../../vendor/d3-drag.esm.js';
 import { zoom } from '../../vendor/d3-zoom.esm.js';
@@ -19,9 +19,11 @@ import { zoom } from '../../vendor/d3-zoom.esm.js';
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const WIDTH = 900;
 const HEIGHT = 560;
-// Item (círculo) varia de 4 a 16 pelo grau; project/assunto têm raio fixo, maior que o
-// teto do item — nunca devem parecer menores que um item bem conectado.
-const RADIUS = { project: 26, subject: 20 };
+// Item (círculo) é a unidade de referência (1x — varia de 4 a ITEM_MAX pelo grau);
+// assunto e project são só um pouco maiores (1.05x e 1.1x do teto do item) — diferença
+// sutil, não um salto de tamanho.
+const ITEM_MAX_RADIUS = 16;
+const RADIUS = { project: ITEM_MAX_RADIUS * 1.1, subject: ITEM_MAX_RADIUS * 1.05 };
 
 /** Hash determinístico de um id pra um matiz (0-359) — mesmo id sempre a mesma cor, entre
  * recarregamentos. */
@@ -206,7 +208,7 @@ export function register(Alpine) {
       const radius = (n) => {
         if (n.kind === 'project') return RADIUS.project;
         if (n.kind === 'subject') return RADIUS.subject;
-        return Math.min(16, 4 + Math.sqrt(degree.get(n.id) || 0) * 2.2);
+        return Math.min(ITEM_MAX_RADIUS, 4 + Math.sqrt(degree.get(n.id) || 0) * 2.2);
       };
 
       // Nó (forma) e rótulo (texto) são DOIS elementos separados, em duas camadas: todas as
@@ -237,11 +239,15 @@ export function register(Alpine) {
           shape = document.createElementNS(SVG_NS, 'circle');
           shape.setAttribute('r', String(r));
         }
+        // --tc (não `fill` direto): a regra `.gnode circle, .gnode rect, .gnode polygon` já
+        // declara `fill: var(--tc, ...)` no CSS — uma declaração de CSS sempre vence um
+        // atributo de apresentação (`fill="..."`), não importa a ordem; só setando a
+        // variável que o nó pega a cor própria em vez de cair no cinza do fallback.
         if (n.kind === 'project') {
-          shape.setAttribute('fill', `hsl(${hueOf(n.project_id)}, 55%, 52%)`);
+          g.style.setProperty('--tc', `hsl(${hueOf(n.project_id)}, 58%, 54%)`);
         } else if (n.kind === 'subject') {
-          const l = 36 + (hueOf(n.id) % 40);
-          shape.setAttribute('fill', `hsl(${hueOf(n.project_id)}, 55%, ${l}%)`);
+          const l = 38 + (hueOf(n.id) % 32);
+          g.style.setProperty('--tc', `hsl(${hueOf(n.project_id)}, 58%, ${l}%)`);
         }
         g.append(title, shape);
         viewport.appendChild(g);
@@ -295,20 +301,25 @@ export function register(Alpine) {
       // Nada de grade nominal nem força de agrupamento à parte: project e assunto são nós
       // como qualquer outro, e a aresta de hierarquia (link, mais curta e mais forte que a
       // de relação) já faz a física clusterizar os itens em torno do próprio hub sozinha —
-      // é a física de um grafo comum, só que com nós de tamanho/forma diferentes. Distância
-      // e carga baixas de propósito: o grupo tem que ficar coeso, não espalhado pelo canvas
-      // — quem evita uma forma cobrir o texto de outro nó é a ordem de desenho (rótulo
-      // sempre por cima, ver labelEls abaixo), não a distância entre eles.
+      // é a física de um grafo comum, só que com nós de tamanho/forma diferentes. Projects
+      // sem relação entre si (nenhuma aresta cruzando um pro outro) não têm nenhuma força
+      // os puxando de volta — só o charge empurrando pra longe — por isso uma gravidade bem
+      // fraca pro centro do canvas (force 'x'/'y' abaixo) pra eles não derivarem pro infinito.
+      const labelPad = (n) => Math.min(60, this.label(n.label || n.title).length * 3.4);
       this.sim = forceSimulation(allNodes)
-        .force('charge', forceManyBody().strength((n) => (n.kind === 'item' ? -70 : -150)))
+        .force('charge', forceManyBody().strength((n) => (n.kind === 'item' ? -55 : -110)))
         .force(
           'link',
           forceLink(links)
-            .distance((l) => (l.kind === 'hierarchy' ? 36 : 55))
-            .strength((l) => (l.kind === 'hierarchy' ? 0.85 : 0.4)),
+            .distance((l) => (l.kind === 'hierarchy' ? 34 : 50))
+            .strength((l) => (l.kind === 'hierarchy' ? 0.9 : 0.45)),
         )
         .force('center', forceCenter(this.width / 2, this.height / 2))
-        .force('collide', forceCollide((n) => radius(n) + 6))
+        .force('x', forceX(this.width / 2).strength(0.025))
+        .force('y', forceY(this.height / 2).strength(0.025))
+        // raio maior que a forma (dá espaço pro próprio rótulo) — impede que a forma de UM
+        // nó encoste no texto do vizinho, sem precisar de nenhum ajuste de distância global
+        .force('collide', forceCollide((n) => radius(n) + 8 + labelPad(n)))
         .on('tick', tick);
 
       // Deixa o layout assentar de uma vez antes do primeiro desenho: o timer do d3 usa
