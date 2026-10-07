@@ -249,16 +249,21 @@ export function register(Alpine) {
       }
       this.deleting = true;
       this.error = null;
+      const mine = this.seq; // se o usuário já navegou pra outro item, não arrasta ele de volta
       try {
         const pjId = this.item.project_id;
-        await api('DELETE', `/items/${this.item.id}`);
+        const id = this.item.id;
+        await api('DELETE', `/items/${id}`);
+        if (mine !== this.seq) return;
         this.app.toast('Item excluído');
         go(this.app.hProject(pjId));
       } catch (e) {
-        this.error = e.message;
+        if (mine === this.seq) this.error = e.message;
       } finally {
-        this.deleting = false;
-        this.confirmingDelete = false;
+        if (mine === this.seq) {
+          this.deleting = false;
+          this.confirmingDelete = false;
+        }
       }
     },
   };

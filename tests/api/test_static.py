@@ -187,6 +187,10 @@ def test_pagina_de_item_tem_acao_de_excluir():
     assert "DELETE', `/items/" in it
     # arma com um clique, apaga só no segundo (mesmo padrão do clear() de secretForm)
     assert "confirmingDelete" in it
+    # se o usuário já navegou pra outro item antes do DELETE resolver, não arrasta ele de
+    # volta pro project do item antigo (achado por um revisor independente)
+    assert "const mine = this.seq" in it
+    assert "mine !== this.seq" in it
 
 
 def test_paleta_e_atalhos():
