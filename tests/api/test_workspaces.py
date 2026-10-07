@@ -122,6 +122,39 @@ def test_tree_missing_is_404(client):
     assert client.get("/api/workspaces/nope/tree").status_code == 404
 
 
+def test_tree_agrupa_items_por_subject(client, mk, engine):
+    from sqlalchemy.orm import Session
+
+    from knowledge_os.services.subject_service import SubjectService
+
+    ws = mk.ws("ComAssunto")
+    p = mk.project(ws["id"], "P")
+    with Session(engine) as s:
+        subjects = SubjectService(s)
+        bug = subjects.create(p["id"], "Bugs")
+        subjects.create(p["id"], "Vazio")
+        bug_id = bug.id
+    mk.item(ws["id"], p["id"], "Com assunto", subject_id=bug_id)
+    mk.item(ws["id"], p["id"], "Sem assunto")
+
+    r = client.get(f"/api/workspaces/{ws['id']}/tree")
+    assert r.status_code == 200
+    project = r.json()["projects"][0]
+
+    assert [i["title"] for i in project["items"]] == ["Sem assunto"]
+
+    subj_by_name = {s["name"]: s for s in project["subjects"]}
+    assert set(subj_by_name) == {"Bugs", "Vazio"}
+    assert [s["name"] for s in project["subjects"]] == ["Bugs", "Vazio"]
+
+    assert [i["title"] for i in subj_by_name["Bugs"]["items"]] == ["Com assunto"]
+    assert subj_by_name["Bugs"]["item_count"] == 1
+    assert subj_by_name["Vazio"]["items"] == []
+    assert subj_by_name["Vazio"]["item_count"] == 0
+
+    assert project["item_count"] == 2
+
+
 def test_graph(client, mk):
     ws = mk.ws("Graph")
     p = mk.project(ws["id"], "P")

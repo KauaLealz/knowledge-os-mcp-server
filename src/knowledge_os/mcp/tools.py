@@ -476,7 +476,7 @@ def item_save(
         "status": "deprecated"}])
     **Exemplo (substituir):** item_save(repo=".", items=[{"key": "proc/deploy-v2", ...,
         "relations": [{"type": "supersedes", "target": "proc/deploy"}]}])
-    **Campos:** type (rule, insight, procedure, pattern, knowledge, context, artifact, task),
+    **Campos:** type (rule, insight, procedure, pattern, knowledge, context, artifact, spec),
         title, summary, content, keywords, source, scope_paths, status (active, done,
         superseded, deprecated), memory_class "ephemeral" + ttl_days só para nota temporária
         (sem aprovação: o resto já vale), tags, labels, relations

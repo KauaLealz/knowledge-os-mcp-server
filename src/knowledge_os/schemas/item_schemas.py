@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 ITEM_TYPES: tuple[str, ...] = (
     "context", "rule", "pattern", "procedure", "knowledge", "insight", "artifact",
-    "secret",
+    "spec", "secret",
 )
 MEMORY_CLASSES: tuple[str, ...] = ("ephemeral", "working", "longterm", "canonical")
 ITEM_STATUSES: tuple[str, ...] = ("active", "done", "superseded", "deprecated")

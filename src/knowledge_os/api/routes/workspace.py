@@ -16,12 +16,13 @@ from knowledge_os.api.schemas.responses import (
     GraphNode,
     TreeItem,
     TreeProject,
+    TreeSubject,
     WorkspaceGraph,
     WorkspaceResponse,
     WorkspaceStats,
     WorkspaceTree,
 )
-from knowledge_os.db.models import Item, Project, Workspace
+from knowledge_os.db.models import Item, Project, Subject, Workspace
 from knowledge_os.exceptions import ValidationError
 from knowledge_os.services.import_export_service import ImportExportService
 from knowledge_os.services.relation_service import RelationService
@@ -115,15 +116,24 @@ def workspace_stats(id: str, session: Session = Depends(get_session_dep)):
 
 @router.get("/workspaces/{id}/tree", response_model=WorkspaceTree)
 def workspace_tree(id: str, session: Session = Depends(get_session_dep)):
-    """Projects (por nome) com seus items (por título), em duas queries."""
+    """Projects (por nome) com seus subjects (por nome) e items (por título), em três queries."""
     get_or_404(session, Workspace, id, "Workspace")
     projects = session.scalars(
         select(Project).where(Project.workspace_id == id).order_by(Project.name)
     ).all()
+    project_ids = [d.id for d in projects]
+    subjects = (
+        session.scalars(
+            select(Subject).where(Subject.project_id.in_(project_ids)).order_by(Subject.name)
+        ).all()
+        if project_ids
+        else []
+    )
     rows = session.execute(
         select(
             Item.id,
             Item.project_id,
+            Item.subject_id,
             Item.title,
             Item.type,
             Item.memory_class,
@@ -133,27 +143,45 @@ def workspace_tree(id: str, session: Session = Depends(get_session_dep)):
         .where(Item.workspace_id == id)
         .order_by(Item.title, Item.id)
     ).all()
-    by_project: dict[str, list[TreeItem]] = {d.id: [] for d in projects}
+
+    # Para cada project: items sem assunto, e um bucket por subject_id (inclui os vazios).
+    no_subject: dict[str, list[TreeItem]] = {d.id: [] for d in projects}
+    by_subject: dict[str, list[TreeItem]] = {sj.id: [] for sj in subjects}
+    item_count: dict[str, int] = {d.id: 0 for d in projects}
     for row in rows:
-        if row.project_id in by_project:
-            by_project[row.project_id].append(
-                TreeItem(
-                    id=row.id,
-                    title=row.title,
-                    type=row.type,
-                    memory_class=row.memory_class,
-                    confidence=row.confidence,
-                    updated_at=row.updated_at,
-                )
+        if row.project_id not in no_subject:
+            continue
+        item_count[row.project_id] += 1
+        tree_item = TreeItem(
+            id=row.id,
+            title=row.title,
+            type=row.type,
+            memory_class=row.memory_class,
+            confidence=row.confidence,
+            updated_at=row.updated_at,
+        )
+        if row.subject_id is not None and row.subject_id in by_subject:
+            by_subject[row.subject_id].append(tree_item)
+        else:
+            no_subject[row.project_id].append(tree_item)
+
+    subjects_by_project: dict[str, list[TreeSubject]] = {d.id: [] for d in projects}
+    for sj in subjects:
+        if sj.project_id in subjects_by_project:
+            items = by_subject[sj.id]
+            subjects_by_project[sj.project_id].append(
+                TreeSubject(id=sj.id, name=sj.name, item_count=len(items), items=items)
             )
+
     return WorkspaceTree(
         projects=[
             TreeProject(
                 id=d.id,
                 name=d.name,
                 description=d.description,
-                item_count=len(by_project[d.id]),
-                items=by_project[d.id],
+                item_count=item_count[d.id],
+                items=no_subject[d.id],
+                subjects=subjects_by_project[d.id],
             )
             for d in projects
         ]

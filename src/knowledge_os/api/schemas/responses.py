@@ -30,6 +30,7 @@ __all__ = [
     "TagResponse",
     "TreeItem",
     "TreeProject",
+    "TreeSubject",
     "WorkspaceGraph",
     "WorkspaceResponse",
     "WorkspaceStats",
@@ -51,12 +52,20 @@ class TreeItem(BaseModel):
     updated_at: datetime | None
 
 
+class TreeSubject(BaseModel):
+    id: str
+    name: str
+    item_count: int
+    items: list[TreeItem]
+
+
 class TreeProject(BaseModel):
     id: str
     name: str
     description: str | None
     item_count: int
     items: list[TreeItem]
+    subjects: list[TreeSubject] = []
 
 
 class WorkspaceTree(BaseModel):

@@ -34,3 +34,9 @@ def test_item_type_task_nao_existe_mais(test_engine: Engine, sample_workspace, s
     """`task` foi removido do conjunto de tipos válidos."""
     with pytest.raises(ValidationError):
         ItemService(test_engine).create(**_kw(sample_workspace, sample_project, type="task"))
+
+
+def test_item_type_spec_e_valido(test_engine: Engine, sample_workspace, sample_project):
+    """`spec` é o novo tipo para especificações/planos de mudança."""
+    item = ItemService(test_engine).create(**_kw(sample_workspace, sample_project, type="spec"))
+    assert item.type == "spec"
