@@ -527,6 +527,13 @@ def test_grafo_do_workspace_agrupa_por_project_e_assunto():
     assert "forceX" in graph and "forceY" in graph
     assert "groupKey" in graph
     assert "n.subject_id" in graph
+    # rótulo do agrupamento — sem isso dá pra ver que os nós se afastaram, mas não de quê
+    assert "gcluster-label" in graph
+    assert "n.project_name" in graph and "n.subject_name" in graph
+    css = (STATIC / "css" / "app.css").read_text(encoding="utf-8") + (
+        STATIC / "index.html"
+    ).read_text(encoding="utf-8")
+    assert ".gcluster-label" in css
 
 
 def test_grafo_nao_usa_template_x_for_dentro_de_svg():

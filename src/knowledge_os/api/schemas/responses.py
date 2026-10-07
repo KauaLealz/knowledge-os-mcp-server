@@ -80,7 +80,9 @@ class GraphNode(BaseModel):
     title: str
     type: str
     project_id: str
+    project_name: str
     subject_id: str | None = None
+    subject_name: str | None = None
     status: str
 
 

@@ -208,13 +208,23 @@ def workspace_graph(
             *filters
         )
     ).all()
+    project_names = dict(
+        session.execute(select(Project.id, Project.name).where(Project.workspace_id == id)).all()
+    )
+    subject_names = dict(
+        session.execute(
+            select(Subject.id, Subject.name).where(Subject.project_id.in_(project_names))
+        ).all()
+    )
     nodes = [
         GraphNode(
             id=r.id,
             title=r.title,
             type=r.type,
             project_id=r.project_id,
+            project_name=project_names.get(r.project_id, "?"),
             subject_id=r.subject_id,
+            subject_name=subject_names.get(r.subject_id) if r.subject_id else None,
             status=r.status,
         )
         for r in rows

@@ -106,6 +106,37 @@ export function register(Alpine) {
       viewport.setAttribute('class', 'graph-viewport');
       svg.appendChild(viewport);
 
+      // No grafo do workspace (vários projects ao mesmo tempo), agrupa visualmente por
+      // project/assunto — cada grupo puxado pro centro de uma célula de uma grade, com um
+      // rótulo atrás dos nós indicando de qual project/assunto se trata. Escopo de
+      // project/subject já é um grupo só, não precisa disso.
+      const groupKey = (n) => (n.subject_id ? `${n.project_id}:${n.subject_id}` : n.project_id);
+      const groupLabel = (n) => (n.subject_id ? `${n.project_name} · ${n.subject_name}` : n.project_name);
+      const groups = this.app.route.name === 'graph' ? [...new Set(this.nodes.map(groupKey))] : [];
+      let clusterCenters = null;
+      if (groups.length > 1) {
+        const cols = Math.ceil(Math.sqrt(groups.length));
+        const rows = Math.ceil(groups.length / cols);
+        const cellW = this.width / cols;
+        const cellH = this.height / rows;
+        clusterCenters = new Map(
+          groups.map((g, i) => [
+            g,
+            { x: cellW * ((i % cols) + 0.5), y: cellH * (Math.floor(i / cols) + 0.5) },
+          ]),
+        );
+        const labelByGroup = new Map(this.nodes.map((n) => [groupKey(n), groupLabel(n)]));
+        for (const g of groups) {
+          const c = clusterCenters.get(g);
+          const label = document.createElementNS(SVG_NS, 'text');
+          label.setAttribute('class', 'gcluster-label');
+          label.setAttribute('x', String(c.x));
+          label.setAttribute('y', String(c.y));
+          label.textContent = labelByGroup.get(g);
+          viewport.appendChild(label);
+        }
+      }
+
       const edgeEls = this.edges.map((e) => {
         const line = document.createElementNS(SVG_NS, 'line');
         line.setAttribute('class', this.edgeClass(e));
@@ -167,27 +198,10 @@ export function register(Alpine) {
         .force('collide', forceCollide((n) => radius(n) + 6))
         .on('tick', tick);
 
-      // No grafo do workspace (vários projects ao mesmo tempo), agrupa visualmente por
-      // project/assunto — cada grupo puxado pro centro de uma célula de uma grade; escopo
-      // de project/subject já é um grupo só, não precisa disso.
-      if (this.app.route.name === 'graph') {
-        const groupKey = (n) => (n.subject_id ? `${n.project_id}:${n.subject_id}` : n.project_id);
-        const groups = [...new Set(this.nodes.map(groupKey))];
-        if (groups.length > 1) {
-          const cols = Math.ceil(Math.sqrt(groups.length));
-          const rows = Math.ceil(groups.length / cols);
-          const cellW = this.width / cols;
-          const cellH = this.height / rows;
-          const centers = new Map(
-            groups.map((g, i) => [
-              g,
-              { x: cellW * ((i % cols) + 0.5), y: cellH * (Math.floor(i / cols) + 0.5) },
-            ]),
-          );
-          this.sim
-            .force('x', forceX((n) => centers.get(groupKey(n)).x).strength(0.12))
-            .force('y', forceY((n) => centers.get(groupKey(n)).y).strength(0.12));
-        }
+      if (clusterCenters) {
+        this.sim
+          .force('x', forceX((n) => clusterCenters.get(groupKey(n)).x).strength(0.12))
+          .force('y', forceY((n) => clusterCenters.get(groupKey(n)).y).strength(0.12));
       }
 
       // Deixa o layout assentar de uma vez antes do primeiro desenho: o timer do d3 usa
