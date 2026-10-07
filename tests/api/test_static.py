@@ -570,14 +570,25 @@ def test_grafo_do_workspace_tem_rotulo_de_galaxia_acima_de_tudo():
     assert ".gcluster-label-galaxy" in css
 
 
-def test_grafo_rotulos_colados_no_topo_do_proprio_aglomerado_e_por_cima_dos_nos():
-    """Rótulo não é posicionado por uma célula nominal da grade (a física é frouxa e o
-    grupo se espalha além dela) — é calculado depois que a simulação assenta, pela borda de
-    cima de onde os nós do próprio grupo realmente pararam. Por isso nunca fica longe do
-    que nomeia, e por ser desenhado por último (depois de nós e linhas), nunca fica coberto
-    por um nó — no máximo uma linha de relação passa por baixo dele."""
+def test_grafo_rotulos_tem_distancia_fixa_e_nunca_cobertos_por_no():
+    """Rótulo não é posicionado a partir de onde os nós acabaram parando (isso fazia a
+    distância entre rótulos variar de cluster pra cluster, e um país podia nascer na mesma
+    altura do planeta dele) — cada nível reserva uma faixa de altura FIXA no topo da sua
+    região (galáxia/planeta/país sempre à mesma distância do nível de dentro, em qualquer
+    cluster) e nenhum nó pode entrar nela (nodeFloor, aplicado a cada tick, inclusive
+    durante um drag). Rótulo desenhado por último: pinta por cima de nó e linha — uma linha
+    pode passar por baixo dele, um nó nunca."""
     graph = _js("views/graph.js")
-    assert "const bbox = (ns) =>" in graph
+    assert "const GALAXY_BAND" in graph
+    assert "const PLANET_BAND" in graph and "const COUNTRY_BAND" in graph
+    assert "const reserveTopBand = (region, band) =>" in graph
+    assert "const nodeFloor = (n) =>" in graph
+    # piso aplicado dentro do próprio tick (não só no acerto inicial) — vale também durante
+    # um drag, que reinicia a simulação com alphaTarget
+    tick_fn_idx = graph.index("const tick = () => {")
+    floor_in_tick_idx = graph.index("if (n.y < floor) n.y = floor;")
+    tick_body_end_idx = graph.index("this.sim = forceSimulation")
+    assert tick_fn_idx < floor_in_tick_idx < tick_body_end_idx
     tick_idx = graph.index("this.sim.stop();\n      for (let i = 0; i < 150")
     labels_idx = graph.index("addClusterLabel('gcluster-label gcluster-label-galaxy'")
     nodes_idx = graph.index("const nodeEls = this.nodes.map")
