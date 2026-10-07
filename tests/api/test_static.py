@@ -264,8 +264,8 @@ def test_listagem_pagina_com_anterior_proxima_em_vez_de_carregar_tudo():
     assert "nextPage" in lst and "prevPage" in lst
     assert "limit: this.pageSize" in lst
     html = (STATIC / "index.html").read_text(encoding="utf-8")
-    assert html.count('@click="prevPage()"') == 2
-    assert html.count('@click="nextPage()"') == 2
+    assert html.count('@click="prevPage()"') == 3
+    assert html.count('@click="nextPage()"') == 3
     assert "totalPages" in html
 
 
@@ -331,7 +331,7 @@ def test_largura_larga_sem_teto_e_botao_oculto_quando_nao_cabe():
 
 def test_listas_agrupadas_por_tipo_com_filtros_e_busca():
     html = (STATIC / "index.html").read_text(encoding="utf-8")
-    assert html.count('class="filterbar"') == 2 and "Todos os itens" in html
+    assert html.count('class="filterbar"') == 3 and "Todos os itens" in html
     lst = _js("views/listing.js")
     assert "groupByType" in lst and "/items/search" in lst and "types" in lst
     util = _js("util.js")
@@ -403,15 +403,60 @@ def test_rota_de_grafo_existe_no_router():
     assert "seg[4] === 'graph'" in router and "name: 'graph'" in router
 
 
+def test_rotas_de_subject_e_grafo_por_escopo_existem_no_router():
+    router = _js("router.js")
+    assert "name: 'subject'" in router
+    assert "name: 'project-graph'" in router
+    assert "name: 'subject-graph'" in router
+    assert "subject: (c, w, p, s) =>" in router
+    assert "projectGraph: (c, w, p) =>" in router
+    assert "subjectGraph: (c, w, p, s) =>" in router
+
+
 def test_tela_de_grafo_registrada_e_acessivel_pelo_workspace():
     html = _index()
     assert 'x-data="graphView"' in html
-    assert "route.name === 'graph'" in html
+    assert "'graph', 'project-graph', 'subject-graph'" in html
     assert "graphHref()" in html
     main = _js("main.js")
     assert "registerGraph" in main and "views/graph.js" in main
     ws = _js("views/workspace.js")
     assert "graphHref()" in ws and "hrefs.graph" in ws
+
+
+def test_grafo_tambem_acessivel_por_project_e_subject():
+    html = _index()
+    assert html.count(">Ver grafo<") >= 3  # workspace, project, subject
+    project = _js("views/project.js")
+    assert "graphHref()" in project and "hrefs.projectGraph" in project
+    subject = _js("views/subject.js")
+    assert "graphHref()" in subject and "hrefs.subjectGraph" in subject
+
+
+def test_pagina_de_subject_lista_itens_filtrados_pelo_escopo():
+    html = _index()
+    assert 'x-data="subjectView"' in html
+    assert "route.name === 'subject'" in html
+    assert "$store.app.subject" in html
+    main = _js("main.js")
+    assert "registerSubject" in main and "views/subject.js" in main
+    subject = _js("views/subject.js")
+    assert "subject_id: p.subj" in subject
+
+
+def test_sidebar_usa_workspace_explicito_nos_links_nao_o_da_rota_atual():
+    """A sidebar mostra gavetas de workspaces que não são o da rota atual — um link de
+    project/subject/item ali dentro não pode depender de route.params.ws/pj (seria o
+    workspace ERRADO sempre que a gaveta aberta não é a da página atual)."""
+    html = _index()
+    tree = html[html.index('aria-label="Workspaces"') : html.index("side-foot")]
+    assert "hProjectIn(w.id, p.id)" in tree
+    assert "hSubjectIn(w.id, p.id, s.id)" in tree
+    assert tree.count("hItemIn(w.id, p.id, it.id)") == 2
+    store = _js("store.js")
+    assert "hProjectIn(wsId, pjId)" in store
+    assert "hSubjectIn(wsId, pjId, subjId)" in store
+    assert "hItemIn(wsId, pjId, itemId)" in store
 
 
 def test_pagina_de_workspace_nao_mistura_itens_de_outro_workspace_no_indice():
@@ -428,7 +473,7 @@ def test_grafo_tem_layout_proprio_sem_biblioteca_e_destaca_supersedes():
     for needle in ("MAX_ITER", "function layout(", "goTo(id)"):
         assert needle in graph, needle
     html = _index()
-    inside = html[html.index("<!-- Grafo -->") : html.index("<!-- Project -->")]
+    inside = html[html.index("<!-- Grafo") : html.index("<!-- Project -->")]
     assert "supersedes" in inside  # destaque visual distinto no CSS escopado
 
 
@@ -440,7 +485,7 @@ def test_grafo_nao_usa_template_x_for_dentro_de_svg():
     gerar HTML bruto que vale pro resto do app (markdown.js é a única exceção, via
     DOMPurify)."""
     html = _index()
-    inside = html[html.index("<!-- Grafo -->") : html.index("<!-- Project -->")]
+    inside = html[html.index("<!-- Grafo") : html.index("<!-- Project -->")]
     assert "<template x-for" not in inside
     assert "x-html" not in inside
     assert 'x-effect="renderSvg($el)"' in inside

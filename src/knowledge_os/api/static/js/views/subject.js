@@ -1,30 +1,28 @@
-// Página de Project: itens do project agrupados por tipo, com filtros e busca.
+// Página de Subject: itens de um assunto, agrupados por tipo, com filtros e busca (mesmo
+// mixin de listagem de Workspace/Project).
 import { hrefs } from '../router.js';
 import { listingMixin, mix } from './listing.js';
 
 export function register(Alpine) {
-  Alpine.data('projectView', () =>
+  Alpine.data('subjectView', () =>
     mix(
       {
         scope() {
           const p = this.app.route.params;
-          return { workspace_id: p.ws, project_id: p.pj };
+          return { workspace_id: p.ws, project_id: p.pj, subject_id: p.subj };
         },
         init() {
           this.$watch(
-            () => this.app.route.params.pj + '|' + this.app.treeWs,
+            () => this.app.route.params.subj + '|' + this.app.treeWs,
             () => this.loadItems(),
           );
           this.loadItems();
           this.initListing();
         },
-        /** Link para a tela de grafo deste project. */
+        /** Link para a tela de grafo deste assunto. */
         graphHref() {
           const p = this.app.route.params;
-          return hrefs.projectGraph(this.app.connId, p.ws, p.pj);
-        },
-        get totalItems() {
-          return Math.max(this.app.project?.item_count ?? 0, this.items.length);
+          return hrefs.subjectGraph(this.app.connId, p.ws, p.pj, p.subj);
         },
       },
       listingMixin(Alpine),

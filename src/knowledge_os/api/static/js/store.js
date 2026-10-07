@@ -264,6 +264,9 @@ export const appStore = {
   get project() {
     return this.tree?.projects?.find((p) => p.id === this.route.params.pj) || null;
   },
+  get subject() {
+    return this.project?.subjects?.find((s) => s.id === this.route.params.subj) || null;
+  },
   get connName() {
     return this.connections.find((c) => c.id === this.connId)?.name || this.connId || '—';
   },
@@ -280,6 +283,20 @@ export const appStore = {
   },
   hProject(pjId) {
     return hrefs.project(this.connId, this.route.params.ws, pjId);
+  },
+  hSubject(subjId) {
+    return hrefs.subject(this.connId, this.route.params.ws, this.route.params.pj, subjId);
+  },
+  /** Variantes com workspace/project explícitos — a sidebar lista gavetas de workspaces que
+   * não são o da rota atual, então não pode usar route.params.ws/pj como os de cima. */
+  hProjectIn(wsId, pjId) {
+    return hrefs.project(this.connId, wsId, pjId);
+  },
+  hSubjectIn(wsId, pjId, subjId) {
+    return hrefs.subject(this.connId, wsId, pjId, subjId);
+  },
+  hItemIn(wsId, pjId, itemId) {
+    return hrefs.item(this.connId, wsId, pjId, itemId);
   },
   hItem(pjId, itemId) {
     return hrefs.item(this.connId, this.route.params.ws, pjId, itemId);

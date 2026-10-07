@@ -1,4 +1,5 @@
-// Router por hash: #/c/:conn/w/:ws/p/:pj/i/:item[/edit] e #/settings/connections[/:id|/new].
+// Router por hash: #/c/:conn/w/:ws/p/:pj/i/:item[/edit], #/c/:conn/w/:ws/p/:pj/s/:subj,
+// #/c/:conn/w/:ws[/p/:pj[/s/:subj]]/graph e #/settings/connections[/:id|/new].
 
 const enc = encodeURIComponent;
 
@@ -29,6 +30,15 @@ export function parseHash(hash = location.hash) {
   if (seg[4] !== 'p' || !seg[5]) return { name: 'notfound', params };
   params.pj = seg[5];
   if (seg.length === 6) return { name: 'project', params };
+  // Grafo do project: irmão de "i"/"s", sem id próprio.
+  if (seg[6] === 'graph' && seg.length === 7) return { name: 'project-graph', params };
+  // Segmento "s" (subject): página do assunto, com o próprio grafo escopado como filho.
+  if (seg[6] === 's' && seg[7]) {
+    params.subj = seg[7];
+    if (seg.length === 8) return { name: 'subject', params };
+    if (seg.length === 9 && seg[8] === 'graph') return { name: 'subject-graph', params };
+    return { name: 'notfound', params };
+  }
   if (seg[6] !== 'i' || !seg[7]) return { name: 'notfound', params };
   params.item = seg[7];
   if (seg.length === 8) return { name: 'item', params };
@@ -41,6 +51,9 @@ export const hrefs = {
   ws: (c, w) => `#/c/${enc(c)}/w/${enc(w)}`,
   graph: (c, w) => `#/c/${enc(c)}/w/${enc(w)}/graph`,
   project: (c, w, p) => `#/c/${enc(c)}/w/${enc(w)}/p/${enc(p)}`,
+  projectGraph: (c, w, p) => `#/c/${enc(c)}/w/${enc(w)}/p/${enc(p)}/graph`,
+  subject: (c, w, p, s) => `#/c/${enc(c)}/w/${enc(w)}/p/${enc(p)}/s/${enc(s)}`,
+  subjectGraph: (c, w, p, s) => `#/c/${enc(c)}/w/${enc(w)}/p/${enc(p)}/s/${enc(s)}/graph`,
   item: (c, w, p, i) => `#/c/${enc(c)}/w/${enc(w)}/p/${enc(p)}/i/${enc(i)}`,
   edit: (c, w, p, i) => `#/c/${enc(c)}/w/${enc(w)}/p/${enc(p)}/i/${enc(i)}/edit`,
   connections: (sub) => `#/settings/connections${sub ? '/' + enc(sub) : ''}`,
