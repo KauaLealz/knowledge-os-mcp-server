@@ -212,3 +212,32 @@ def test_conexoes_ficam_no_json_com_o_remote_url(svc, tmp_path):
     assert saved["connections"][0]["remote_url"] == remote
     if os.name == "posix":
         assert path.stat().st_mode & 0o777 == 0o600
+
+
+# ---- health ---------------------------------------------------------------------------------
+
+
+def test_health_sem_conexao_e_vazio(svc):
+    assert svc.health() == []
+
+
+def test_health_md_quebrado_aparece_em_parse_errors(svc):
+    conn = svc.create("Local", test=False)
+    folder = Path(conn.path)
+    (folder / "w" / "p").mkdir(parents=True)
+    (folder / "w" / "p" / "quebrado.md").write_text("---\nnao: [fecha\n---\ncorpo\n",
+                                                    encoding="utf-8")
+    [row] = svc.health()
+    assert (row["name"], row["path"], row["ok"]) == ("Local", conn.path, True)
+    assert [e["path"] for e in row["parse_errors"]] == ["w/p/quebrado.md"]
+    assert row["parse_errors"][0]["error"]
+
+
+def test_health_pasta_sumida_ou_sem_git_nao_esta_ok(svc, tmp_path):
+    a = svc.create("A", test=False)
+    b = svc.create("B", test=False)
+    Path(a.path).rename(tmp_path / "a-sumiu")
+    (Path(b.path) / ".git").rename(Path(b.path) / "git-velho")
+    rows = {r["name"]: r for r in svc.health()}
+    assert rows["A"]["ok"] is False and rows["A"]["parse_errors"] == []
+    assert rows["B"]["ok"] is False

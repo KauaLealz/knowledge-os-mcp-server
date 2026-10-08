@@ -4,6 +4,8 @@ O cadastro é o connections.json do home. Não há conexão implícita: a primei
 padrão; remover a padrão passa o posto para outra habilitada (ou deixa sem padrão).
 """
 
+from __future__ import annotations
+
 import logging
 import threading
 import time
@@ -276,6 +278,27 @@ class ConnectionService:
         access.forget(new.id)
         _last_tests.pop(new.id, None)
         return _to_row(new, config.default)
+
+    def health(self) -> list[dict[str, Any]]:
+        """Saúde de cada conexão, para o `health_check`: `[{id, name, path, ok,
+        parse_errors: [{path, error}]}]`.
+
+        `ok` é falso se a pasta não existe ou não é um repositório git. `parse_errors` são os
+        `.md` que a leitura ignorou (frontmatter inválido, id duplicado), do `FileStore`.
+        Sem conexão: `[]`.
+        """
+        rows = []
+        for conn in _load().connections:
+            root = conn.clone_path()
+            exists = root.is_dir()
+            errors: list[dict[str, str]] = []
+            if exists:
+                store = access.store_for(conn)
+                errors = [{"path": path, "error": err}
+                          for path, err in sorted(store.errors.items())]
+            rows.append({"id": conn.id, "name": conn.name, "path": str(root),
+                         "ok": exists and (root / ".git").exists(), "parse_errors": errors})
+        return rows
 
     def set_default(self, connection_id: str) -> Connection:
         """Define a padrão do connections.json (vale para a API e para as tools MCP)."""

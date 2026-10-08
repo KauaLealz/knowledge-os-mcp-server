@@ -129,16 +129,6 @@ def _report_connections_safely() -> None:
         print(f"Diagnóstico de conexões falhou: {exc}", file=sys.stderr)
 
 
-def _run_daily_safely() -> None:
-    """Manutenção diária para rodar em thread: erro vira log, nunca exceção."""
-    try:
-        from knowledge_os.services.maintenance import run_daily
-
-        run_daily()
-    except Exception:  # noqa: BLE001 - manutenção não pode derrubar o servidor
-        logger.warning("Manutenção diária falhou", exc_info=True)
-
-
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="knowledge-mcp", description="MCP Knowledge OS")
     sub = parser.add_subparsers(dest="command")
@@ -282,7 +272,6 @@ def main(argv: list[str] | None = None) -> int:
         # Diagnóstico das conexões em segundo plano: uma conexão fora do ar não pode
         # atrasar o handshake (o cliente MCP desiste em ~30 s).
         threading.Thread(target=_report_connections_safely, daemon=True).start()
-        threading.Thread(target=_run_daily_safely, daemon=True).start()
         if ui_enabled():
             global _background_ui
             _background_ui = BackgroundUI()

@@ -64,11 +64,11 @@ def test_version(env):
 def test_link_e_context_markdown(env, project):
     assert cli(env, "link", "--repo", str(project), "--workspace", "Polara",
                "--project", "app").returncode == 0
-    _save(env, project, [{"key": "regra/x", "type": "rule", "memory_class": "longterm",
+    _save(env, project, [{"key": "rule/x", "type": "rule", "subtype": "code",
                           "title": "Regra X", "summary": "Sempre X", "content": "..."}])
     out = cli(env, "context", "--repo", str(project))
     assert out.returncode == 0
-    assert "Polara / app" in out.stdout and "**Regra X**" in out.stdout
+    assert "Polara / app" in out.stdout and "[code] **Regra X**" in out.stdout
 
 
 def test_hook_claude_e_cursor(env, project):
@@ -95,7 +95,8 @@ def test_hook_fora_de_projeto_fica_em_silencio(env, tmp_path):
 
 def test_projeto_nao_ligado_sugere_setup(env, project):
     out = cli(env, "context", "--hook", "claude", stdin=json.dumps({"cwd": str(project)}))
-    assert "/plumb-setup" in json.loads(out.stdout)["hookSpecificOutput"]["additionalContext"]
+    text = json.loads(out.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "/plumb-setup" in text and 'repo(action="link"' in text
 
 
 def test_sem_conexao_o_hook_diz_como_criar(env, project):
@@ -116,8 +117,8 @@ def test_falha_vira_aviso_e_nao_quebra_a_sessao(env, project):
 
 
 def _entry(key: str, title: str, **extra) -> str:
-    return json.dumps({"key": key, "type": "knowledge", "memory_class": "working",
-                       "title": title, "summary": "veio da fila", "content": "...", **extra})
+    return json.dumps({"key": key, "type": "howto", "title": title, "summary": "veio da fila",
+                       "content": "...", **extra})
 
 
 def test_fila_offline_no_home_e_gravada_no_inicio_da_sessao(env, project, tmp_path):
@@ -136,6 +137,32 @@ def test_fila_offline_no_home_e_gravada_no_inicio_da_sessao(env, project, tmp_pa
     assert not queue.exists()
 
 
+def test_entrada_no_formato_antigo_fica_na_fila_com_o_erro(env, conn, project):
+    cli = _link_inprocess(project)
+    queue = cli._pending_file()
+    old = json.dumps({"key": "gotcha/velha", "type": "knowledge", "memory_class": "working",
+                      "title": "Formato antigo", "summary": "s", "content": "c"})
+    queue.write_text(old + "\n", encoding="utf-8")
+    saved, err = cli._flush_file(queue, project)
+    assert saved == 0 and "memory_class" in err
+    assert "gotcha/velha" in queue.read_text(encoding="utf-8")
+    assert not list(queue.parent.glob("pending*.claimed"))
+
+
+def test_hook_claude_com_o_pacote_v2(env, project):
+    cli(env, "link", "--repo", str(project), "--workspace", "W", "--project", "D")
+    _save(env, project, [{"key": "rule/sec", "type": "rule", "subtype": "security",
+                          "title": "Nada de log de cartao", "summary": "PCI",
+                          "content": "c"}])
+    out = cli(env, "context", "--hook", "claude",
+              stdin=json.dumps({"cwd": str(project), "hook_event_name": "SessionStart"}))
+    assert out.returncode == 0
+    payload = json.loads(out.stdout)["hookSpecificOutput"]
+    assert payload["hookEventName"] == "SessionStart"
+    assert "## Segurança" in payload["additionalContext"]
+    assert "Nada de log de cartao" in payload["additionalContext"]
+
+
 def test_fila_antiga_do_projeto_ainda_e_lida(env, project):
     cli(env, "link", "--repo", str(project), "--workspace", "W", "--project", "D")
     legacy = project / ".plumb" / "pending-brain.jsonl"
@@ -147,12 +174,16 @@ def test_fila_antiga_do_projeto_ainda_e_lida(env, project):
 
 def test_recent_json(env, project):
     cli(env, "link", "--repo", str(project), "--workspace", "W", "--project", "D")
-    _save(env, project, [{"key": "decisao/y", "type": "insight", "memory_class": "working",
-                          "title": "Decisão Y", "summary": "porque sim", "content": "...",
+    _save(env, project, [{"key": "rule/y", "type": "rule", "subtype": "decision",
+                          "title": "Decisão Y", "summary": "porque sim",
+                          "content": "## Por quê\nx\n## Alternativa descartada\ny",
                           "source": "PAY-1"}])
     data = json.loads(cli(env, "recent", "--json").stdout)
-    assert [(d["title"], d["action"], d["source"], d["status"]) for d in data] == [
-        ("Decisão Y", "created", "PAY-1", "active")]
+    assert [(d["title"], d["action"], d["source"], d["status"], d["subtype"], d["origin"])
+            for d in data] == [("Decisão Y", "created", "PAY-1", "active", "decision", "agent")]
+    assert "memory_class" not in data[0]
+    text = cli(env, "recent").stdout
+    assert "rule/decision" in text and "Decisão Y" in text
 
 
 def test_dois_processos_esvaziando_a_mesma_fila_gravam_cada_key_uma_vez(env, project):
