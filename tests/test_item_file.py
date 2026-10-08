@@ -1,10 +1,10 @@
 """Testes do serializador item <-> arquivo Markdown (services/item_file.py)."""
 
 from datetime import datetime
+from types import SimpleNamespace
 
 import pytest
 
-from knowledge_os.db.models import Item
 from knowledge_os.exceptions import ValidationError
 from knowledge_os.services.item_file import (
     item_path,
@@ -199,11 +199,9 @@ def test_relation_alvo_por_id_quando_alvo_nao_tem_key():
 # --------------------------------------------------------------------------- Item ORM
 
 
-def test_serialize_aceita_item_sqlalchemy_alem_de_dict():
-    orm_item = Item(
+def test_serialize_aceita_objeto_com_atributos_alem_de_dict():
+    orm_item = SimpleNamespace(
         id="orm-1",
-        workspace_id="ws-1",
-        project_id="dm-1",
         type="pattern",
         memory_class="longterm",
         title="Padrão X",
@@ -211,7 +209,7 @@ def test_serialize_aceita_item_sqlalchemy_alem_de_dict():
         content="Conteúdo do padrão.",
         status="active",
         key="padrao/x",
-        scope_paths='["src/x/**"]',
+        scope_paths=["src/x/**"],
         created_at=datetime(2026, 1, 1, 0, 0, 0),
         updated_at=datetime(2026, 1, 2, 0, 0, 0),
     )

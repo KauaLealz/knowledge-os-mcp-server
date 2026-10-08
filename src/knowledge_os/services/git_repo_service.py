@@ -232,21 +232,43 @@ class GitRepoService:
         return result.stdout.split()[0]
 
     def _write_files(self, files: dict[str, str | None]) -> None:
+        """Grava/remove os arquivos e prepara tudo para o commit (um `git add` e um `git rm`).
+
+        Fim de linha sempre LF (no Windows o `write_text` padrão gravaria CRLF). Pasta que
+        fica vazia depois de uma remoção também sai (o git não versiona pasta).
+        """
+        written: list[str] = []
+        removed: list[str] = []
         for rel_path, content in files.items():
             full = self.clone_path / rel_path
             if content is None:
-                if full.exists():
-                    self._run(["rm", "-f", rel_path])
+                full.unlink(missing_ok=True)
+                self._prune_empty(full.parent)
+                removed.append(rel_path)
                 continue
             full.parent.mkdir(parents=True, exist_ok=True)
-            full.write_text(content, encoding="utf-8")
-            self._run(["add", rel_path])
+            full.write_text(content, encoding="utf-8", newline="\n")
+            written.append(rel_path)
+        if removed:
+            self._run(["rm", "-q", "--cached", "--ignore-unmatch", "--", *removed])
+        if written:
+            self._run(["add", "--", *written])
+
+    def _prune_empty(self, folder: Path) -> None:
+        root = self.clone_path.resolve()
+        current = folder
+        while current.resolve() != root and root in current.resolve().parents:
+            try:
+                current.rmdir()
+            except OSError:
+                return  # não está vazia (ou sumiu): para aqui
+            current = current.parent
 
     def _commit(self, message: str) -> str | None:
         status = self._run(["status", "--porcelain"]).stdout
         if not status.strip():
             return self._run(["rev-parse", "HEAD"], check=False).stdout.strip() or None
-        self._run(["commit", "-m", message])
+        self._run(["commit", "-q", "-m", message])
         return self._run(["rev-parse", "HEAD"]).stdout.strip()
 
     def _push_with_retry(self, branch: str, rewrite: Callable[[], str | None]) -> str | None:
@@ -295,14 +317,12 @@ class GitRepoService:
         return self._publish_pr(files, message, branch_hint)
 
     def _publish_direct(self, files: dict[str, str | None], message: str) -> PublishResult:
-        branch = self._main_branch()
-
         def rewrite() -> str | None:
             self._write_files(files)
             return self._commit(message)
 
         if self._has_remote():
-            sha = self._push_with_retry(branch, rewrite)
+            sha = self._push_with_retry(self._main_branch(), rewrite)
         else:
             sha = rewrite()
         return PublishResult(status="published", commit_sha=sha)
@@ -326,10 +346,15 @@ class GitRepoService:
             self._write_files(files)
             return self._commit(message)
 
-        self._push_with_retry(branch, rewrite)
-        pr_url = gh_cli.pr_create(
-            self.clone_path, message, self._issue_body(files, message), base=base_branch
-        )
+        try:
+            self._push_with_retry(branch, rewrite)
+            pr_url = gh_cli.pr_create(
+                self.clone_path, message, self._issue_body(files, message), base=base_branch
+            )
+        finally:
+            # A pasta é a fonte de leitura: volta para a branch principal, para o que está em
+            # revisão só aparecer depois do merge (e de um sync).
+            self._run(["checkout", "-f", base_branch], check=False)
         return PublishResult(status="pending_review", pr_url=pr_url)
 
     @staticmethod

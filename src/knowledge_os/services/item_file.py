@@ -1,15 +1,13 @@
 """Serializador item <-> arquivo Markdown com frontmatter YAML.
 
-Peça base da migração de storage (SQLite -> Git): transforma um `Item` (+ metadados de
-workspace/project/subject) num arquivo `.md` com frontmatter YAML, e faz o caminho inverso.
+Cada item do segundo cérebro é um arquivo `.md` (frontmatter YAML + corpo) na pasta da conexão,
+com os nomes de workspace/project/subject no frontmatter. `serialize_item` faz o arquivo e
+`parse_item_file` faz o caminho inverso.
 
-Decisão de design: `serialize_item` aceita tanto um `Item` do SQLAlchemy quanto um `dict` com
-os mesmos campos (chaves iguais aos atributos do modelo; `scope_paths` já decodificado como
-lista em ambos os casos — ver `_field`/`_scope_paths`). Isso deixa o módulo testável sem sessão
-de banco e sem acoplar quem só tem os dados em dict (ex.: payload vindo do Git) a uma instância
-ORM. `tags`, `labels` e `relations` são sempre parâmetros à parte: no ORM eles são relações
-carregadas separadamente, e `relations` já chega resolvido (pela key do alvo quando ele tem
-uma, senão pelo id) — este módulo não decide essa resolução, só serializa o que recebe.
+`serialize_item` aceita um `dict` ou qualquer objeto com os mesmos campos (`scope_paths` como
+lista). `tags`, `labels` e `relations` são sempre parâmetros à parte, e `relations` já chega
+resolvido (pela key do alvo quando ele tem uma no mesmo project, senão pelo id) — este módulo
+não decide essa resolução, só serializa o que recebe.
 
 Segredos (`type == "secret"`) entram no arquivo só com metadados (título, resumo, key...): o
 valor vive à parte, fora do git. `serialize_item` recusa com `ValidationError` um item secret que
@@ -26,9 +24,12 @@ from typing import Any
 import yaml
 
 from knowledge_os.exceptions import ValidationError
-from knowledge_os.schemas.item_schemas import decode_paths
 
 _SEM_KEY_DIR = "_sem-key"
+
+# Loader seguro em C quando o PyYAML foi compilado com libyaml: abrir milhares de itens com o
+# loader em Python puro leva segundos.
+_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
 # Campos obrigatórios no frontmatter: sem eles não dá para reconstruir o item.
 _REQUIRED_FIELDS = (
@@ -100,9 +101,7 @@ def _field(item: Any, name: str, default: Any = None) -> Any:
 
 
 def _scope_paths(item: Any) -> list[str]:
-    if isinstance(item, dict):
-        return list(item.get("scope_paths") or [])
-    return decode_paths(item.scope_paths)
+    return list(_field(item, "scope_paths") or [])
 
 
 def _fmt_dt(value: datetime) -> str:
@@ -137,7 +136,7 @@ def serialize_item(
     tags: list[str],
     labels: list[str],
 ) -> str:
-    """Serializa um item (Item do SQLAlchemy ou dict equivalente) em conteúdo de arquivo
+    """Serializa um item (dict ou objeto com os mesmos campos) em conteúdo de arquivo
     Markdown com frontmatter YAML.
 
     Item `type == "secret"` é serializado só com metadados; recusa (`ValidationError`) se ele
@@ -223,7 +222,7 @@ def parse_item_file(raw: str) -> dict[str, Any]:
     raw_frontmatter, content = match.groups()
 
     try:
-        data = yaml.safe_load(raw_frontmatter)
+        data = yaml.load(raw_frontmatter, Loader=_LOADER)  # noqa: S506 - loader seguro
     except yaml.YAMLError as exc:
         raise ValidationError(f"Frontmatter YAML malformado: {exc}") from exc
     if not isinstance(data, dict):
