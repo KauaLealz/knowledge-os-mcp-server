@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from knowledge_os.services.item_file import key_problem
+
 if TYPE_CHECKING:
     from knowledge_os.services.brain import Item
 
@@ -16,8 +18,9 @@ ITEM_TYPES: tuple[str, ...] = (
 )
 MEMORY_CLASSES: tuple[str, ...] = ("ephemeral", "working", "longterm", "canonical")
 ITEM_STATUSES: tuple[str, ...] = ("active", "done", "superseded", "deprecated")
-# Chave estável: minúsculas, números e . _ / - (ex.: "regra/money-em-pagamentos").
-KEY_PATTERN = r"^[a-z0-9][a-z0-9._/-]{0,199}$"
+# Chave estável: minúsculas, números e . _ / - (ex.: "regra/money-em-pagamentos"); cada parte
+# entre "/" começa por letra ou número (validado também por `item_file.key_problem`).
+KEY_PATTERN = r"^[a-z0-9][a-z0-9._-]*(/[a-z0-9][a-z0-9._-]*)*$"
 
 
 def _check_choice(value: str, allowed: tuple[str, ...], field: str) -> str:
@@ -52,6 +55,15 @@ class ItemCreate(BaseModel):
     @classmethod
     def _type(cls, v: str) -> str:
         return _check_choice(v, ITEM_TYPES, "type")
+
+    @field_validator("key")
+    @classmethod
+    def _key(cls, v: str | None) -> str | None:
+        # A key vira path do arquivo: nada de segmento vazio, "." ou ".." (escaparia da pasta).
+        problem = key_problem(v) if v is not None else None
+        if problem:
+            raise ValueError(problem)
+        return v
 
     @field_validator("memory_class")
     @classmethod

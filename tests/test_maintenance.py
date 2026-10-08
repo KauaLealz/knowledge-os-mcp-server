@@ -95,3 +95,44 @@ def test_comando_de_copia_de_seguranca_nao_existe_mais(cmd):
     from knowledge_os.cli import BRAIN_COMMANDS
 
     assert cmd not in BRAIN_COMMANDS
+
+
+VALOR = "npm_Zx81kQ2pL0aVb7Yt3Rw9Mn4C"
+
+
+def _segredo_vencido(data_dir):
+    from knowledge_os.services.secret_service import SecretService
+
+    item_id = ItemService().save([{"workspace": "W", "project": "D", "type": "secret",
+                                   "key": "segredo/temp", "title": "Temp", "summary": "s",
+                                   "memory_class": "ephemeral", "ttl_days": 1}])[0]["id"]
+    SecretService().set_value(item_id, VALOR)
+    _age(data_dir, item_id, 2)
+    return item_id, Brain().secret_path(item_id)
+
+
+def test_segredo_ephemeral_vencido_leva_o_enc_junto(conn, data_dir):
+    _item_id, enc = _segredo_vencido(data_dir)
+    assert enc.is_file()
+    assert maintenance.purge_expired_ephemeral(Brain(), utcnow()) == 1
+    assert not enc.exists()
+
+
+def test_em_pr_cada_execucao_usa_branch_propria_e_mantem_o_enc(conn, data_dir, monkeypatch):
+    from knowledge_os.services.git_repo_service import GitRepoService, PublishResult
+
+    _item_id, enc = _segredo_vencido(data_dir)
+    hints: list[str | None] = []
+
+    def publish_em_pr(self, files, message, branch_hint=None):
+        # Modo PR simulado: registra o nome pedido para a branch e não muda a pasta.
+        hints.append(branch_hint)
+        return PublishResult(status="pending_review", pr_url="https://example.invalid/pr/1")
+
+    monkeypatch.setattr(GitRepoService, "publish", publish_em_pr)
+    agora = utcnow()
+    maintenance.purge_expired_ephemeral(Brain(), agora)
+    maintenance.purge_expired_ephemeral(Brain(), agora + timedelta(days=1))
+    assert len(hints) == 2
+    assert all(hints) and hints[0] != hints[1]
+    assert enc.is_file(), "em revisão o item continua na pasta: o valor fica"

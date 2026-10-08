@@ -339,16 +339,21 @@ def test_set_value_grava_o_ciphertext_em_arquivo_no_clone(linked):
     assert vault.decrypt(token, bound_to=item_id) == VALUE
 
 
-def test_primeira_gravacao_poe_secrets_no_gitignore_sem_duplicar(linked):
+def test_primeira_gravacao_poe_secrets_no_exclude_do_git_sem_duplicar(linked):
+    """`.secrets/` vai para `.git/info/exclude` (local, fora da cópia de trabalho): um
+    `.gitignore` alterado e não commitado seria desfeito por reset/checkout e travaria o pull."""
     item_id = _secret()
     clone_path = linked.clone_path()
+    exclude = clone_path / ".git" / "info" / "exclude"
     SecretService().set_value(item_id, VALUE)
-    gitignore = (clone_path / ".gitignore").read_text(encoding="utf-8")
-    assert gitignore.splitlines().count(".secrets/") == 1
+    assert exclude.read_text(encoding="utf-8").splitlines().count(".secrets/") == 1
+    assert not (clone_path / ".gitignore").exists()
+    status = subprocess.run(["git", "status", "--porcelain"], cwd=clone_path,
+                            capture_output=True, text=True, check=True).stdout
+    assert status == ""
 
     SecretService().set_value(item_id, "outro-valor-com-tamanho-ok")
-    gitignore = (clone_path / ".gitignore").read_text(encoding="utf-8")
-    assert gitignore.splitlines().count(".secrets/") == 1
+    assert exclude.read_text(encoding="utf-8").splitlines().count(".secrets/") == 1
 
 
 def test_clear_value_remove_o_arquivo(linked):

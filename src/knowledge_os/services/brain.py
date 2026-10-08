@@ -36,7 +36,7 @@ import yaml
 from knowledge_os.config import ConnectionConfig
 from knowledge_os.exceptions import NotFoundError, ValidationError
 from knowledge_os.services.git_repo_service import PublishResult
-from knowledge_os.services.item_file import slugify
+from knowledge_os.services.item_file import id_problem, safe_join, slugify
 from knowledge_os.storage import local_state
 from knowledge_os.storage.access import (
     folder_lock,
@@ -77,6 +77,12 @@ def expires_at(record: ItemRecord) -> datetime | None:
 def is_expired(record: ItemRecord, now: datetime | None = None) -> bool:
     end = expires_at(record)
     return end is not None and end <= (now or utcnow())
+
+
+def is_published(result: PublishResult | None) -> bool:
+    """A mudança já vale na pasta? (direto, ou nada a publicar). Em PR/Issue, só depois do
+    merge: estado local (`.secrets/*.enc`, `repos.json`) não pode mudar antes disso."""
+    return result is None or result.status == "published"
 
 
 def check_name(name: str | None, what: str) -> str:
@@ -260,9 +266,12 @@ def _names_from_meta(node: _Node, data: dict[str, Any]) -> None:
 class Snapshot:
     """Itens e `.knowledge.yaml` de uma conexão num momento, com as consultas do domínio."""
 
-    def __init__(self, records: dict[str, ItemRecord], metas: dict[str, dict[str, Any]]) -> None:
+    def __init__(self, records: dict[str, ItemRecord], metas: dict[str, dict[str, Any]],
+                 duplicates: dict[str, list[str]] | None = None) -> None:
         self.records = records
         self.metas = metas
+        # id -> outros arquivos com o mesmo id (perderam para o vigente; ver FileStore)
+        self.duplicates = duplicates or {}
         self._tree: dict[str, _Node] | None = None
         self._keys: dict[tuple[str, str, str], ItemRecord] | None = None
 
@@ -512,7 +521,8 @@ class Draft(Snapshot):
     """Mudanças em memória sobre um `Snapshot`; `files()` diz o que gravar e o que remover."""
 
     def __init__(self, base: Snapshot) -> None:
-        super().__init__(dict(base.records), {k: dict(v) for k, v in base.metas.items()})
+        super().__init__(dict(base.records), {k: dict(v) for k, v in base.metas.items()},
+                         base.duplicates)
         self._base = base
         self._links: dict[str, list[_Link]] = {
             r.id: self._links_of(base, r) for r in base.records.values()
@@ -613,6 +623,8 @@ class Draft(Snapshot):
         for record_id, old in base.items():
             if record_id not in self.records:
                 out[old.path] = None
+                for dup in self.duplicates.get(record_id, []):
+                    out[dup] = None  # senão o item "volta" pelo arquivo duplicado
         occupied = {
             r.path: r.id for r in self.records.values()
             if base.get(r.id) is r and r.path
@@ -631,6 +643,9 @@ class Draft(Snapshot):
             written[path] = text
             if old is not None and old.path and old.path != path:
                 out.setdefault(old.path, None)
+            for dup in self.duplicates.get(record_id, []):
+                if dup != path:
+                    out.setdefault(dup, None)  # regravado: sobra um arquivo só por id
         out.update(written)
         return out
 
@@ -654,7 +669,7 @@ class Brain:
         with self.lock:
             store = store_for(self.conn)
             self.snapshot = Snapshot(
-                {r.id: r for r in store.items()}, read_metas(self.root)
+                {r.id: r for r in store.items()}, read_metas(self.root), store.duplicates()
             )
             self.store = store
         return self.snapshot
@@ -680,13 +695,17 @@ class Brain:
                 finally:
                     held.discard(self.cid)
 
-    def commit(self, draft: Draft, message: str) -> PublishResult | None:
-        """Publica o rascunho numa publicação só (None se nada mudou) e relê a pasta."""
+    def commit(self, draft: Draft, message: str,
+               branch_hint: str | None = None) -> PublishResult | None:
+        """Publica o rascunho numa publicação só (None se nada mudou) e relê a pasta.
+
+        `branch_hint`: nome da branch do PR (modo `pr`); sem ele, sai da mensagem.
+        """
         files = draft.files()
         if not files:
             return None
         with self.lock:
-            result = git_for(self.conn).publish(files, message)
+            result = git_for(self.conn).publish(files, message, branch_hint=branch_hint)
             self.refresh()
         return result
 
@@ -698,7 +717,11 @@ class Brain:
         return self._usage
 
     def secret_path(self, item_id: str) -> Path:
-        return self.root / SECRETS_DIRNAME / f"{item_id}.enc"
+        """`.secrets/<id>.enc`; id fora de [A-Za-z0-9-] ou destino fora da pasta: erro."""
+        problem = id_problem(item_id)
+        if problem:
+            raise ValidationError(problem)
+        return safe_join(self.root, f"{SECRETS_DIRNAME}/{item_id}.enc")
 
     def view(self, record: ItemRecord) -> Item:
         use = self.usage().get(record.id) or {}

@@ -300,3 +300,62 @@ def test_parse_sem_campo_obrigatorio_levanta_validation_error(campo):
     raw_quebrado = "\n".join(linhas)
     with pytest.raises(ValidationError, match=campo):
         parse_item_file(raw_quebrado)
+
+
+# --------------------------------------------------------------------------- tipos inesperados
+
+
+def _raw_minimo() -> str:
+    return serialize_item(
+        _minimal_item(), workspace_name="Polara", project_name="app", subject_name=None,
+        relations=[], tags=[], labels=[],
+    )
+
+
+def _troca(raw: str, campo: str, valor: str) -> str:
+    linhas = [ln for ln in raw.splitlines() if not ln.startswith(f"{campo}:")]
+    linhas.insert(1, f"{campo}: {valor}")
+    return "\n".join(linhas) + "\n"
+
+
+@pytest.mark.parametrize(
+    ("campo", "valor"),
+    [
+        ("title", "2024"),
+        ("summary", "[a, b]"),
+        ("type", "{x: 1}"),
+        ("status", "true"),
+        ("id", "[a]"),
+        ("workspace", "[x]"),
+        ("project", "12"),
+        ("subject", "{a: b}"),
+        ("key", "[x]"),
+        ("keywords", "[a]"),
+        ("source", "{a: 1}"),
+        ("tags", "[1, x]"),
+        ("tags", "texto"),
+        ("labels", "[{a: b}]"),
+        ("scope_paths", "src/x"),
+        ("relations", "[x]"),
+        ("relations", "[{type: related_to}]"),
+        ("relations", "[{type: 1, target: x}]"),
+        ("relations", "{type: a, target: b}"),
+        ("confidence", "alto"),
+        ("importance", "[1]"),
+        ("ttl_days", "sete"),
+        ("created_at", "2024-01-01"),
+        ("updated_at", "12"),
+    ],
+)
+def test_parse_tipo_inesperado_levanta_validation_error(campo, valor):
+    raw = _troca(_raw_minimo(), campo, valor)
+    with pytest.raises(ValidationError, match=campo):
+        parse_item_file(raw)
+
+
+def test_parse_campos_opcionais_vazios_continuam_validos():
+    raw = _raw_minimo()
+    for campo in ("tags", "labels", "scope_paths", "relations"):
+        raw = _troca(raw, campo, "")
+    parsed = parse_item_file(raw)
+    assert parsed["tags"] == [] and parsed["relations"] == []

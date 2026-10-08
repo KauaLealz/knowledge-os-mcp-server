@@ -4,11 +4,12 @@ O histórico é o do git (cada remoção é um commit), então não há cópia d
 """
 
 import logging
+import uuid
 from datetime import datetime
 from typing import Any
 
 from knowledge_os import config
-from knowledge_os.services.brain import Brain, is_expired, utcnow
+from knowledge_os.services.brain import Brain, is_expired, is_published, utcnow
 from knowledge_os.storage.access import load_connections
 
 logger = logging.getLogger(__name__)
@@ -29,8 +30,18 @@ def purge_expired_ephemeral(brain: Brain, now: datetime) -> int:
         ]
         for record_id in expired:
             d.remove(record_id)
+        result = None
         if expired:
-            brain.commit(d, f"knowledge-os: remove {len(expired)} ephemeral vencido(s)")
+            # Branch própria por execução (modo PR): a mensagem se repete de um dia para o
+            # outro e reaproveitar a branch de um PR anterior falharia.
+            hint = f"expira-{now:%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:8]}"
+            result = brain.commit(
+                d, f"knowledge-os: remove {len(expired)} ephemeral vencido(s)", branch_hint=hint
+            )
+    if expired and is_published(result):
+        # Segredo vencido: o valor cifrado sai junto, mas só quando a remoção já vale.
+        for record_id in expired:
+            brain.secret_path(record_id).unlink(missing_ok=True)
     return len(expired)
 
 

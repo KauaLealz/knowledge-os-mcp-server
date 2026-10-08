@@ -25,7 +25,12 @@ from pathlib import Path
 from typing import Any
 
 from knowledge_os.exceptions import ValidationError
-from knowledge_os.services.item_file import item_path, parse_item_file, serialize_item
+from knowledge_os.services.item_file import (
+    item_path,
+    parse_item_file,
+    safe_join,
+    serialize_item,
+)
 from knowledge_os.storage.search import SearchIndex
 
 
@@ -235,7 +240,7 @@ class FileStore:
     def _forget(self, rel: str) -> None:
         """Apaga o arquivo (se ainda existir) e tira do cache."""
         try:
-            (self.root / rel).unlink()
+            safe_join(self.root, rel).unlink()
         except FileNotFoundError:
             pass
         self._cache.pop(rel, None)
@@ -246,6 +251,18 @@ class FileStore:
             rel for rel, (_m, _s, r) in self._cache.items() if r is not None and r.id == item_id
         ]
 
+    def duplicates(self) -> dict[str, list[str]]:
+        """id -> paths dos arquivos que perderam para o vigente (mesmo id em mais de um
+        arquivo). Apagar ou regravar o item precisa levar esses junto, senão ele "volta"."""
+        out: dict[str, list[str]] = {}
+        for rel, (_m, _s, record) in self._cache.items():
+            if record is None:
+                continue
+            current = self._by_id.get(record.id)
+            if current is not None and current.path != rel:
+                out.setdefault(record.id, []).append(rel)
+        return out
+
     def write(self, record: ItemRecord) -> str:
         """Grava o item no seu path e devolve o path relativo.
 
@@ -253,7 +270,7 @@ class FileStore:
         removido: depois da escrita sobra um arquivo só por id.
         """
         rel, text = record_text(record)
-        target = self.root / rel
+        target = safe_join(self.root, rel)
         _atomic_write(target, text)
         for old in self._paths_of(record.id):
             if old != rel:

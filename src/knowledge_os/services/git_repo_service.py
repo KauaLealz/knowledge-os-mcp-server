@@ -22,6 +22,7 @@ from typing import Literal
 
 from knowledge_os.exceptions import GitError
 from knowledge_os.services import gh_cli
+from knowledge_os.services.item_file import safe_join
 
 _PUSH_RETRY_BUDGET_S = 10.0
 _PUSH_RETRY_FIRST_WAIT_S = 0.05
@@ -221,6 +222,19 @@ class GitRepoService:
         self._run(["config", "user.name", "knowledge-os"], check=False)
         return self.clone_path
 
+    def ensure_excluded(self, pattern: str) -> None:
+        """Põe `pattern` no `info/exclude` do repositório (ignorado só nesta cópia, sem mexer em
+        arquivo versionado). Não duplica a linha."""
+        rel = self._run(["rev-parse", "--git-path", "info/exclude"]).stdout.strip()
+        exclude = Path(rel) if Path(rel).is_absolute() else self.clone_path / rel
+        existing = exclude.read_text(encoding="utf-8") if exclude.is_file() else ""
+        if pattern in existing.splitlines():
+            return
+        if existing and not existing.endswith("\n"):
+            existing += "\n"
+        exclude.parent.mkdir(parents=True, exist_ok=True)
+        exclude.write_text(existing + pattern + "\n", encoding="utf-8", newline="\n")
+
     def pull(self) -> None:
         """`git pull` na branch principal; no-op se não há remote configurado."""
         if not self._has_remote():
@@ -254,8 +268,11 @@ class GitRepoService:
         """
         written: list[str] = []
         removed: list[str] = []
+        # Confere tudo antes de tocar o disco: um path que escapa da pasta (key com "..",
+        # absoluto, symlink para fora) recusa a publicação inteira.
+        targets = {rel: safe_join(self.clone_path, rel) for rel in files}
         for rel_path, content in files.items():
-            full = self.clone_path / rel_path
+            full = targets[rel_path]
             if content is None:
                 full.unlink(missing_ok=True)
                 self._prune_empty(full.parent)
@@ -326,6 +343,8 @@ class GitRepoService:
         concorrente). `pr`: branch nova + commit + push + PR (ou Issue, se não há
         permissão de push).
         """
+        for rel in files:
+            safe_join(self.clone_path, rel)  # recusa antes de criar branch ou commit
         if self.review_mode == "direct":
             return self._publish_direct(files, message)
         return self._publish_pr(files, message, branch_hint)
