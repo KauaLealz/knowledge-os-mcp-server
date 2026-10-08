@@ -159,6 +159,16 @@ def folder_lock(root: Path, timeout_s: float = LOCK_TIMEOUT_S) -> Iterator[None]
         path.unlink(missing_ok=True)
 
 
+def sync_connection(conn: ConnectionConfig) -> bool:
+    """Puxa o que mudou no remote da conexão, com as mesmas travas das escritas.
+
+    Sem elas, um `git pull` no meio do publish de outra thread ou processo (que troca de branch
+    e faz `reset --hard`) estragaria a cópia de trabalho. True se havia algo novo.
+    """
+    with lock_for(conn.id), folder_lock(conn.clone_path()):
+        return git_for(conn).sync()
+
+
 def git_for(conn: ConnectionConfig) -> GitRepoService:
     """Repositório git da conexão, já clonado/inicializado (uma vez por processo e pasta)."""
     git = GitRepoService(conn.clone_path(), conn.remote_url, conn.review_mode)

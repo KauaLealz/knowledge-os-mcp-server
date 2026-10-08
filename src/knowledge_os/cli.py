@@ -226,11 +226,15 @@ def _sync_connection() -> None:
 
     Sem conexão padrão, não há o que sincronizar.
     """
-    from knowledge_os.storage.access import default_connection_id, git_for, resolve_connection
+    from knowledge_os.storage.access import (
+        default_connection_id,
+        resolve_connection,
+        sync_connection,
+    )
 
     if default_connection_id() is None:
         return
-    git_for(resolve_connection()).sync()
+    sync_connection(resolve_connection())
 
 
 def _context(args: argparse.Namespace) -> int:

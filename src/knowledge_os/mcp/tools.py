@@ -25,7 +25,7 @@ from knowledge_os.services.secret_service import SecretService
 from knowledge_os.services.subject_service import SubjectService
 from knowledge_os.services.tag_service import TagService
 from knowledge_os.services.workspace_service import WorkspaceService
-from knowledge_os.storage.access import git_for, resolve_connection
+from knowledge_os.storage.access import resolve_connection, sync_connection
 
 MAX_GET = 20
 
@@ -352,7 +352,7 @@ def repo(
         svc.unlink(repo)
         return {"status": "deleted", "repo_key": key.get("repo_key", repo)}
     if action == "sync":
-        return {"synced": git_for(resolve_connection(connection_id)).sync()}
+        return {"synced": sync_connection(resolve_connection(connection_id))}
     raise ValidationError("action deve ser link, list, unlink ou sync")
 
 
