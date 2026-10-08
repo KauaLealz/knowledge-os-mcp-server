@@ -218,7 +218,7 @@ def item_graph(
     direction: str = "both",
     cid: str = Depends(get_connection_id),
 ):
-    """O `item_graph` a partir do item, visto do project onde ele mora: `{nodes: [{key, id,
+    """O `item_graph` a partir do item, sem limite de alcance (`everywhere`): `{nodes: [{key, id,
     type, subtype, title, summary, scope, status, hop}], edges: [{from, type, to}],
     truncated, total_by_hop}` (`from`/`to` = key, ou id quando o item não tem key)."""
     check_query(request, _GRAPH_PARAMS)
@@ -227,6 +227,7 @@ def item_graph(
     return GraphService(cid).graph(
         [id], viewpoint=viewpoint, depth=depth, limit=limit,
         relation_types=split(relation_types), types=split(types), direction=direction,
+        everywhere=True,
     )
 
 

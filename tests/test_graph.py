@@ -154,3 +154,12 @@ def test_item_fora_do_alcance_nao_aparece_no_grafo(conn):
     )
     out = graph()
     assert keys_of(out) == {"rule/a", "rule/b"}
+
+
+def test_everywhere_ignora_o_alcance(conn):
+    seed(
+        rec("a", relations=[rel("related_to", "oculto")]),
+        rec("oculto", "W", "Q"),  # scoped em outro project: fora do alcance de P
+    )
+    assert keys_of(graph()) == {"rule/a"}
+    assert keys_of(graph(everywhere=True)) == {"rule/a", "rule/oculto"}

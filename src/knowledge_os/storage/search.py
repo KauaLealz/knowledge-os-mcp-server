@@ -43,8 +43,6 @@ SNIPPET_MAX = 160
 EXCERPT_MAX = 600
 _K1 = 1.2
 _B = 0.75
-# IDF mínimo: termo presente em quase todos os itens ainda conta um pouco (nunca negativo).
-_MIN_IDF = 1e-6
 
 # Palavra crua (com caixa, já sem acento) e as partes de um identificador dentro dela.
 _RAW = re.compile(r"[A-Za-z0-9_]+")
@@ -283,8 +281,8 @@ class SearchIndex:
             if not freq:
                 continue
             n = len(matched[prefix])
-            idf = math.log((n_docs - n + 0.5) / (n + 0.5))
-            total += max(idf, _MIN_IDF) * (freq * (_K1 + 1)) / (freq + norm)
+            idf = math.log(1 + (n_docs - n + 0.5) / (n + 0.5))  # variante do Lucene: sempre > 0
+            total += idf * (freq * (_K1 + 1)) / (freq + norm)
         return total
 
 

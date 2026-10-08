@@ -64,19 +64,28 @@ class GraphService:
         relation_types: list[str] | None = None,
         types: list[str] | None = None,
         direction: str = "both",
+        everywhere: bool = False,
     ) -> dict[str, Any]:
         """Nós e arestas a até `depth` saltos das `keys`.
 
         Devolve `{nodes, edges, truncated, total_by_hop}`; os nós de entrada vêm com `hop: 0`.
         `types` filtra os vizinhos por tipo de item (e eles não são atravessados).
+        `everywhere` ignora o alcance do `viewpoint` e usa tudo (a ficha do item na UI).
         """
         _check(keys, depth, limit, direction, relation_types, types)
         brain = Brain(self._connection_id)
         snap = brain.snapshot
 
+        def reachable(record: ItemRecord) -> bool:
+            return everywhere or scope.distance(snap, record, viewpoint) is not None
+
         starts: list[ItemRecord] = []
         for ref in keys:
-            found = scope.resolve_key(snap, ref, viewpoint) if isinstance(ref, str) else None
+            found = None
+            if isinstance(ref, str):
+                found = scope.resolve_key(snap, ref, viewpoint)
+                if found is None and everywhere:
+                    found = snap.get(ref)
             if found is None:
                 raise NotFoundError(
                     f"Item '{ref}' não encontrado no alcance deste repositório. Confira a key "
@@ -95,7 +104,7 @@ class GraphService:
                     other = snap.get(other_id)
                     if (other is None or other_id in seen or other_id in found
                             or (type_filter and other.type not in type_filter)
-                            or scope.distance(snap, other, viewpoint) is None):
+                            or not reachable(other)):
                         continue
                     found[other_id] = other
             return list(found.values())

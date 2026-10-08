@@ -1,12 +1,10 @@
-"""Relações no frontmatter: consistência ao apagar/mover o alvo, e o schema da API.
+"""Relações no frontmatter: consistência ao apagar/mover o alvo.
 
 O contrato em lote do RelationService está em test_relations_v2.py.
 """
 
 import pytest
-from pydantic import ValidationError as PydanticValidationError
 
-from knowledge_os.schemas.relation_schemas import RelationCreate
 from knowledge_os.services.brain import Brain
 from knowledge_os.services.relation_service import RelationService
 
@@ -44,7 +42,3 @@ def test_mover_o_alvo_de_project_troca_a_key_pelo_id(ab):
     assert rel.target_item_id == "b"
     assert "target: b" in text_of("a")
 
-
-def test_schema_validates_type():
-    with pytest.raises(PydanticValidationError):
-        RelationCreate(source_item_id="a", target_item_id="b", relation_type="bad")

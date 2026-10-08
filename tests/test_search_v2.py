@@ -59,6 +59,18 @@ def test_titulo_pesa_mais_que_content():
     assert hits[1].matched_in == ["content"]
 
 
+def test_termo_em_mais_da_metade_do_acervo_ainda_ranqueia_pelos_campos():
+    # 6 itens, "grafana" em 4: o idf clássico zeraria a relevância; o do Lucene não.
+    # O do título é o mais antigo, para que só o campo (e não o desempate) o ponha na frente.
+    titulo = _rec("titulo", title="Grafana", content="nada", updated_at=datetime(2025, 1, 1))
+    corpos = [_rec(f"corpo{i}", title="Outra", content="grafana") for i in range(3)]
+    sem = [_rec("x1"), _rec("x2")]
+    hits = search(_c(*corpos, titulo, *sem), "grafana", 10)
+    assert _ids(hits)[0] == "titulo"
+    assert sorted(_ids(hits)[1:]) == ["corpo0", "corpo1", "corpo2"]
+    assert hits[0].score > hits[1].score > 0.01
+
+
 def test_tag_e_subtipo_achados_por_texto():
     tag = _rec("tag", tags=["lgpd"])
     sub = _rec("sub", type="rule", subtype="decision")

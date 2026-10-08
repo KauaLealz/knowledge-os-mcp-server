@@ -140,6 +140,17 @@ def _parse_ts(value: Any) -> datetime | None:
         return None
 
 
+def _with_review_note(content: str, note_line: str) -> str:
+    """Anexa a nota de revisão ao fim do conteúdo: sem linha em branco no início de item vazio
+    e notas seguidas na mesma citação (uma linha depois da outra)."""
+    body = content.rstrip()
+    if not body:
+        return f"{note_line}\n"
+    last = body.rsplit("\n", 1)[-1]
+    sep = "\n" if last.startswith("> Revisão ") else "\n\n"
+    return f"{body}{sep}{note_line}\n"
+
+
 def _batch(items: Any, what: str, limit: int = MAX_BATCH) -> list[Any]:
     if items is None:
         return []
@@ -741,8 +752,8 @@ class ItemService:
                         changes["status"] = "review"
                     note = " ".join((e.get("note") or "").split())
                     if note:
-                        changes["content"] = (f"{current.content.rstrip()}\n\n"
-                                              f"> Revisão {now.date().isoformat()}: {note}\n")
+                        changes["content"] = _with_review_note(
+                            current.content, f"> Revisão {now.date().isoformat()}: {note}")
                     if changes:
                         d.update(record.id, **changes, updated_at=now)
                 elif outcome == "verified":

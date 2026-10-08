@@ -8,9 +8,11 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
+from knowledge_os.api.main import app
 from knowledge_os.exceptions import ValidationError
-from knowledge_os.schemas.item_schemas import ItemCreate
+from knowledge_os.model import key_problem
 from knowledge_os.services.brain import Brain
 from knowledge_os.services.git_repo_service import GitRepoService
 from knowledge_os.services.item_file import item_path, parse_item_file
@@ -50,20 +52,39 @@ def _rec(**over) -> ItemRecord:
     return ItemRecord(**base)
 
 
-# ---- schema e parse -----------------------------------------------------------------------
+# ---- key (serviço, rota) e parse ----------------------------------------------------------
 
 
-@pytest.mark.parametrize("key", KEYS_RUINS)
-def test_schema_recusa_key_com_segmento_vazio_ponto_ou_oculto(key):
-    with pytest.raises(ValueError):
-        ItemCreate(workspace_id="w", project_id="p", type="rule", title="t", summary="s",
-                   content="c", key=key)
+@pytest.mark.parametrize("key", [*KEYS_RUINS, "a\b"])
+def test_key_problem_recusa_segmento_vazio_ponto_oculto_ou_barra_invertida(key):
+    assert key_problem(key)
+
+
+@pytest.mark.parametrize("key", [*KEYS_RUINS, "a\b"])
+def test_save_recusa_key_insegura_e_nao_grava(conn, key):
+    with pytest.raises(ValidationError, match="key"):
+        ItemService().save([{"workspace": "Polara", "project": "app", "type": "rule",
+                             "key": key, "title": "t", "summary": "s", "content": "c"}])
+    assert not list(conn.clone_path().rglob("*.md"))
+
+
+@pytest.mark.parametrize("key", [*KEYS_RUINS, "a\b"])
+def test_rota_post_items_recusa_key_insegura(conn, key):
+    client = TestClient(app)
+    ws = client.post("/api/workspaces", json={"name": "Polara"}).json()
+    pj = client.post("/api/projects", json={"workspace_id": ws["id"], "name": "app"}).json()
+    r = client.post("/api/items", json={
+        "workspace_id": ws["id"], "project_id": pj["id"], "type": "rule", "title": "t",
+        "summary": "s", "content": "c", "key": key})
+    assert r.status_code == 422 or r.status_code == 400, r.text
+    assert "key" in r.text
 
 
 @pytest.mark.parametrize("key", ["regra/money", "v1.2/x_y-z", "a"])
-def test_schema_aceita_key_normal(key):
-    assert ItemCreate(workspace_id="w", project_id="p", type="rule", title="t", summary="s",
-                      content="c", key=key).key == key
+def test_key_normal_e_aceita(conn, key):
+    ItemService().save([{"workspace": "Polara", "project": "app", "type": "rule", "key": key,
+                         "title": "t", "summary": "s", "content": "c"}])
+    assert ItemService().get_by_key("polara", "app", key)
 
 
 @pytest.mark.parametrize("key", [*KEYS_RUINS, "../x", "/abs/x", "C:/x"])

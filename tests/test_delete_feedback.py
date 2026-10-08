@@ -179,3 +179,20 @@ def test_feedback_outcome_invalido_lista_os_validos(svc):
     _save(svc, key="rule/a")
     with pytest.raises(ValidationError, match="helped, irrelevant, wrong, outdated, verified"):
         svc.feedback([{"key": "rule/a", "outcome": "otimo"}], viewpoint=VP)
+
+
+def test_nota_em_item_sem_content_nao_deixa_linha_em_branco_no_inicio(svc):
+    a = _save(svc, key="rule/vazio", content="")
+    svc.feedback([{"key": "rule/vazio", "outcome": "wrong", "note": "mudou"}], viewpoint=VP)
+    content = svc.get(a).content
+    assert content.startswith("> Revisão ") and not content.startswith("\n")
+
+
+def test_notas_seguidas_nao_acumulam_linhas_em_branco(svc):
+    a = _save(svc, key="rule/duas")
+    for note in ("primeira", "segunda"):
+        svc.feedback([{"key": "rule/duas", "outcome": "wrong", "note": note}], viewpoint=VP)
+    content = svc.get(a).content
+    assert "primeira" in content and "segunda" in content
+    assert "\n\n\n" not in content
+    assert content.count("\n\n") == 1  # só a separação do corpo para a primeira nota

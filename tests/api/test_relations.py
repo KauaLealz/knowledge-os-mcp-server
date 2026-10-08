@@ -99,3 +99,13 @@ def test_rotas_antigas_de_relacao_sumiram(client, mk):
     _, _, a, _, _ = _three(mk)
     assert client.get(f"/api/items/{a['id']}/relations").status_code == 404
     assert client.get("/api/relations").status_code == 405
+
+
+def test_graph_da_ficha_mostra_relacao_com_item_scoped_de_outro_project(client, mk):
+    ws, dm, a = mk.tree()
+    outro = mk.project(ws["id"], "Outro")
+    b = mk.item(ws["id"], outro["id"], "B", key="rule/b", scope="scoped")
+    r = _rel(client, [{"source": a["id"], "type": "related_to", "target": b["id"]}])
+    assert r.status_code == 201, r.text
+    g = client.get(f"/api/items/{a['id']}/graph").json()
+    assert {n["title"] for n in g["nodes"]} == {"Item", "B"}

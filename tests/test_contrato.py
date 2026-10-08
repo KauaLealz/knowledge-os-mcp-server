@@ -102,14 +102,47 @@ def test_instructions_citam_so_ferramentas_que_existem():
     assert cited <= EXPECTED, cited - EXPECTED
 
 
-@pytest.mark.xfail(strict=False, reason="README e MCP_USAGE são reescritos na fase 8")
-@pytest.mark.parametrize("doc", ["README.md", "docs/MCP_USAGE.md"])
+DOCS = ["README.md", "docs/MCP_USAGE.md"]
+ANTIGOS = re.compile(r"memory_class|label_|context_get|vocabulary|artifact|insight", re.I)
+
+
+def _text(doc: str) -> str:
+    return (ROOT / doc).read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("doc", DOCS)
 def test_docs_citam_so_ferramentas_que_existem(doc):
-    cited = cited_tools((ROOT / doc).read_text(encoding="utf-8"))
+    cited = cited_tools(_text(doc))
     assert cited <= EXPECTED, cited - EXPECTED
 
 
-@pytest.mark.xfail(strict=False, reason="MCP_USAGE é reescrito na fase 8")
 def test_mcp_usage_cita_toda_ferramenta_registrada():
-    text = (ROOT / "docs" / "MCP_USAGE.md").read_text(encoding="utf-8")
+    text = _text("docs/MCP_USAGE.md")
     assert EXPECTED <= cited_tools(text) | ({"repo"} if "repo(" in text else set())
+
+
+def test_readme_traz_a_taxonomia_do_model():
+    assert model.taxonomy_markdown() in _text("README.md")
+
+
+@pytest.mark.parametrize("doc", DOCS)
+def test_docs_usam_tipos_subtipos_e_scopes_do_model(doc):
+    text = _text(doc)
+    subtypes = {s for subs in model.TYPES.values() for s in subs}
+    for kind in re.findall(r'"type":\s*"(\w+)"', text):
+        assert kind in model.TYPES or kind in model.RELATION_TYPES, kind  # item ou relação
+    for sub in re.findall(r'"subtype":\s*"(\w+)"', text):
+        assert sub in subtypes, sub
+    for scope in re.findall(r'scope="(\w*)"', text) + re.findall(r'"scope":\s*"(\w+)"', text):
+        assert scope == "" or scope in model.SCOPES, scope
+    for sc in model.SCOPES:
+        assert sc in text
+    for key in re.findall(r'"key":\s*"(\w+)/', text):
+        assert key in model.TYPES, key
+
+
+@pytest.mark.parametrize(
+    "doc", [*DOCS, "docs/ARQUITETURA.md", "src/knowledge_os/mcp/INSTRUCTIONS.md"]
+)
+def test_docs_nao_citam_o_modelo_antigo(doc):
+    assert not ANTIGOS.findall(_text(doc))
