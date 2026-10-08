@@ -36,7 +36,7 @@ import yaml
 from knowledge_os.config import ConnectionConfig
 from knowledge_os.exceptions import NotFoundError, ValidationError
 from knowledge_os.services.git_repo_service import PublishResult
-from knowledge_os.services.item_file import slugify
+from knowledge_os.services.item_file import id_problem, safe_join, slugify
 from knowledge_os.storage import local_state
 from knowledge_os.storage.access import (
     folder_lock,
@@ -698,7 +698,11 @@ class Brain:
         return self._usage
 
     def secret_path(self, item_id: str) -> Path:
-        return self.root / SECRETS_DIRNAME / f"{item_id}.enc"
+        """`.secrets/<id>.enc`; id fora de [A-Za-z0-9-] ou destino fora da pasta: erro."""
+        problem = id_problem(item_id)
+        if problem:
+            raise ValidationError(problem)
+        return safe_join(self.root, f"{SECRETS_DIRNAME}/{item_id}.enc")
 
     def view(self, record: ItemRecord) -> Item:
         use = self.usage().get(record.id) or {}

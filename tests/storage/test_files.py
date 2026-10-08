@@ -167,3 +167,26 @@ def test_write_secret_sem_valor(store):
 def test_raiz_inexistente_e_vazia(tmp_path):
     s = FileStore(tmp_path / "nao-existe")
     assert s.items() == [] and s.workspaces() == []
+
+
+@pytest.mark.parametrize(
+    "linha",
+    ["title: 2024", "id: [a]", "relations: [x]", "tags: [1, x]", "labels: {a: b}",
+     "ttl_days: sete"],
+)
+def test_arquivo_com_tipo_inesperado_vai_para_errors_sem_derrubar(store, linha):
+    from knowledge_os.services.brain import Draft, Snapshot
+
+    store.write(_rec("a", tags=["java"]))
+    campo = linha.split(":")[0]
+    ruim = store.root / "polara" / "app" / "ruim.md"
+    texto = (store.root / "polara/app/regra/a.md").read_text(encoding="utf-8")
+    linhas = [ln for ln in texto.splitlines() if not ln.startswith(f"{campo}:")]
+    linhas.insert(1, linha)
+    ruim.write_text("\n".join(linhas).replace("id: a", "id: b") + "\n", encoding="utf-8")
+    store.refresh()
+    assert [r.id for r in store.items()] == ["a"]
+    assert "polara/app/ruim.md" in store.errors
+    snap = Snapshot({r.id: r for r in store.items()}, {})
+    assert [t.name for t in snap.tags()] == ["java"]
+    Draft(snap).files()  # o rascunho não quebra

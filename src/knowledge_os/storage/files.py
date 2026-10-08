@@ -25,7 +25,12 @@ from pathlib import Path
 from typing import Any
 
 from knowledge_os.exceptions import ValidationError
-from knowledge_os.services.item_file import item_path, parse_item_file, serialize_item
+from knowledge_os.services.item_file import (
+    item_path,
+    parse_item_file,
+    safe_join,
+    serialize_item,
+)
 from knowledge_os.storage.search import SearchIndex
 
 
@@ -235,7 +240,7 @@ class FileStore:
     def _forget(self, rel: str) -> None:
         """Apaga o arquivo (se ainda existir) e tira do cache."""
         try:
-            (self.root / rel).unlink()
+            safe_join(self.root, rel).unlink()
         except FileNotFoundError:
             pass
         self._cache.pop(rel, None)
@@ -253,7 +258,7 @@ class FileStore:
         removido: depois da escrita sobra um arquivo só por id.
         """
         rel, text = record_text(record)
-        target = self.root / rel
+        target = safe_join(self.root, rel)
         _atomic_write(target, text)
         for old in self._paths_of(record.id):
             if old != rel:

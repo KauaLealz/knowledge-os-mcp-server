@@ -22,6 +22,7 @@ from typing import Literal
 
 from knowledge_os.exceptions import GitError
 from knowledge_os.services import gh_cli
+from knowledge_os.services.item_file import safe_join
 
 _PUSH_RETRY_BUDGET_S = 10.0
 _PUSH_RETRY_FIRST_WAIT_S = 0.05
@@ -254,8 +255,11 @@ class GitRepoService:
         """
         written: list[str] = []
         removed: list[str] = []
+        # Confere tudo antes de tocar o disco: um path que escapa da pasta (key com "..",
+        # absoluto, symlink para fora) recusa a publicação inteira.
+        targets = {rel: safe_join(self.clone_path, rel) for rel in files}
         for rel_path, content in files.items():
-            full = self.clone_path / rel_path
+            full = targets[rel_path]
             if content is None:
                 full.unlink(missing_ok=True)
                 self._prune_empty(full.parent)
@@ -326,6 +330,8 @@ class GitRepoService:
         concorrente). `pr`: branch nova + commit + push + PR (ou Issue, se não há
         permissão de push).
         """
+        for rel in files:
+            safe_join(self.clone_path, rel)  # recusa antes de criar branch ou commit
         if self.review_mode == "direct":
             return self._publish_direct(files, message)
         return self._publish_pr(files, message, branch_hint)
