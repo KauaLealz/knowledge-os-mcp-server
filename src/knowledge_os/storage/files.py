@@ -65,6 +65,23 @@ def _record_from_parsed(parsed: dict[str, Any], path: str) -> ItemRecord:
     return ItemRecord(**{f: parsed.get(f) for f in _FIELDS}, path=path)
 
 
+def record_text(record: ItemRecord) -> tuple[str, str]:
+    """(path relativo, conteúdo do arquivo) do item, como `FileStore.write` gravaria."""
+    if not record.workspace or not record.project:
+        raise ValidationError("Item sem workspace/project não pode ser gravado")
+    rel = item_path(record.workspace, record.project, record.key, record.id)
+    text = serialize_item(
+        asdict(record),
+        workspace_name=record.workspace,
+        project_name=record.project,
+        subject_name=record.subject,
+        relations=list(record.relations or []),
+        tags=list(record.tags or []),
+        labels=list(record.labels or []),
+    )
+    return rel, text
+
+
 def _hidden(name: str) -> bool:
     return name.startswith(".")
 
@@ -235,19 +252,7 @@ class FileStore:
         Qualquer outro arquivo com o mesmo id (key/workspace/project antigos, ou duplicata) é
         removido: depois da escrita sobra um arquivo só por id.
         """
-        if not record.workspace or not record.project:
-            raise ValidationError("Item sem workspace/project não pode ser gravado")
-        rel = item_path(record.workspace, record.project, record.key, record.id)
-        data = asdict(record)
-        text = serialize_item(
-            data,
-            workspace_name=record.workspace,
-            project_name=record.project,
-            subject_name=record.subject,
-            relations=list(record.relations or []),
-            tags=list(record.tags or []),
-            labels=list(record.labels or []),
-        )
+        rel, text = record_text(record)
         target = self.root / rel
         _atomic_write(target, text)
         for old in self._paths_of(record.id):

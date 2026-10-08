@@ -29,15 +29,11 @@ def test_search_project_filter_aceita_varios_ids_separados_por_virgula(client, m
     assert {x["id"] for x in r.json()["results"]} == {it["id"], it2["id"]}
 
 
-def test_search_subject_filter(client, mk, engine):
-    from sqlalchemy.orm import Session
-
+def test_search_subject_filter(client, mk):
     from knowledge_os.services.subject_service import SubjectService
 
     ws, dm, it = mk.tree()
-    with Session(engine) as s:
-        subj = SubjectService(s).create(dm["id"], "Assunto")
-        subj_id = subj.id
+    subj_id = SubjectService().create(ws["id"], dm["id"], "Assunto").id
     mk.item(ws["id"], dm["id"], "Com assunto conditional", subject_id=subj_id)
     r = client.get("/api/items/search", params={
         "query": "conditional", "workspace_id": ws["id"], "subject_id": subj_id,

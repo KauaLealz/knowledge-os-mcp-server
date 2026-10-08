@@ -73,32 +73,24 @@ def test_list_limit_offset(client, mk):
     assert len(client.get("/api/items", params={"limit": 2, "offset": 2}).json()["items"]) == 1
 
 
-def test_list_filtra_por_subject_id(client, mk, engine):
-    from sqlalchemy.orm import Session
-
+def test_list_filtra_por_subject_id(client, mk):
     from knowledge_os.services.subject_service import SubjectService
 
     ws, dm, _ = mk.tree()
-    with Session(engine) as s:
-        subj = SubjectService(s).create(dm["id"], "Assunto")
-        subj_id = subj.id
+    subj_id = SubjectService().create(ws["id"], dm["id"], "Assunto").id
     mk.item(ws["id"], dm["id"], "Com assunto", subject_id=subj_id)
     r = client.get("/api/items", params={"subject_id": subj_id})
     assert [i["title"] for i in r.json()["items"]] == ["Com assunto"]
 
 
-def test_list_filtra_por_varios_project_id_e_subject_id_separados_por_virgula(client, mk, engine):
-    from sqlalchemy.orm import Session
-
+def test_list_filtra_por_varios_project_id_e_subject_id_separados_por_virgula(client, mk):
     from knowledge_os.services.subject_service import SubjectService
 
     ws = mk.ws()
     p1 = mk.project(ws["id"], "P1")
     p2 = mk.project(ws["id"], "P2")
     p3 = mk.project(ws["id"], "P3")
-    with Session(engine) as s:
-        subj = SubjectService(s).create(p1["id"], "Assunto")
-        subj_id = subj.id
+    subj_id = SubjectService().create(ws["id"], p1["id"], "Assunto").id
     mk.item(ws["id"], p1["id"], "A", subject_id=subj_id)
     mk.item(ws["id"], p2["id"], "B")
     mk.item(ws["id"], p3["id"], "C")

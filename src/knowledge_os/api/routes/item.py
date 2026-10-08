@@ -1,11 +1,9 @@
-"""Rotas de items (CRUD, busca FTS e ajustes de confidence/importance/memory_class)."""
+"""Rotas de items (CRUD, busca e ajustes de confidence/importance/memory_class)."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import Engine, func, select
-from sqlalchemy.orm import Session
 
-from knowledge_os.api.deps import get_engine_dep, get_session_dep
+from knowledge_os.api.deps import get_connection_id
 from knowledge_os.api.schemas.requests import (
     ConfidenceUpdate,
     ImportanceUpdate,
@@ -14,14 +12,18 @@ from knowledge_os.api.schemas.requests import (
     MemoryClassUpdate,
 )
 from knowledge_os.api.schemas.responses import ItemListResponse, ItemResponse, SearchResponse
-from knowledge_os.db.models import Item
 from knowledge_os.schemas.item_schemas import ITEM_TYPES, ItemSearchResult
-from knowledge_os.services._common import tiebreak
+from knowledge_os.services.brain import Brain
+from knowledge_os.services.item_file import slugify
 from knowledge_os.services.item_service import ItemService
 from knowledge_os.services.memory_service import MemoryService
 from knowledge_os.services.secret_service import SecretService
 
 router = APIRouter()
+
+
+def _split(value: str | None) -> list[str] | None:
+    return [v.strip() for v in value.split(",") if v.strip()] if value else None
 
 
 @router.get("/items", response_model=ItemListResponse)
@@ -37,36 +39,28 @@ def list_items(
     memory_class: str | None = None,
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
-    session: Session = Depends(get_session_dep),
+    cid: str = Depends(get_connection_id),
 ):
-    filters = []
-    if workspace_id:
-        filters.append(Item.workspace_id == workspace_id)
-    if project_id:
-        ids = [p.strip() for p in project_id.split(",") if p.strip()]
-        filters.append(Item.project_id.in_(ids))
-    if subject_id:
-        ids = [s.strip() for s in subject_id.split(",") if s.strip()]
-        filters.append(Item.subject_id.in_(ids))
-    if type:
-        filters.append(Item.type == type)
-    if memory_class:
-        filters.append(Item.memory_class == memory_class)
-    total = session.scalar(select(func.count()).select_from(Item).where(*filters)) or 0
-    stmt = (
-        select(Item)
-        .where(*filters)
-        .order_by(Item.created_at, *tiebreak(session, "items"))
-        .limit(limit)
-        .offset(offset)
+    brain = Brain(cid)
+    projects, subjects = _split(project_id), _split(subject_id)
+    records = [
+        r for r in brain.snapshot.records.values()
+        if (not workspace_id or slugify(r.workspace or "") == workspace_id)
+        and (projects is None or slugify(r.project or "") in projects)
+        and (subjects is None or (r.subject and slugify(r.subject) in subjects))
+        and (not type or r.type == type)
+        and (not memory_class or r.memory_class == memory_class)
+    ]
+    records.sort(key=lambda r: (r.created_at, r.path))
+    page = records[offset:offset + limit]
+    return ItemListResponse(
+        items=[ItemResponse.from_item(i) for i in brain.views(page)], total=len(records)
     )
-    items = [ItemResponse.from_item(i) for i in session.scalars(stmt)]
-    return ItemListResponse(items=items, total=total)
 
 
 @router.post("/items", status_code=status.HTTP_201_CREATED, response_model=ItemResponse)
-def create_item(req: ItemCreate, engine: Engine = Depends(get_engine_dep)):
-    return ItemResponse.from_item(ItemService(engine).create(**req.model_dump()))
+def create_item(req: ItemCreate, cid: str = Depends(get_connection_id)):
+    return ItemResponse.from_item(ItemService(cid).create(**req.model_dump()))
 
 
 class SearchHit(ItemSearchResult):
@@ -99,8 +93,7 @@ def search_items(
         default=None, description="labels separados por vírgula; o item precisa ter todos"
     ),
     limit: int = Query(default=10, ge=1, le=50),
-    engine: Engine = Depends(get_engine_dep),
-    session: Session = Depends(get_session_dep),
+    cid: str = Depends(get_connection_id),
 ):
     type_list = [t.strip() for t in types.split(",") if t.strip()] if types else None
     invalid = [t for t in type_list or [] if t not in ITEM_TYPES]
@@ -109,69 +102,51 @@ def search_items(
             422,
             f"types inválidos: {', '.join(invalid)}. Válidos: {', '.join(ITEM_TYPES)}",
         )
-    service = ItemService(engine)
+    service = ItemService(cid)
     ws_id = service.resolve_workspace_id(workspace_id) if workspace_id else None
     # `project_id` aceita vários ids separados por vírgula — resolve_project_id (nomes
     # amigáveis) só faz sentido pra um id só, então só tenta resolver nesse caso.
-    pj_ids = [p.strip() for p in project_id.split(",") if p.strip()] if project_id else None
+    pj_ids = _split(project_id)
     if pj_ids and len(pj_ids) == 1 and ws_id:
         pj_ids = [service.resolve_project_id(ws_id, pj_ids[0])]
-    sj_ids = [s.strip() for s in subject_id.split(",") if s.strip()] if subject_id else None
-    tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
-    label_list = [lb.strip() for lb in labels.split(",") if lb.strip()] if labels else None
     rows = service.search(
-        ws_id, pj_ids, query, subject_id=sj_ids, types=type_list or None, limit=limit,
-        tags=tag_list, labels=label_list,
+        ws_id, pj_ids, query, subject_id=_split(subject_id), types=type_list or None,
+        limit=limit, tags=_split(tags), labels=_split(labels),
     )
-    links = {}
-    if rows:
-        found = session.execute(
-            select(Item.id, Item.workspace_id, Item.project_id).where(
-                Item.id.in_([r["id"] for r in rows])
-            )
-        )
-        links = {i: (w, d) for i, w, d in found}
-    results = [
-        SearchHit(
-            **r,
-            workspace_id=links.get(r["id"], (None, None))[0],
-            project_id=links.get(r["id"], (None, None))[1],
-        )
-        for r in rows
-    ]
+    results = [SearchHit(**r) for r in rows]
     return SearchHitsResponse(query=query, total=len(results), results=results)
 
 
 @router.get("/items/{id}", response_model=ItemResponse)
-def get_item(id: str, engine: Engine = Depends(get_engine_dep)):
-    return ItemResponse.from_item(ItemService(engine).get(id))
+def get_item(id: str, cid: str = Depends(get_connection_id)):
+    return ItemResponse.from_item(ItemService(cid).get(id))
 
 
 @router.put("/items/{id}", response_model=ItemResponse)
-def update_item(id: str, req: ItemUpdate, engine: Engine = Depends(get_engine_dep)):
+def update_item(id: str, req: ItemUpdate, cid: str = Depends(get_connection_id)):
     fields = req.model_dump(exclude_unset=True)
-    return ItemResponse.from_item(ItemService(engine).update(id, **fields))
+    return ItemResponse.from_item(ItemService(cid).update(id, **fields))
 
 
 @router.delete("/items/{id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_item(id: str, engine: Engine = Depends(get_engine_dep)) -> Response:
-    ItemService(engine).delete(id)
+def delete_item(id: str, cid: str = Depends(get_connection_id)) -> Response:
+    ItemService(cid).delete(id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.put("/items/{id}/confidence", response_model=ItemResponse)
-def set_confidence(id: str, req: ConfidenceUpdate, engine: Engine = Depends(get_engine_dep)):
-    return ItemResponse.from_item(ItemService(engine).update(id, confidence=req.value))
+def set_confidence(id: str, req: ConfidenceUpdate, cid: str = Depends(get_connection_id)):
+    return ItemResponse.from_item(ItemService(cid).update(id, confidence=req.value))
 
 
 @router.put("/items/{id}/importance", response_model=ItemResponse)
-def set_importance(id: str, req: ImportanceUpdate, engine: Engine = Depends(get_engine_dep)):
-    return ItemResponse.from_item(ItemService(engine).update(id, importance=req.value))
+def set_importance(id: str, req: ImportanceUpdate, cid: str = Depends(get_connection_id)):
+    return ItemResponse.from_item(ItemService(cid).update(id, importance=req.value))
 
 
 @router.put("/items/{id}/memory_class", response_model=ItemResponse)
-def set_memory_class(id: str, req: MemoryClassUpdate, session: Session = Depends(get_session_dep)):
-    item = MemoryService(session).promote(id, req.memory_class)
+def set_memory_class(id: str, req: MemoryClassUpdate, cid: str = Depends(get_connection_id)):
+    item = MemoryService(cid).promote(id, req.memory_class)
     return ItemResponse.from_item(item)
 
 
@@ -179,7 +154,7 @@ def set_memory_class(id: str, req: MemoryClassUpdate, session: Session = Depends
 # lido à mão para que um erro de validação nunca ecoe o valor (o 422 padrão traz o `input`).
 @router.put("/items/{id}/secret", status_code=status.HTTP_204_NO_CONTENT)
 async def set_secret_value(
-    id: str, request: Request, engine: Engine = Depends(get_engine_dep)
+    id: str, request: Request, cid: str = Depends(get_connection_id)
 ) -> Response:
     try:
         body = await request.json()
@@ -188,12 +163,12 @@ async def set_secret_value(
     value = body.get("value") if isinstance(body, dict) else None
     if not isinstance(value, str) or not value:
         raise HTTPException(422, "Informe value (texto não vazio)")
-    # keyring e retry do SQLite bloqueiam: fora do event loop da UI
-    await run_in_threadpool(SecretService(engine).set_value, id, value)
+    # keyring e escrita em disco bloqueiam: fora do event loop da UI
+    await run_in_threadpool(SecretService(cid).set_value, id, value)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.delete("/items/{id}/secret", status_code=status.HTTP_204_NO_CONTENT)
-def clear_secret_value(id: str, engine: Engine = Depends(get_engine_dep)) -> Response:
-    SecretService(engine).clear_value(id)
+def clear_secret_value(id: str, cid: str = Depends(get_connection_id)) -> Response:
+    SecretService(cid).clear_value(id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

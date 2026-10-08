@@ -14,7 +14,6 @@ from knowledge_os.schemas.workspace_schemas import WorkspaceResponse
 __all__ = [
     "ConnectionResponse",
     "ConnectionTest",
-    "SchemaSyncResponse",
     "ConnectionTestResponse",
     "GraphEdge",
     "GraphNode",
@@ -131,7 +130,6 @@ class ConnectionResponse(BaseModel):
     review_mode: str
     enabled: bool
     is_default: bool
-    is_catalog: bool
     last_test: ConnectionTest | None
     created_at: datetime | None
 
@@ -140,17 +138,3 @@ class ConnectionTestResponse(BaseModel):
     status: str
     message: str | None = None
     latency_ms: int | None = None
-
-
-class SchemaSyncResponse(BaseModel):
-    connection_id: str
-    status: str
-    tables_created: list[str]
-    columns_added: list[str]
-    indexes_created: list[str]
-    fts_created: bool
-    pending_manual: list[str]
-    tables_unknown: list[str]
-    columns_unknown: list[str]
-    version: str
-    dry_run: bool

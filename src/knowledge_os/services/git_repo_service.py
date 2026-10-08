@@ -10,8 +10,10 @@ Só este módulo e `gh_cli.py` chamam `git`/`gh`: sempre via lista de argumentos
 interpolação de string em comando.
 """
 
+import os
 import re
 import subprocess
+import tempfile
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -105,6 +107,19 @@ jobs:
       - name: Valida itens (sem segredo, sem key duplicada)
         run: python {_VALIDATE_SCRIPT_PATH} ${{{{ steps.diff.outputs.files }}}}
 """
+
+
+def _atomic_write(target: Path, content: str) -> None:
+    """Grava via temporário na mesma pasta + `os.replace` (quem lê nunca vê meio arquivo)."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(content)
+        os.replace(tmp, target)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 @dataclass(frozen=True)
@@ -246,8 +261,7 @@ class GitRepoService:
                 self._prune_empty(full.parent)
                 removed.append(rel_path)
                 continue
-            full.parent.mkdir(parents=True, exist_ok=True)
-            full.write_text(content, encoding="utf-8", newline="\n")
+            _atomic_write(full, content)
             written.append(rel_path)
         if removed:
             self._run(["rm", "-q", "--cached", "--ignore-unmatch", "--", *removed])
@@ -265,8 +279,8 @@ class GitRepoService:
             current = current.parent
 
     def _commit(self, message: str) -> str | None:
-        status = self._run(["status", "--porcelain"]).stdout
-        if not status.strip():
+        # Só o que foi preparado conta: arquivo solto do usuário na pasta não entra no commit.
+        if self._run(["diff", "--cached", "--quiet"], check=False).returncode == 0:
             return self._run(["rev-parse", "HEAD"], check=False).stdout.strip() or None
         self._run(["commit", "-q", "-m", message])
         return self._run(["rev-parse", "HEAD"]).stdout.strip()

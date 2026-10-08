@@ -2,106 +2,74 @@
 
 import os
 import tempfile
-import uuid
-from typing import Generator
 
 # Home de dados da suíte: definido antes de qualquer import de `knowledge_os`, para que as
-# constantes lidas no import (DB_PATH, ARTIFACTS_DIR...) nunca apontem para o ~/.knowledge-os real.
+# constantes lidas no import nunca apontem para o ~/.knowledge-os real.
 os.environ["KNOWLEDGE_OS_HOME"] = tempfile.mkdtemp(prefix="kos-test-home-")
 
-import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
+import pytest  # noqa: E402
 
 import knowledge_os.config as config  # noqa: E402
-from knowledge_os.config import ConfigManager  # noqa: E402
-from knowledge_os.db.dialects.sqlite import SQLiteDialect  # noqa: E402
-from knowledge_os.db.models import Base, Item, Label, Project, Tag, Workspace  # noqa: E402
+from knowledge_os.config import ConfigManager, ConnectionConfig, ConnectionsFile  # noqa: E402
+from knowledge_os.services.brain import Item, Project, Workspace  # noqa: E402
+from knowledge_os.services.item_service import ItemService  # noqa: E402
+from knowledge_os.services.project_service import ProjectService  # noqa: E402
+from knowledge_os.services.workspace_service import WorkspaceService  # noqa: E402
 
-# DB_PATH/DB_URL (config.py) ficam presos a este home "congelado" no import — nunca ao
-# `config.KNOWLEDGE_HOME` monkeypatchado por `_isolated_home` a cada teste. Sem isso,
-# `validate_config()` falha com "Diretório do banco não existe" (indexes/ não criado).
 config.ensure_home()
 
 
 @pytest.fixture(autouse=True)
 def _isolated_home(tmp_path, monkeypatch):
-    """Cada teste tem o seu home: connections.json e paths relativos vivem em tmp_path."""
+    """Cada teste tem o seu home: connections.json, repos.json e uso vivem em tmp_path."""
     home = tmp_path / "home"
     monkeypatch.setattr(config, "KNOWLEDGE_HOME", home)
+    monkeypatch.setattr(config, "REPOS_DIR", home / "repos")
     monkeypatch.setattr(ConfigManager, "CONNECTIONS_FILE", home / "connections.json")
     # Chave mestra dos segredos por variável: teste nunca toca o keyring da máquina.
     monkeypatch.setenv("KNOWLEDGE_OS_VAULT_KEY", "dGVzdGUtdGVzdGUtdGVzdGUtdGVzdGUtdGVzdGUtMTI=")
     return home
 
 
-@pytest.fixture
-def test_engine():
-    """Engine SQLite em memória para testes."""
-    engine = create_engine(
-        "sqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-        echo=False,
-    )
-
-    # Criar tabelas
-    Base.metadata.create_all(bind=engine)
-
-    # FTS5 + triggers pela mesma função do código (tokenizer e colunas iguais aos reais)
-    SQLiteDialect.create_fts_table(engine)
-
-    yield engine
-
-    engine.dispose()
+def make_connection(folder, conn_id: str = "teste", name: str = "Teste",
+                    default: bool = True, **extra) -> ConnectionConfig:
+    """Grava (acrescenta) uma conexão sobre `folder` no connections.json do home do teste."""
+    folder.mkdir(parents=True, exist_ok=True)
+    conn = ConnectionConfig(id=conn_id, name=name, path=str(folder), **extra)
+    current = ConfigManager.load()
+    connections = [c for c in current.connections if c.id != conn_id] + [conn]
+    ConfigManager.save(ConnectionsFile(
+        default=conn_id if default or current.default is None else current.default,
+        connections=connections,
+    ))
+    return conn
 
 
 @pytest.fixture
-def test_session(test_engine) -> Generator[Session, None, None]:
-    """Sessão SQLAlchemy para testes."""
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
-    session = SessionLocal()
-
-    yield session
-
-    session.close()
+def conn(tmp_path) -> ConnectionConfig:
+    """Conexão padrão sobre uma pasta temporária (vira repositório git na primeira escrita)."""
+    return make_connection(tmp_path / "dados")
 
 
 @pytest.fixture
-def sample_workspace(test_session: Session) -> Workspace:
-    """Cria um workspace para testes."""
-    ws = Workspace(
-        id=str(uuid.uuid4()),
-        name="TestWorkspace",
-        description="Workspace para testes"
-    )
-    test_session.add(ws)
-    test_session.commit()
-    return ws
+def data_dir(conn):
+    """Pasta da conexão padrão dos testes."""
+    return conn.clone_path()
 
 
 @pytest.fixture
-def sample_project(test_session: Session, sample_workspace: Workspace) -> Project:
-    """Cria um project para testes."""
-    dm = Project(
-        id=str(uuid.uuid4()),
-        workspace_id=sample_workspace.id,
-        name="TestProject",
-        description="Project para testes"
-    )
-    test_session.add(dm)
-    test_session.commit()
-    return dm
+def sample_workspace(conn) -> Workspace:
+    return WorkspaceService().create("TestWorkspace", "Workspace para testes")
 
 
 @pytest.fixture
-def sample_item(
-    test_session: Session, sample_workspace: Workspace, sample_project: Project
-) -> Item:
-    """Cria um item para testes."""
-    item = Item(
-        id=str(uuid.uuid4()),
+def sample_project(sample_workspace: Workspace) -> Project:
+    return ProjectService().create(sample_workspace.id, "TestProject", "Project para testes")
+
+
+@pytest.fixture
+def sample_item(sample_workspace: Workspace, sample_project: Project) -> Item:
+    return ItemService().create(
         workspace_id=sample_workspace.id,
         project_id=sample_project.id,
         type="knowledge",
@@ -110,32 +78,5 @@ def sample_item(
         summary="Test summary about ConditionalOnProperty",
         content="Test content with keywords about Spring beans and conditional logic",
         confidence=90,
-        importance=5
+        importance=5,
     )
-    test_session.add(item)
-    test_session.commit()
-    return item
-
-
-@pytest.fixture
-def sample_label(test_session: Session) -> Label:
-    """Cria uma label para testes."""
-    label = Label(
-        id=str(uuid.uuid4()),
-        name="test_label"
-    )
-    test_session.add(label)
-    test_session.commit()
-    return label
-
-
-@pytest.fixture
-def sample_tag(test_session: Session) -> Tag:
-    """Cria uma tag para testes."""
-    tag = Tag(
-        id=str(uuid.uuid4()),
-        name="test_tag"
-    )
-    test_session.add(tag)
-    test_session.commit()
-    return tag

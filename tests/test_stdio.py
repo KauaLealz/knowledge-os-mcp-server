@@ -22,9 +22,10 @@ def server_env(tmp_path):
     """cwd e home temporários, separados: nada deve ser criado no cwd."""
     cwd = tmp_path / "cwd"
     cwd.mkdir()
-    env = {k: v for k, v in os.environ.items() if k != "MCP_DB_PATH"}
+    env = dict(os.environ)
     env.update(
         KNOWLEDGE_OS_HOME=str(tmp_path / "home"),
+        KNOWLEDGE_OS_UI="0",
         PYTHONPATH=str(ROOT / "src"),
         PYTHONDONTWRITEBYTECODE="1",
         LOG_LEVEL="WARNING",
@@ -51,11 +52,37 @@ def test_handshake_stdio_initialize_list_tools_health_check(server_env):
     assert len(tools.tools) == EXPECTED_TOOLS
     assert not health.is_error
     report = json.loads(health.content[0].text)
-    assert (report["status"], report["database"]) == ("ok", "connected")
-    assert report["version"] and report["schema_version"]
+    # Sem conexão: o servidor sobe, mas diz que falta criar uma (nada é criado sozinho).
+    assert (report["status"], report["connection"]) == ("error", None)
+    assert "connection_create" in report["message"] and report["version"]
     assert list(cwd.iterdir()) == []  # nada criado no cwd
-    assert {p.name for p in home.iterdir()} >= {"connections.json", "indexes"}
-    assert (home / "indexes" / "default.db").exists()
+    assert not (home / "connections.json").exists()
+
+
+def test_health_check_com_conexao_padrao(server_env, tmp_path):
+    cwd, env, home = server_env
+    data = tmp_path / "dados"
+    subprocess.run(["git", "init", "-q", str(data)], check=True)
+    home.mkdir(parents=True)
+    (home / "connections.json").write_text(json.dumps({
+        "version": "1.0", "default": "d",
+        "connections": [{"id": "d", "name": "Dados", "path": str(data)}],
+    }), encoding="utf-8")
+    params = StdioServerParameters(
+        command=sys.executable, args=["-m", "knowledge_os.main"], env=env, cwd=str(cwd)
+    )
+
+    async def scenario():
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                return await session.call_tool("health_check", {})
+
+    health = asyncio.run(asyncio.wait_for(scenario(), timeout=60))
+    report = json.loads(health.content[0].text)
+    assert report["status"] == "ok"
+    assert report["connection"] == {"id": "d", "name": "Dados", "path": str(data),
+                                    "exists": True, "is_git_repo": True}
 
 
 def test_stdout_so_tem_protocolo(server_env):
@@ -95,7 +122,7 @@ def test_wheel_inclui_instructions_e_static(tmp_path):
     proj = tmp_path / "proj"
     shutil.copytree(ROOT, proj, ignore=shutil.ignore_patterns(
         ".git", ".venv", ".plumb", ".claude", ".tmp*", ".uv*", ".*cache", "build", "dist*",
-        "database", "*.egg-info", "__pycache__", ".knowledge"))
+        "*.egg-info", "__pycache__", ".knowledge"))
     out = tmp_path / "out"
     # Cache e temporários isolados: o build não depende do cache global do uv (que pode
     # estar inacessível, ex.: dentro de apps empacotados no Windows).
@@ -120,7 +147,7 @@ def test_wheel_inclui_instructions_e_static(tmp_path):
 
 
 def test_atalho_src_cli_de_instalacao_antiga(tmp_path):
-    env = {k: v for k, v in os.environ.items() if k != "MCP_DB_PATH"}
+    env = dict(os.environ)
     env.update(KNOWLEDGE_OS_HOME=str(tmp_path / "home"), PYTHONPATH=str(ROOT))
     novo = subprocess.run([sys.executable, "-m", "knowledge_os.cli", "--version"],
                           env={**env, "PYTHONPATH": str(ROOT / "src")}, cwd=tmp_path,

@@ -1,14 +1,15 @@
-"""Relation service: operações sobre relações semânticas."""
+"""Relation service: relações semânticas entre itens, guardadas no frontmatter da origem.
+
+Criar ou remover uma relação regrava o arquivo do item de origem (e, num `supersedes`, o do
+alvo, que passa a `superseded`) e publica pelo repositório git da conexão.
+"""
+
+from __future__ import annotations
 
 import logging
-import uuid
 
-from sqlalchemy import or_, select
-from sqlalchemy.orm import Session
-
-from knowledge_os.db.models import Item, Relation
-from knowledge_os.exceptions import NotFoundError, ValidationError
-from knowledge_os.services._common import session_scope
+from knowledge_os.exceptions import ValidationError
+from knowledge_os.services.brain import Brain, Relation, relation_id, utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -23,17 +24,13 @@ RELATION_TYPES = (
 
 
 class RelationService:
-    """Operações sobre relações entre items.
+    """Operações sobre relações entre itens da conexão (a informada ou a padrão)."""
 
-    Se `session` não for informada, cada operação abre uma sessão própria.
-    """
-
-    def __init__(self, session: Session | None = None, connection_id: str | None = None) -> None:
-        self._session = session
+    def __init__(self, connection_id: str | None = None) -> None:
         self._connection_id = connection_id
 
     def create(self, source_item_id: str, target_item_id: str, relation_type: str) -> Relation:
-        """Cria relação.
+        """Cria a relação (idempotente: a mesma relação não duplica).
 
         ValidationError para tipo inválido/auto-relação; NotFoundError se item não existe.
         """
@@ -43,144 +40,64 @@ class RelationService:
             )
         if source_item_id == target_item_id:
             raise ValidationError("Um item não pode se relacionar consigo mesmo")
-        with session_scope(self._session, self._connection_id) as s:
-            for item_id in (source_item_id, target_item_id):
-                if s.get(Item, item_id) is None:
-                    raise NotFoundError(f"Item não encontrado: {item_id}")
-            rel = Relation(
-                id=str(uuid.uuid4()),
-                source_item_id=source_item_id,
-                target_item_id=target_item_id,
-                relation_type=relation_type,
-            )
-            s.add(rel)
-            if relation_type == "supersedes":
+        brain = Brain(self._connection_id)
+        with brain.editing() as d:
+            source = d.require(source_item_id)
+            target = d.require(target_item_id)
+            d.add_link(source.id, relation_type, target.id)
+            if relation_type == "supersedes" and target.status != "superseded":
                 # O substituído sai da busca e do pacote de contexto, sem perder o histórico.
-                s.get(Item, target_item_id).status = "superseded"
-            s.commit()
-            s.refresh(rel)
-            if self._session is None:
-                s.expunge(rel)
-            logger.info("Relação criada: %s %s %s", source_item_id, relation_type, target_item_id)
-            return rel
+                d.update(target.id, status="superseded", updated_at=utcnow())
+            brain.commit(d, f"knowledge-os: relaciona {source.path}")
+        logger.info("Relação criada: %s %s %s", source_item_id, relation_type, target_item_id)
+        return Relation(
+            relation_id(source_item_id, relation_type, target_item_id),
+            source_item_id, target_item_id, relation_type,
+        )
 
-    def create_published(
-        self, source_item_id: str, target_item_id: str, relation_type: str
-    ) -> Relation:
-        """Cria a relação e, se a connection tem repositório git em modo `direct`, republica
-        o item de origem com ela (frontmatter atualizado) — simétrico a `delete_published`.
-
-        Simplificação desta rodada: só o modo `direct` republica; em modo `pr` a relação
-        só entra no índice (como antes), sem abrir PR — fica para depois.
-        """
-        from knowledge_os.services.item_service import ItemService
-
-        rel = self.create(source_item_id, target_item_id, relation_type)
-        items = ItemService(connection_id=self._connection_id)
-        with session_scope(self._session, self._connection_id) as s:
-            source = s.get(Item, source_item_id)
-            conn = items._connection_config()  # noqa: SLF001 - mesma connection, sem duplicar
-            git = items._git_service(conn) if conn is not None else None  # noqa: SLF001
-            if (
-                git is not None
-                and git.review_mode == "direct"
-                and source is not None
-                and source.type != "secret"
-            ):
-                path, content = items._publish_path_and_content(s, source)  # noqa: SLF001
-                git.ensure_clone()
-                git.publish({path: content}, f"knowledge-os: adiciona relação de {path}")
-        return rel
-
-    def list_for_workspace(self, workspace_id: str) -> list[Relation]:
-        """Lista relações cujos dois items (source e target) pertencem ao workspace."""
-        with session_scope(self._session, self._connection_id) as s:
-            item_ids = select(Item.id).where(Item.workspace_id == workspace_id)
-            rows = list(
-                s.scalars(
-                    select(Relation)
-                    .where(Relation.source_item_id.in_(item_ids))
-                    .where(Relation.target_item_id.in_(item_ids))
-                    .order_by(Relation.created_at, Relation.id)
-                )
-            )
-            if self._session is None:
-                s.expunge_all()
-            return rows
-
-    def list_for_items(self, item_ids: list[str]) -> list[Relation]:
-        """Lista relações cujos dois items (source e target) estão em `item_ids` — o grafo
-        de um escopo qualquer (workspace/project/subject) é só filtrar os items antes."""
-        if not item_ids:
-            return []
-        with session_scope(self._session, self._connection_id) as s:
-            rows = list(
-                s.scalars(
-                    select(Relation)
-                    .where(Relation.source_item_id.in_(item_ids))
-                    .where(Relation.target_item_id.in_(item_ids))
-                    .order_by(Relation.created_at, Relation.id)
-                )
-            )
-            if self._session is None:
-                s.expunge_all()
-            return rows
+    create_published = create
 
     def list(self, item_id: str) -> list[Relation]:
-        """Lista relações em que o item é source ou target."""
-        with session_scope(self._session, self._connection_id) as s:
-            rows = list(
-                s.scalars(
-                    select(Relation)
-                    .where(
-                        or_(Relation.source_item_id == item_id, Relation.target_item_id == item_id)
-                    )
-                    .order_by(Relation.created_at, Relation.id)
-                )
-            )
-            if self._session is None:
-                s.expunge_all()
-            return rows
+        """Relações em que o item é origem ou alvo."""
+        return [
+            r for r in Brain(self._connection_id).snapshot.relations()
+            if item_id in (r.source_item_id, r.target_item_id)
+        ]
 
-    def delete(self, relation_id: str) -> bool:
-        """Remove a relação. NotFoundError se não existe."""
-        with session_scope(self._session, self._connection_id) as s:
-            rel = s.get(Relation, relation_id)
-            if rel is None:
-                raise NotFoundError(f"Relação não encontrada: {relation_id}")
-            s.delete(rel)
-            s.commit()
-            logger.info("Relação removida: %s", relation_id)
-            return True
+    def list_all(
+        self, item_id: str | None = None, relation_type: str | None = None
+    ) -> list[Relation]:
+        """Todas as relações da conexão, opcionalmente de um item e/ou de um tipo."""
+        rows = Brain(self._connection_id).snapshot.relations()
+        if item_id:
+            rows = [r for r in rows if item_id in (r.source_item_id, r.target_item_id)]
+        if relation_type:
+            rows = [r for r in rows if r.relation_type == relation_type]
+        return sorted(rows, key=lambda r: (r.source_item_id, r.relation_type, r.target_item_id))
 
-    def delete_published(self, relation_id: str) -> bool:
-        """Remove a relação e, se a connection tem repositório git em modo `direct`,
-        republica o item de origem sem essa relação (frontmatter atualizado).
+    def list_for_items(self, item_ids: list[str]) -> list[Relation]:
+        """Relações cujos dois itens (origem e alvo) estão em `item_ids` — o grafo de um
+        escopo qualquer (workspace/project/subject) é só filtrar os itens antes."""
+        wanted = set(item_ids)
+        if not wanted:
+            return []
+        return [
+            r for r in Brain(self._connection_id).snapshot.relations()
+            if r.source_item_id in wanted and r.target_item_id in wanted
+        ]
 
-        Simplificação desta rodada: só o modo `direct` republica; em modo `pr` a
-        relação só sai do índice (como antes), sem abrir PR — fica para depois.
+    def delete(self, relation_id_: str) -> bool:
+        """Remove a relação (regrava o item de origem). NotFoundError se não existe.
+
+        Remover um `supersedes` não reativa o alvo: o status dele se ajusta com item_save.
         """
-        from knowledge_os.services.item_service import ItemService
+        brain = Brain(self._connection_id)
+        with brain.editing() as d:
+            rel = d.relation(relation_id_)
+            d.drop_link(rel.source_item_id, rel.relation_type, rel.target_item_id)
+            source = d.require(rel.source_item_id)
+            brain.commit(d, f"knowledge-os: remove relação de {source.path}")
+        logger.info("Relação removida: %s", relation_id_)
+        return True
 
-        items = ItemService(connection_id=self._connection_id)
-        with session_scope(self._session, self._connection_id) as s:
-            rel = s.get(Relation, relation_id)
-            if rel is None:
-                raise NotFoundError(f"Relação não encontrada: {relation_id}")
-            source = s.get(Item, rel.source_item_id)
-            s.delete(rel)
-            s.flush()
-            conn = items._connection_config()  # noqa: SLF001 - mesma connection, sem duplicar
-            git = items._git_service(conn) if conn is not None else None  # noqa: SLF001
-            if (
-                git is not None
-                and git.review_mode == "direct"
-                and source is not None
-                and source.type != "secret"
-            ):
-                path, content = items._publish_path_and_content(s, source)  # noqa: SLF001
-                git.ensure_clone()
-                git.publish({path: content}, f"knowledge-os: remove relação de {path}")
-            s.commit()
-            logger.info("Relação removida: %s", relation_id)
-            return True
+    delete_published = delete

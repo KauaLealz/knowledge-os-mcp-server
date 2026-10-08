@@ -10,14 +10,13 @@ from fastmcp import Client, FastMCP
 from fastmcp.exceptions import ToolError
 
 from knowledge_os.mcp import tools
-from tests.helpers_multidb import catalog  # noqa: F401  (fixture: catálogo isolado)
 
 PROJECT = "github.com/org/app"
 RULE = {"type": "rule", "memory_class": "working", "summary": "resumo", "content": "corpo"}
 
 
 @pytest.fixture
-def server(catalog):  # noqa: F811
+def server(conn):
     m = FastMCP(name="t")
     tools.register(m)
     return m
@@ -218,12 +217,13 @@ def test_repo_list_unlink_e_candidate_match(server):
     assert out == {"status": "candidate",
                    "candidate_match": {"field": "workspace", "input": "ai8", "candidate": "AI8"}}
 
+    # Mesmo slug = mesma pasta: confirmar liga ao workspace que já existe.
     confirmed = call(server, "repo", action="link", repo="path:/tmp/ai8-repo-x",
                      workspace="ai8", project="algo", confirm_new=True)
-    assert confirmed["workspace"] == "ai8"
+    assert confirmed["workspace"] == "AI8"
 
     links = call(server, "repo", action="list", workspace="ai8")
-    assert links == [{"repo_key": "path:/tmp/ai8-repo-x", "workspace": "ai8", "project": "algo"}]
+    assert links == [{"repo_key": "path:/tmp/ai8-repo-x", "workspace": "AI8", "project": "algo"}]
 
     assert call(server, "repo", action="unlink",
                 repo="path:/tmp/ai8-repo-x")["status"] == "deleted"

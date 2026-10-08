@@ -1,30 +1,14 @@
-"""Fixtures da API: banco SQLite temporário isolado por teste."""
+"""Fixtures da API: uma conexão padrão sobre uma pasta temporária, isolada por teste."""
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
 
-from knowledge_os.api.deps import get_catalog_engine_dep, get_engine_dep
 from knowledge_os.api.main import app
-from knowledge_os.db.migrations import bootstrap_labels
-from knowledge_os.db.session import create_db_engine, init_db
 
 
 @pytest.fixture
-def engine(tmp_path):
-    eng = init_db(create_db_engine(f"sqlite:///{tmp_path / 'api.db'}"))
-    with Session(eng) as s:
-        bootstrap_labels(s)
-    yield eng
-    eng.dispose()
-
-
-@pytest.fixture
-def client(engine, tmp_path):
-    app.dependency_overrides[get_engine_dep] = lambda: engine
-    app.dependency_overrides[get_catalog_engine_dep] = lambda: engine
+def client(conn):
     yield TestClient(app)
-    app.dependency_overrides.clear()
 
 
 @pytest.fixture

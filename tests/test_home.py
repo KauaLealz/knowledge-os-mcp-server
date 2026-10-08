@@ -9,13 +9,12 @@ from pathlib import Path
 import pytest
 
 import knowledge_os.config as config
-from knowledge_os.config import CATALOG_ID, ConfigManager, ConnectionConfig, ConnectionsFile
+from knowledge_os.config import ConfigManager, ConnectionConfig, ConnectionsFile
 
 ROOT = Path(__file__).resolve().parent.parent
 PROBE = (
     "import json, knowledge_os.config as c;"
-    "print(json.dumps({k: str(getattr(c, k)) for k in "
-    "('KNOWLEDGE_HOME','BACKUPS_DIR','REPOS_DIR','INDEXES_DIR','DB_PATH')}"
+    "print(json.dumps({k: str(getattr(c, k)) for k in ('KNOWLEDGE_HOME','REPOS_DIR')}"
     " | {'cf': str(c.ConfigManager.CONNECTIONS_FILE)}))"
 )
 
@@ -34,12 +33,10 @@ def test_home_vem_da_variavel_e_importar_nao_cria_diretorio(tmp_path):
     home = tmp_path / "meu-home"
     cwd = tmp_path / "cwd"
     cwd.mkdir()
-    got = _probe(cwd, {"KNOWLEDGE_OS_HOME": str(home)}, drop=("MCP_DB_PATH",))
+    got = _probe(cwd, {"KNOWLEDGE_OS_HOME": str(home)})
     assert Path(got["KNOWLEDGE_HOME"]) == home
     assert Path(got["cf"]) == home / "connections.json"
-    assert Path(got["DB_PATH"]) == home / "indexes" / "default.db"
-    for k in ("BACKUPS_DIR", "REPOS_DIR", "INDEXES_DIR"):
-        assert Path(got[k]).parent == home
+    assert Path(got["REPOS_DIR"]).parent == home
     assert not home.exists()
     assert list(cwd.iterdir()) == []
 
@@ -48,63 +45,50 @@ def test_home_default_e_dot_knowledge_os(tmp_path):
     got = _probe(
         tmp_path,
         {"HOME": str(tmp_path), "USERPROFILE": str(tmp_path)},
-        drop=("KNOWLEDGE_OS_HOME", "MCP_DB_PATH"),
+        drop=("KNOWLEDGE_OS_HOME",),
     )
     assert Path(got["KNOWLEDGE_HOME"]) == tmp_path / ".knowledge-os"
     assert not (tmp_path / ".knowledge-os").exists()
 
 
-def test_mcp_db_path_continua_sendo_override(tmp_path):
-    got = _probe(tmp_path, {"KNOWLEDGE_OS_HOME": str(tmp_path / "h"), "MCP_DB_PATH": "/x/y.db"})
-    assert got["DB_PATH"] == "/x/y.db"
-
-
-def test_ensure_home_cria_home_e_subdiretorios(tmp_path, monkeypatch):
+def test_ensure_home_cria_so_o_home(tmp_path, monkeypatch):
     home = tmp_path / "novo"
     monkeypatch.setattr(config, "KNOWLEDGE_HOME", home)
-    monkeypatch.setattr(config, "BACKUPS_DIR", home / "backups")
-    monkeypatch.setattr(config, "REPOS_DIR", home / "repos")
-    monkeypatch.setattr(config, "INDEXES_DIR", home / "indexes")
     config.ensure_home()
-    assert {p.name for p in home.iterdir()} == {"backups", "repos", "indexes"}
+    assert home.is_dir() and list(home.iterdir()) == []
 
 
-def test_clone_path_e_index_url_derivam_do_id_no_home(monkeypatch, tmp_path):
+def test_clone_path_e_a_pasta_escolhida_ou_deriva_do_id(monkeypatch, tmp_path):
     home = tmp_path / "home"
     monkeypatch.setattr(config, "REPOS_DIR", home / "repos")
-    monkeypatch.setattr(config, "INDEXES_DIR", home / "indexes")
+    assert ConnectionConfig(id="a", name="A").clone_path() == home / "repos" / "a"
+    assert ConnectionConfig(id="b", name="B", path=str(tmp_path / "x")).clone_path() == (
+        tmp_path / "x")
+
+
+def test_sem_arquivo_nao_ha_conexao_nem_padrao(_isolated_home):
+    cfg = ConfigManager.load()
+    assert (cfg.default, cfg.connections) == (None, [])
+    assert not (_isolated_home / "connections.json").exists()
+
+
+def test_default_precisa_ser_uma_conexao_cadastrada():
+    assert ConnectionsFile(default=None, connections=[]).default is None
+    with pytest.raises(ValueError):
+        ConnectionsFile(default="default", connections=[])
     conn = ConnectionConfig(id="a", name="A")
-    assert conn.clone_path() == home / "repos" / "a"
-    assert conn.index_url() == f"sqlite:///{(home / 'indexes' / 'a.db').as_posix()}"
-
-
-def test_id_default_e_reservado():
-    with pytest.raises(ValueError):
-        ConnectionConfig(id="default", name="X")
-
-
-def test_primeira_execucao_cria_json_so_com_o_catalogo(_isolated_home):
-    cfg = ConfigManager.load_or_create()
-    assert (cfg.default, cfg.connections) == (CATALOG_ID, [])
-    saved = json.loads((_isolated_home / "connections.json").read_text(encoding="utf-8"))
-    assert saved["default"] == "default" and saved["connections"] == []
-    assert "sqlite_local" not in json.dumps(saved)
-
-
-def test_default_aceita_catalogo_mas_recusa_id_desconhecido():
-    assert ConnectionsFile(default="default", connections=[]).default == "default"
-    with pytest.raises(ValueError):
-        ConnectionsFile(default="outro", connections=[])
+    assert ConnectionsFile(default="a", connections=[conn]).default == "a"
 
 
 def test_save_e_atomico_sem_sobras(_isolated_home):
     ConfigManager.save(ConfigManager.create_default_config())
     ConfigManager.save(ConfigManager.create_default_config())
     assert [p.name for p in _isolated_home.iterdir()] == ["connections.json"]
+    saved = json.loads((_isolated_home / "connections.json").read_text(encoding="utf-8"))
+    assert saved == {"version": "1.0", "default": None, "connections": []}
 
 
-def test_sqlite_local_e_legado_foram_removidos():
+def test_importacao_legada_foi_removida():
     import knowledge_os.main as main
 
     assert not hasattr(main, "import_legacy_connections")
-    assert "sqlite_local" not in main.INSTRUCTIONS_FILE.read_text(encoding="utf-8")

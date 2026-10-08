@@ -1,64 +1,16 @@
-"""Label service: gerenciar labels únicas."""
+"""Label service: a lista controlada de labels (padrão + criadas), como as tags."""
 
-import logging
-import uuid
+from __future__ import annotations
 
-from sqlalchemy import delete, select
-from sqlalchemy.orm import Session
-
-from knowledge_os.db.models import ItemLabel, Label
-from knowledge_os.exceptions import NotFoundError, ValidationError
-from knowledge_os.services._common import session_scope
-
-logger = logging.getLogger(__name__)
+from knowledge_os.services.brain import Brain, Label
+from knowledge_os.services.tag_service import TagService
 
 
-class LabelService:
-    """Operações sobre labels.
+class LabelService(TagService):
+    """Operações sobre labels; as padrão (`brain.DEFAULT_LABELS`) existem sem item."""
 
-    Se `session` não for informada, cada operação abre uma sessão própria.
-    """
+    KIND = "labels"
+    LABEL = "Label"
 
-    def __init__(
-        self, session: Session | None = None, connection_id: str | None = None
-    ) -> None:
-        self._session = session
-        self._connection_id = connection_id
-
-    def create(self, name: str) -> Label:
-        """Cria label única. ValidationError se vazia ou duplicada."""
-        name = name.strip()
-        if not name or len(name) > 100:
-            raise ValidationError("Nome deve ter entre 1 e 100 caracteres")
-        with session_scope(self._session, self._connection_id) as s:
-            if s.scalar(select(Label).where(Label.name == name)) is not None:
-                raise ValidationError(f"Label já existe: {name}")
-            obj = Label(id=str(uuid.uuid4()), name=name)
-            s.add(obj)
-            s.commit()
-            s.refresh(obj)
-            if self._session is None:
-                s.expunge(obj)
-            logger.info("Label criada: %s", name)
-            return obj
-
-    def list(self) -> list[Label]:
-        """Lista todas as labels por nome."""
-        with session_scope(self._session, self._connection_id) as s:
-            rows = list(s.scalars(select(Label).order_by(Label.name)))
-            if self._session is None:
-                s.expunge_all()
-            return rows
-
-    def delete(self, label_id: str) -> bool:
-        """Remove a label e seus vínculos com items. NotFoundError se não existe."""
-        with session_scope(self._session, self._connection_id) as s:
-            obj = s.get(Label, label_id)
-            if obj is None:
-                raise NotFoundError(f"Label não encontrada: {label_id}")
-            s.execute(delete(ItemLabel).where(ItemLabel.label_id == label_id))
-            s.delete(obj)
-            s.commit()
-            s.expire_all()
-            logger.info("Label removida: %s", label_id)
-            return True
+    def _listed(self, brain: Brain) -> list[Label]:
+        return brain.snapshot.labels()

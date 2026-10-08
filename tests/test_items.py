@@ -1,7 +1,6 @@
 """Testes da validação de tipos de item."""
 
 import pytest
-from sqlalchemy import Engine
 
 from knowledge_os.exceptions import ValidationError
 from knowledge_os.services.item_service import ItemService
@@ -16,27 +15,25 @@ def _kw(ws, dm, **over):
     return base
 
 
-def test_item_create_valid_type(test_engine: Engine, sample_workspace, sample_project):
-    item = ItemService(test_engine).create(**_kw(sample_workspace, sample_project))
+def test_item_create_valid_type(sample_workspace, sample_project):
+    item = ItemService().create(**_kw(sample_workspace, sample_project))
     assert item.type == "context"
     assert item.memory_class in ("working", "longterm")
 
 
-def test_item_type_invalid(test_engine: Engine, sample_workspace, sample_project):
+def test_item_type_invalid(sample_workspace, sample_project):
     """Tipo inválido é rejeitado."""
     with pytest.raises(ValidationError):
-        ItemService(test_engine).create(
-            **_kw(sample_workspace, sample_project, type="invalid_type")
-        )
+        ItemService().create(**_kw(sample_workspace, sample_project, type="invalid_type"))
 
 
-def test_item_type_task_nao_existe_mais(test_engine: Engine, sample_workspace, sample_project):
+def test_item_type_task_nao_existe_mais(sample_workspace, sample_project):
     """`task` foi removido do conjunto de tipos válidos."""
     with pytest.raises(ValidationError):
-        ItemService(test_engine).create(**_kw(sample_workspace, sample_project, type="task"))
+        ItemService().create(**_kw(sample_workspace, sample_project, type="task"))
 
 
-def test_item_type_spec_e_valido(test_engine: Engine, sample_workspace, sample_project):
+def test_item_type_spec_e_valido(sample_workspace, sample_project):
     """`spec` é o novo tipo para especificações/planos de mudança."""
-    item = ItemService(test_engine).create(**_kw(sample_workspace, sample_project, type="spec"))
+    item = ItemService().create(**_kw(sample_workspace, sample_project, type="spec"))
     assert item.type == "spec"

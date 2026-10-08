@@ -83,7 +83,7 @@ SECRET_CLOSE = "<!-- /Segredo · valor -->"
 
 
 def test_campo_de_senha_so_no_valor_do_segredo():
-    # Conexões não têm mais senha (repositório git, não banco): o único campo de senha
+    # Conexões não têm senha (são pastas/repositórios git): o único campo de senha
     # que resta na UI é o valor do segredo.
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     assert CONN_OPEN in html and CONN_CLOSE in html

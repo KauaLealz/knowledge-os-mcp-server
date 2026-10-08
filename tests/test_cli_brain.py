@@ -12,9 +12,19 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 
 
+def _connections(home: Path, data: Path) -> None:
+    """connections.json do processo filho: uma conexão padrão sobre `data`."""
+    home.mkdir(parents=True, exist_ok=True)
+    (home / "connections.json").write_text(json.dumps({
+        "version": "1.0", "default": "dados",
+        "connections": [{"id": "dados", "name": "Dados", "path": str(data)}],
+    }), encoding="utf-8")
+
+
 @pytest.fixture
 def env(tmp_path):
     home = tmp_path / "home"
+    _connections(home, tmp_path / "dados")
     return {**os.environ, "KNOWLEDGE_OS_HOME": str(home), "PYTHONPATH": str(ROOT / "src"),
             "LOG_LEVEL": "WARNING"}
 
@@ -36,13 +46,11 @@ def cli(env, *args, stdin=None):
 def _save(env, project, entries):
     code = (
         "import json,sys\n"
-        "from knowledge_os.config import ensure_home, validate_and_init_config\n"
-        "ensure_home(); validate_and_init_config()\n"
         "from knowledge_os.services.item_service import ItemService\n"
         "from knowledge_os.services.repo_service import RepoService\n"
         f"link = RepoService().resolve({str(project)!r})\n"
         "ItemService().save(json.loads(sys.argv[1]), "
-        "default_location=(link['workspace_id'], link['project_id']))\n"
+        "default_location=(link['workspace'], link['project']))\n"
     )
     subprocess.run([sys.executable, "-c", code, json.dumps(entries)], env=env, cwd=ROOT,
                    check=True, capture_output=True, timeout=120)
@@ -90,9 +98,17 @@ def test_projeto_nao_ligado_sugere_setup(env, project):
     assert "/plumb-setup" in json.loads(out.stdout)["hookSpecificOutput"]["additionalContext"]
 
 
+def test_sem_conexao_o_hook_diz_como_criar(env, project):
+    (Path(env["KNOWLEDGE_OS_HOME"]) / "connections.json").unlink()
+    out = cli(env, "context", "--hook", "claude", stdin=json.dumps({"cwd": str(project)}))
+    assert out.returncode == 0
+    text = json.loads(out.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "Nenhuma conexão configurada" in text and "connection_create" in text
+    assert not (Path(env["KNOWLEDGE_OS_HOME"]) / "connections.json").exists()
+
+
 def test_falha_vira_aviso_e_nao_quebra_a_sessao(env, project):
     home = Path(env["KNOWLEDGE_OS_HOME"])
-    home.mkdir(parents=True)
     (home / "connections.json").write_text("{json quebrado", encoding="utf-8")
     out = cli(env, "context", "--hook", "claude", stdin=json.dumps({"cwd": str(project)}))
     assert out.returncode == 0
@@ -154,14 +170,10 @@ def test_dois_processos_esvaziando_a_mesma_fila_gravam_cada_key_uma_vez(env, pro
                 if (m := re.search(r"(\d+) item\(ns\) da fila", out)))
     assert total == 50
     code = (
-        "from knowledge_os.config import ensure_home, validate_and_init_config\n"
-        "ensure_home(); validate_and_init_config()\n"
-        "from sqlalchemy import select, func\n"
-        "from knowledge_os.db.models import Item\n"
-        "from knowledge_os.db.session import get_engine, get_session\n"
-        "s = get_session(get_engine())\n"
-        "print(s.execute(select(func.count(), func.count(func.distinct(Item.key))).where("
-        "Item.key.like('gotcha/k%'))).one())\n"
+        "from knowledge_os.services.brain import Brain\n"
+        "keys = [r.key for r in Brain().snapshot.records.values()\n"
+        "        if (r.key or '').startswith('gotcha/k')]\n"
+        "print((len(keys), len(set(keys))))\n"
     )
     out = subprocess.run([sys.executable, "-c", code], env=env, cwd=ROOT, capture_output=True,
                          text=True, timeout=120, check=True).stdout
@@ -169,7 +181,7 @@ def test_dois_processos_esvaziando_a_mesma_fila_gravam_cada_key_uma_vez(env, pro
     assert not queue.exists() and not list(queue.parent.glob("pending*.claimed"))
 
 
-def test_linha_acrescentada_durante_a_gravacao_nao_se_perde(env, project, monkeypatch):
+def test_linha_acrescentada_durante_a_gravacao_nao_se_perde(env, conn, project, monkeypatch):
     from knowledge_os import cli
     from knowledge_os.services.item_service import ItemService
 
@@ -197,7 +209,7 @@ def _link_inprocess(project):
     return cli
 
 
-def test_linha_json_que_nao_e_objeto_vai_para_as_rejeitadas(env, project):
+def test_linha_json_que_nao_e_objeto_vai_para_as_rejeitadas(env, conn, project):
     cli = _link_inprocess(project)
     queue = cli._pending_file()
     queue.write_text("[1, 2]\nnull\n\"texto\"\n" + _entry("gotcha/ok", "Ok") + "\n",
@@ -208,7 +220,7 @@ def test_linha_json_que_nao_e_objeto_vai_para_as_rejeitadas(env, project):
     assert not list(queue.parent.glob("pending*.claimed"))
 
 
-def test_erro_inesperado_devolve_o_conteudo_a_fila(env, project, monkeypatch):
+def test_erro_inesperado_devolve_o_conteudo_a_fila(env, conn, project, monkeypatch):
     cli = _link_inprocess(project)
     queue = cli._pending_file()
     queue.write_text(_entry("gotcha/a", "A") + "\n", encoding="utf-8")
@@ -223,7 +235,7 @@ def test_erro_inesperado_devolve_o_conteudo_a_fila(env, project, monkeypatch):
     assert not list(queue.parent.glob("pending*.claimed"))
 
 
-def test_rename_negado_vira_erro_visivel(env, project, monkeypatch):
+def test_rename_negado_vira_erro_visivel(env, conn, project, monkeypatch):
     cli = _link_inprocess(project)
     queue = cli._pending_file()
     queue.write_text(_entry("gotcha/a", "A") + "\n", encoding="utf-8")
@@ -237,7 +249,7 @@ def test_rename_negado_vira_erro_visivel(env, project, monkeypatch):
     assert "gotcha/a" in queue.read_text(encoding="utf-8")
 
 
-def test_linha_escrita_no_arquivo_tomado_depois_da_leitura_volta_a_fila(env, project,
+def test_linha_escrita_no_arquivo_tomado_depois_da_leitura_volta_a_fila(env, conn, project,
                                                                          monkeypatch):
     from knowledge_os.services.item_service import ItemService
 
@@ -258,7 +270,7 @@ def test_linha_escrita_no_arquivo_tomado_depois_da_leitura_volta_a_fila(env, pro
     assert not list(queue.parent.glob("pending*.claimed"))
 
 
-def test_crash_depois_de_gravar_um_grupo_nao_reprocessa_o_grupo(env, project, tmp_path,
+def test_crash_depois_de_gravar_um_grupo_nao_reprocessa_o_grupo(env, conn, project, tmp_path,
                                                                  monkeypatch):
     from knowledge_os.services.item_service import ItemService
 
@@ -285,19 +297,9 @@ def test_crash_depois_de_gravar_um_grupo_nao_reprocessa_o_grupo(env, project, tm
     assert "gotcha/b" in left and "gotcha/a" not in left
 
 
-def test_backup_pela_cli_gera_arquivo_que_abre(env, project):
-    import sqlite3
-
-    cli(env, "link", "--repo", str(project), "--workspace", "W", "--project", "D")
+def test_comando_de_copia_de_seguranca_saiu(env):
     out = cli(env, "backup")
-    assert out.returncode == 0, out.stderr
-    files = list((Path(env["KNOWLEDGE_OS_HOME"]) / "backups").glob("knowledge-*.db"))
-    assert len(files) == 1
-    conn = sqlite3.connect(files[0])
-    try:
-        assert conn.execute("SELECT COUNT(*) FROM workspaces").fetchone()[0] >= 1
-    finally:
-        conn.close()
+    assert out.returncode != 0  # o git é o histórico
 
 
 def test_context_aceita_a_chave_remota_como_project(env, project):

@@ -1,59 +1,46 @@
-"""Rotas de labels e da associação item-label."""
+"""Rotas de labels e da associação item-label (id do label = o nome)."""
 
 from fastapi import APIRouter, Depends, Response, status
-from sqlalchemy.orm import Session
 
-from knowledge_os.api.deps import get_session_dep
-from knowledge_os.api.routes._helpers import get_or_404
+from knowledge_os.api.deps import get_connection_id
 from knowledge_os.api.schemas.requests import ItemLabelAdd, LabelCreate
 from knowledge_os.api.schemas.responses import LabelResponse
-from knowledge_os.db.models import Item, Label
+from knowledge_os.services.brain import Brain, Label
 from knowledge_os.services.label_service import LabelService
 
 router = APIRouter()
 
 
 @router.get("/labels", response_model=list[LabelResponse])
-def list_labels(session: Session = Depends(get_session_dep)):
-    return LabelService(session).list()
+def list_labels(cid: str = Depends(get_connection_id)):
+    return LabelService(cid).list()
 
 
 @router.post("/labels", status_code=status.HTTP_201_CREATED, response_model=LabelResponse)
-def create_label(req: LabelCreate, session: Session = Depends(get_session_dep)):
-    return LabelService(session).create(req.name)
+def create_label(req: LabelCreate, cid: str = Depends(get_connection_id)):
+    return LabelService(cid).create(req.name)
 
 
 @router.delete("/labels/{id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_label(id: str, session: Session = Depends(get_session_dep)) -> Response:
-    LabelService(session).delete(id)
+def delete_label(id: str, cid: str = Depends(get_connection_id)) -> Response:
+    LabelService(cid).delete(id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/items/{id}/labels", response_model=list[LabelResponse])
-def item_labels(id: str, session: Session = Depends(get_session_dep)):
-    item = get_or_404(session, Item, id, "Item")
-    return sorted(item.labels, key=lambda lb: lb.name)
+def item_labels(id: str, cid: str = Depends(get_connection_id)):
+    record = Brain(cid).snapshot.require(id)
+    return [Label(n, n) for n in sorted(record.labels or [])]
 
 
 @router.post(
     "/items/{id}/labels", status_code=status.HTTP_201_CREATED, response_model=list[LabelResponse]
 )
-def add_item_label(id: str, req: ItemLabelAdd, session: Session = Depends(get_session_dep)):
-    item = get_or_404(session, Item, id, "Item")
-    label = get_or_404(session, Label, req.label_id, "Label")
-    if label not in item.labels:
-        item.labels.append(label)
-        session.commit()
-    return sorted(item.labels, key=lambda lb: lb.name)
+def add_item_label(id: str, req: ItemLabelAdd, cid: str = Depends(get_connection_id)):
+    return LabelService(cid).set_on_item(id, req.label_id, True)
 
 
 @router.delete("/items/{id}/labels/{label_id}", status_code=status.HTTP_204_NO_CONTENT)
-def remove_item_label(
-    id: str, label_id: str, session: Session = Depends(get_session_dep)
-) -> Response:
-    item = get_or_404(session, Item, id, "Item")
-    label = get_or_404(session, Label, label_id, "Label")
-    if label in item.labels:
-        item.labels.remove(label)
-        session.commit()
+def remove_item_label(id: str, label_id: str, cid: str = Depends(get_connection_id)) -> Response:
+    LabelService(cid).set_on_item(id, label_id, False)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

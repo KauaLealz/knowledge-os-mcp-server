@@ -1,7 +1,7 @@
-"""Vários processos no mesmo SQLite: retentativa nas escritas e _track best-effort."""
+"""Vários processos gravando na mesma pasta: trava entre processos e contador best-effort."""
 
+import json
 import os
-import sqlite3
 import subprocess
 import sys
 import time
@@ -9,110 +9,63 @@ from pathlib import Path
 
 import pytest
 
-from knowledge_os.db import session as session_mod
-from knowledge_os.db.session import create_db_engine, init_db
-from knowledge_os.exceptions import DatabaseError
+from knowledge_os.exceptions import StorageError
+from knowledge_os.services.brain import Brain
 from knowledge_os.services.context_service import ContextService
 from knowledge_os.services.item_service import ItemService
 from knowledge_os.services.repo_service import RepoService
+from knowledge_os.storage import access, local_state
 
 ROOT = Path(__file__).resolve().parent.parent
 
 WORKER = (
     "import sys\n"
-    "from knowledge_os.config import ensure_home, validate_and_init_config\n"
-    "ensure_home(); validate_and_init_config()\n"
-    "from knowledge_os.config import ConfigManager\n"
-    "ConfigManager.load_or_create()  # o preparo cria o connections.json antes da disputa\n"
     "from knowledge_os.services.item_service import ItemService\n"
     "n = int(sys.argv[2])\n"
     "svc = ItemService()\n"
-    "for i in range(25):\n"
+    "for i in range(8):\n"
     "    svc.save([{'workspace': 'W', 'project': 'D', 'key': f'p{n}/{i}', 'type': 'knowledge',\n"
     "               'memory_class': 'working', 'title': f't{n}-{i}', 'summary': 's',\n"
     "               'content': 'c'}])\n"
 )
 
 
-def _env(home: Path) -> dict[str, str]:
+def _env(tmp_path: Path) -> dict[str, str]:
+    home = tmp_path / "home"
+    home.mkdir(parents=True, exist_ok=True)
+    (home / "connections.json").write_text(json.dumps({
+        "version": "1.0", "default": "d",
+        "connections": [{"id": "d", "name": "Dados", "path": str(tmp_path / "dados")}],
+    }), encoding="utf-8")
     return {**os.environ, "KNOWLEDGE_OS_HOME": str(home), "PYTHONPATH": str(ROOT / "src"),
             "LOG_LEVEL": "WARNING"}
 
 
+def _records(env: dict[str, str]) -> list[str]:
+    code = ("from knowledge_os.services.brain import Brain\n"
+            "print('\\n'.join(sorted(r.key or '' for r in Brain().snapshot.records.values())))")
+    out = subprocess.run([sys.executable, "-c", code], env=env, cwd=ROOT, capture_output=True,
+                         text=True, timeout=120, check=True).stdout
+    return [line for line in out.splitlines() if line]
+
+
 def test_quatro_processos_gravam_sem_perder_itens(tmp_path):
-    home = tmp_path / "home"
-    env = _env(home)
-    # Prepara o banco uma vez (a criação do schema não é o que está sob teste).
-    subprocess.run([sys.executable, "-c", WORKER.replace("range(25)", "range(0)"), "x", "0"],
-                   env=env, cwd=ROOT, check=True, capture_output=True, timeout=120)
+    env = _env(tmp_path)
     procs = [
         subprocess.Popen([sys.executable, "-c", WORKER, "x", str(n)], env=env, cwd=ROOT,
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         for n in range(4)
     ]
-    outs = [p.communicate(timeout=240) for p in procs]
+    outs = [p.communicate(timeout=300) for p in procs]
     assert [p.returncode for p in procs] == [0, 0, 0, 0], [o[1][-600:] for o in outs]
-    db = next(home.rglob("*.db"))
-    conn = sqlite3.connect(db)
-    try:
-        assert conn.execute("SELECT COUNT(*) FROM items").fetchone()[0] == 100
-    finally:
-        conn.close()
-
-
-@pytest.fixture
-def banco(tmp_path, monkeypatch):
-    """Banco em arquivo com busy_timeout curto e retentativas rápidas."""
-    monkeypatch.setenv("KNOWLEDGE_OS_BUSY_TIMEOUT_MS", "50")
-    monkeypatch.setattr(session_mod, "RETRY_BUDGET_S", 0.5)
-    monkeypatch.setattr(session_mod, "RETRY_FIRST_WAIT_S", 0.02)
-    db = tmp_path / "x.db"
-    engine = create_db_engine(f"sqlite:///{db}")
-    init_db(engine)
-    yield engine, db
-    engine.dispose()
-
-
-ENTRY = {"workspace": "W", "project": "D", "key": "k", "type": "knowledge",
-         "memory_class": "working", "title": "t", "summary": "s", "content": "c"}
-
-
-def test_banco_travado_vira_database_error_legivel(banco):
-    engine, db = banco
-    svc = ItemService(engine)
-    svc.save([dict(ENTRY)])  # cria workspace/project antes de travar
-    lock = sqlite3.connect(db, isolation_level=None)
-    lock.execute("BEGIN IMMEDIATE")
-    try:
-        with pytest.raises(DatabaseError, match="(?i)banco ocupado por outro processo"):
-            svc.save([{**ENTRY, "title": "novo"}])
-    finally:
-        lock.execute("ROLLBACK")
-        lock.close()
-
-
-def test_contexto_nao_cai_quando_track_nao_consegue_gravar(banco):
-    engine, db = banco
-    RepoService(engine).link("github.com/org/app", "W", "D")
-    ws, dm = ItemService(engine).ensure_location("W", "D")
-    ItemService(engine).save([{**ENTRY, "scope_paths": ["src/**"]}], default_location=(ws, dm))
-    lock = sqlite3.connect(db, isolation_level=None)
-    lock.execute("BEGIN IMMEDIATE")
-    try:
-        result = ContextService(engine).build("github.com/org/app", paths=["src/a.py"])
-    finally:
-        lock.execute("ROLLBACK")
-        lock.close()
-    assert result["linked"] is True
-    assert "Em foco" in result["markdown"]
+    assert len(_records(env)) == 32
+    status = subprocess.run(["git", "status", "--porcelain"], cwd=tmp_path / "dados",
+                            capture_output=True, text=True, check=True).stdout
+    assert status.strip() == ""  # tudo commitado, nada pela metade
 
 
 WORKER_TAG = (
     "import sys\n"
-    "from knowledge_os.config import ensure_home, validate_and_init_config\n"
-    "ensure_home(); validate_and_init_config()\n"
-    "from knowledge_os.config import ConfigManager\n"
-    "ConfigManager.load_or_create()  # o preparo cria o connections.json antes da disputa\n"
     "from knowledge_os.services.item_service import ItemService\n"
     "import pathlib, time\n"
     "n = int(sys.argv[2])\n"
@@ -127,10 +80,7 @@ WORKER_TAG = (
 
 
 def test_quatro_processos_com_tag_nova_e_key_nova_em_comum(tmp_path):
-    home = tmp_path / "home"
-    env = _env(home)
-    subprocess.run([sys.executable, "-c", WORKER.replace("range(25)", "range(0)"), "x", "0"],
-                   env=env, cwd=ROOT, check=True, capture_output=True, timeout=120)
+    env = _env(tmp_path)
     go = tmp_path / "go"
     procs = [
         subprocess.Popen([sys.executable, "-c", WORKER_TAG, "x", str(n), str(go)], env=env,
@@ -139,30 +89,43 @@ def test_quatro_processos_com_tag_nova_e_key_nova_em_comum(tmp_path):
     ]
     time.sleep(3)  # todos importados e esperando a largada
     go.write_text("go")
-    outs = [p.communicate(timeout=240) for p in procs]
+    outs = [p.communicate(timeout=300) for p in procs]
     assert [p.returncode for p in procs] == [0, 0, 0, 0], [o[1][-600:] for o in outs]
-    conn = sqlite3.connect(next(home.rglob("*.db")))
-    try:
-        assert conn.execute("SELECT COUNT(*) FROM items").fetchone()[0] == 3 + 4
-        assert conn.execute("SELECT COUNT(*) FROM tags").fetchone()[0] == 1
-    finally:
-        conn.close()
+    keys = _records(env)
+    assert sorted(keys) == ["k0", "k1", "k2", "p0", "p1", "p2", "p3"]  # key comum não duplica
 
 
-def test_conflito_de_unicidade_no_save_e_reexecutado(banco, monkeypatch):
-    from sqlalchemy.exc import IntegrityError
+def test_trava_presa_de_outro_processo_vira_erro_legivel(conn, monkeypatch):
+    monkeypatch.setattr(access, "LOCK_TIMEOUT_S", 0.3)
+    with access.folder_lock(conn.clone_path()):
+        with pytest.raises(StorageError, match="Outra gravação"):
+            with access.folder_lock(conn.clone_path(), timeout_s=0.3):
+                pass
 
-    engine, _ = banco
-    svc = ItemService(engine)
-    real = ItemService._save_plans
-    calls = []
 
-    def conflict_once(self, plans):
-        calls.append(1)
-        if len(calls) == 1:  # outro processo criou a mesma tag/key primeiro
-            raise IntegrityError("INSERT", {}, Exception("UNIQUE constraint failed"))
-        return real(self, plans)
+def test_trava_abandonada_e_retomada(conn, monkeypatch):
+    monkeypatch.setattr(access, "LOCK_STALE_S", 0.0)
+    with access.folder_lock(conn.clone_path()):
+        with access.folder_lock(conn.clone_path(), timeout_s=0.5):
+            pass  # o dono "morreu": a trava velha é retomada
 
-    monkeypatch.setattr(ItemService, "_save_plans", conflict_once)
-    svc.save([{**ENTRY, "tags": ["nova"]}])
-    assert len(calls) == 2
+
+def test_editar_dentro_de_edicao_na_mesma_thread_nao_trava(conn):
+    brain = Brain()
+    with brain.editing():
+        with Brain().editing():
+            pass
+
+
+def test_contexto_nao_cai_quando_o_contador_nao_consegue_gravar(conn, monkeypatch):
+    RepoService().link("github.com/org/app", "W", "D")
+    ItemService().save([{"key": "k", "type": "knowledge", "title": "t", "summary": "s",
+                         "content": "c", "scope_paths": ["src/**"]}], default_location=("W", "D"))
+
+    def boom(*_a, **_k):
+        raise OSError("disco cheio")
+
+    monkeypatch.setattr(local_state, "_write", boom)
+    result = ContextService().build("github.com/org/app", paths=["src/a.py"])
+    assert result["linked"] is True
+    assert "Em foco" in result["markdown"]

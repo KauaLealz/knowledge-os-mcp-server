@@ -1,4 +1,4 @@
-"""`ItemService.save` ligado ao repositório git da connection (GS-L4).
+"""`ItemService.save` publicando no repositório git da connection (GS-L4).
 
 TDD contra um `git init --bare` local fazendo o papel de remote, igual ao padrão de
 `test_git_repo_service.py`. Tudo que depende de `gh` (modo pr) é mockado em
@@ -51,7 +51,7 @@ ENTRY = {
 
 
 class TestItemSaveDirect:
-    def test_publica_arquivo_no_remote_e_atualiza_indice(self, bare_repo, tmp_path):
+    def test_publica_arquivo_no_remote_e_le_da_pasta(self, bare_repo, tmp_path):
         conn = ConnectionService().create(
             "Direta",
             str(tmp_path / "Direta"),
@@ -66,7 +66,7 @@ class TestItemSaveDirect:
         assert results[0]["action"] == "created"
         item_id = results[0]["id"]
 
-        # índice atualizado de verdade
+        # a leitura seguinte já vê o arquivo
         item = svc.get(item_id)
         assert item.title == "Money em pagamentos"
 
@@ -77,7 +77,7 @@ class TestItemSaveDirect:
         assert "title: Money em pagamentos" in content
         assert "Sempre Money." in content
 
-    def test_segredo_nunca_passa_pelo_git(self, bare_repo, tmp_path):
+    def test_segredo_vai_ao_git_so_com_metadados(self, bare_repo, tmp_path):
         conn = ConnectionService().create(
             "DiretaSecret",
             str(tmp_path / "DiretaSecret"),
@@ -101,12 +101,12 @@ class TestItemSaveDirect:
         )
 
         assert results[0]["action"] == "created"
-        # índice tem o item
         assert svc.get(results[0]["id"]).type == "secret"
-        # nada novo foi publicado no remote (só o README inicial)
+        # o item vai ao remote como os outros, só com título e resumo
         check = tmp_path / "check"
         _git(tmp_path, "clone", "-q", str(bare_repo), str(check))
-        assert not (check / "polara").exists()
+        text = (check / "polara" / "app" / "segredo" / "npm-token.md").read_text(encoding="utf-8")
+        assert "type: secret" in text and "publica no npm" in text
 
     def test_update_republica_conteudo_novo(self, bare_repo, tmp_path):
         conn = ConnectionService().create(
@@ -128,7 +128,7 @@ class TestItemSaveDirect:
 
 
 class TestItemSavePr:
-    def test_pr_nao_toca_indice_e_devolve_pending_review(self, bare_repo, tmp_path):
+    def test_pr_nao_muda_a_pasta_e_devolve_pending_review(self, bare_repo, tmp_path):
         conn = ConnectionService().create(
             "ComPR",
             str(tmp_path / "ComPR"),
@@ -150,13 +150,10 @@ class TestItemSavePr:
         assert results[0]["pr_url"] == "https://example.invalid/pr/7"
         mocked_pr.assert_called_once()
 
-        # índice intocado: o item não existe (workspace/project podem já ter sido
-        # criados por ensure_location, que commita fora da transação do item — mas o
-        # item em si, com o PublishResult pendente, não entra no índice)
-        ws_id = svc.resolve_workspace_id("Polara")
-        pj_id = svc.resolve_project_id(ws_id, "app")
+        # a pasta continua na branch principal: o item só aparece depois do merge + sync
         with pytest.raises(NotFoundError):
-            svc.get_by_key(pj_id, "regra/money")
+            svc.get_by_key("polara", "app", "regra/money")
+        assert svc.search(None, None, "", include_inactive=True) == []
 
         # a branch foi criada e empurrada de verdade no bare, com o arquivo
         branches = subprocess.run(
@@ -167,10 +164,8 @@ class TestItemSavePr:
         ).stdout
         assert "refs/heads/item/" in branches
 
-    def test_pr_sync_depois_traz_pro_indice(self, bare_repo, tmp_path):
-        """Depois do PR "mergeado" (push direto na main, simulando o merge) e um
-        `GitRepoService.sync()`, o item ainda não está no índice (a reindexação pelo
-        conteúdo do git fica fora deste lote) — mas o arquivo já está na main."""
+    def test_pr_empurra_a_branch_do_item(self, bare_repo, tmp_path):
+        """A branch do PR chega ao remote (o merge em si é do GitHub)."""
         conn = ConnectionService().create(
             "ComPRSync",
             str(tmp_path / "ComPRSync"),
@@ -192,8 +187,39 @@ class TestItemSavePr:
 
 
 class TestRepoSync:
-    def test_sem_connection_e_no_op(self):
+    def test_sem_connection_da_erro_claro(self):
+        from knowledge_os.exceptions import NoConnectionError
+
+        with pytest.raises(NoConnectionError, match="connection_create"):
+            repo_tool(action="sync")
+
+    def test_connection_sem_remote_e_no_op(self, tmp_path):
+        ConnectionService().create("Local", str(tmp_path / "Local"), test=False)
         assert repo_tool(action="sync") == {"synced": False}
+
+    def test_sync_traz_o_item_mergeado_para_a_leitura(self, bare_repo, tmp_path):
+        conn = ConnectionService().create(
+            "Leitura", str(tmp_path / "Leitura"), remote_url=str(bare_repo), test=False
+        )
+        other = tmp_path / "other"
+        _git(tmp_path, "clone", "-q", str(bare_repo), str(other))
+        _git(other, "config", "user.email", "o@local")
+        _git(other, "config", "user.name", "o")
+        (other / "polara" / "app").mkdir(parents=True)
+        (other / "polara" / "app" / "x.md").write_text(
+            "---\nkey: x\nid: id-x\nworkspace: Polara\nproject: app\ntype: rule\n"
+            "title: Vindo do merge\nstatus: active\nmemory_class: longterm\n"
+            "created_at: '2026-01-01T00:00:00Z'\nupdated_at: '2026-01-01T00:00:00Z'\n"
+            "summary: s\n---\ncorpo\n",
+            encoding="utf-8",
+        )
+        _git(other, "add", ".")
+        _git(other, "commit", "-q", "-m", "merge")
+        _git(other, "push", "-q", "origin", "main")
+
+        assert repo_tool(action="sync", connection_id=conn.id) == {"synced": True}
+        found = ItemService(connection_id=conn.id).search(None, None, "merge")
+        assert [r["id"] for r in found] == ["id-x"]
 
     def test_puxa_mudanca_do_remote_da_connection(self, bare_repo, tmp_path):
         from knowledge_os.config import ConfigManager
@@ -205,7 +231,7 @@ class TestRepoSync:
             review_mode="direct",
             test=False,
         )
-        clone_path = ConfigManager.load_or_create().get_connection(conn.id).clone_path()
+        clone_path = ConfigManager.load().get_connection(conn.id).clone_path()
 
         # outro clone publica uma mudança no bare
         other = tmp_path / "other"
@@ -223,7 +249,7 @@ class TestRepoSync:
 
 
 class TestItemDeletePublished:
-    def test_direct_remove_arquivo_e_indice(self, bare_repo, tmp_path):
+    def test_direct_remove_o_arquivo(self, bare_repo, tmp_path):
         conn = ConnectionService().create(
             "DiretaDelete",
             str(tmp_path / "DiretaDelete"),
@@ -243,7 +269,7 @@ class TestItemDeletePublished:
         _git(tmp_path, "clone", "-q", str(bare_repo), str(check))
         assert not (check / "polara" / "app" / "regra" / "money.md").exists()
 
-    def test_pr_abre_pr_de_remocao_e_mantem_no_indice(self, bare_repo, tmp_path):
+    def test_pr_abre_pr_de_remocao_e_mantem_na_pasta(self, bare_repo, tmp_path):
         from knowledge_os.config import ConfigManager
 
         conn = ConnectionService().create(
@@ -256,7 +282,7 @@ class TestItemDeletePublished:
         item_id = ItemService(connection_id=conn.id).save([dict(ENTRY)])[0]["id"]
 
         # a connection passa a exigir revisão (ex.: mudou de ideia depois de já ter itens)
-        config = ConfigManager.load_or_create()
+        config = ConfigManager.load()
         config.get_connection(conn.id).review_mode = "pr"
         ConfigManager.save(config)
 
@@ -272,7 +298,7 @@ class TestItemDeletePublished:
         assert result["status"] == "pending_review"
         assert result["pr_url"] == "https://example.invalid/pr/2"
         mocked_pr.assert_called_once()
-        # continua no índice: só sai depois do PR mergeado + sync
+        # continua na pasta: só sai depois do PR mergeado + sync
         assert svc.get(item_id).id == item_id
 
 

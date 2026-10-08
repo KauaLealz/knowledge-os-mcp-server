@@ -24,11 +24,11 @@ def _create(client, tmp_path, name="extra", **over):
     return client.post("/api/connections", json=body)
 
 
-def test_list_has_catalog_marked_default(client, tmp_path):
+def test_list_mostra_a_padrao(client, tmp_path):
     r = client.get("/api/connections")
     assert r.status_code == 200
     (c,) = r.json()
-    assert c["id"] == "default" and c["is_catalog"] is True and c["is_default"] is True
+    assert c["id"] == "teste" and c["is_default"] is True and "is_catalog" not in c
     assert c["remote_url"] is None and c["last_test"] is None
 
 
@@ -37,10 +37,9 @@ def test_create_get_list(client, tmp_path):
     assert r.status_code == 201
     c = r.json()
     assert c["name"] == "extra" and c["enabled"] is True
-    assert c["remote_url"] is None and c["is_default"] is False and c["is_catalog"] is False
+    assert c["remote_url"] is None and c["is_default"] is False
     assert client.get(f"/api/connections/{c['id']}").json()["name"] == "extra"
-    assert [x["id"] for x in client.get("/api/connections").json()] == [
-        "default", c["id"]]
+    assert [x["id"] for x in client.get("/api/connections").json()] == ["teste", c["id"]]
 
 
 def test_create_duplicate_is_422(client, tmp_path):
@@ -57,8 +56,8 @@ def test_create_com_remote_url_e_review_mode(client, tmp_path):
 
 
 @pytest.mark.parametrize("extra", [
-    {"db_type": "sqlite"},
-    {"db_url": "postgresql://u:pw@h/db"},
+    {"tipo": "x"},
+    {"url": "https://u:pw@h/x"},
     {"qualquer": 1},
 ])
 def test_create_forbids_legacy_and_unknown_fields(client, extra, tmp_path):
@@ -68,7 +67,7 @@ def test_create_forbids_legacy_and_unknown_fields(client, extra, tmp_path):
 
 @pytest.mark.parametrize("body", [
     {"name": "x", "review_mode": "oracle"},
-    {"name": "default"},  # nome reservado
+    {"name": "sem-path"},  # path é obrigatório
 ])
 def test_create_invalid_is_422(client, body, tmp_path):
     assert client.post("/api/connections", json=body).status_code == 422
@@ -89,7 +88,8 @@ def test_remote_url_fica_no_json(client, tmp_path):
     assert r.status_code == 201
     c = r.json()
     stored = json.loads(ConfigManager.CONNECTIONS_FILE.read_text(encoding="utf-8"))
-    assert stored["connections"][0]["remote_url"] == remote
+    (saved,) = [x for x in stored["connections"] if x["id"] == c["id"]]
+    assert saved["remote_url"] == remote
     assert client.get(f"/api/connections/{c['id']}").json()["remote_url"] == remote
 
 
@@ -120,10 +120,9 @@ def test_patch_fields_and_validation(client, tmp_path):
                         json={"name": "a"}).status_code == 404
 
 
-def test_catalog_cannot_be_edited_or_deleted(client, tmp_path):
-    assert client.patch("/api/connections/default",
-                        json={"name": "x"}).status_code == 422
-    assert client.delete("/api/connections/default").status_code == 422
+def test_a_padrao_nao_pode_ser_desativada(client, tmp_path):
+    assert client.patch("/api/connections/teste", json={"enabled": False}).status_code == 422
+    assert client.patch("/api/connections/teste", json={"name": "x"}).status_code == 200
 
 
 def test_test_endpoint_ok_and_last_test(client, tmp_path):
@@ -152,12 +151,16 @@ def test_set_default_e_delete_da_default_passa_o_posto(client, tmp_path):
     cid = _create(client, tmp_path).json()["id"]
     r = client.put(f"/api/connections/{cid}/default")
     assert r.status_code == 200 and r.json()["is_default"] is True
-    assert ConfigManager.load_or_create().default == cid
+    assert ConfigManager.load().default == cid
     rows = {c["id"]: c for c in client.get("/api/connections").json()}
-    assert rows["default"]["is_default"] is False and rows[cid]["is_default"] is True
-    # apagar a default é permitido: sem outra habilitada, o posto volta para o catálogo
+    assert rows["teste"]["is_default"] is False and rows[cid]["is_default"] is True
+    # apagar a padrão é permitido: o posto passa para outra habilitada
     assert client.delete(f"/api/connections/{cid}").status_code == 204
-    assert ConfigManager.load_or_create().default == "default"
+    assert ConfigManager.load().default == "teste"
+    # e apagar a última deixa sem padrão (as rotas de dados passam a dizer como criar)
+    assert client.delete("/api/connections/teste").status_code == 204
+    assert ConfigManager.load().default is None
+    assert client.get("/api/workspaces").status_code == 422
 
 
 def test_set_default_disabled_is_422_and_missing_is_404(client, tmp_path):
@@ -166,16 +169,6 @@ def test_set_default_disabled_is_422_and_missing_is_404(client, tmp_path):
     assert client.put("/api/connections/nope/default").status_code == 404
 
 
-def test_schema_sync_dry_run_then_apply(client, tmp_path):
+def test_rota_de_sincronizar_schema_saiu(client, tmp_path):
     cid = _create(client, tmp_path).json()["id"]
-    dry = client.post(f"/api/connections/{cid}/schema-sync?dry_run=true")
-    assert dry.status_code == 200
-    assert dry.json()["dry_run"] is True
-    done = client.post(f"/api/connections/{cid}/schema-sync?dry_run=false").json()
-    assert done["dry_run"] is False and done["status"] in ("created", "up_to_date")
-    final = client.post(f"/api/connections/{cid}/schema-sync?dry_run=true").json()
-    assert final["status"] == "up_to_date" and final["tables_created"] == []
-
-
-def test_schema_sync_missing_is_404(client, tmp_path):
-    assert client.post("/api/connections/nope/schema-sync").status_code == 404
+    assert client.post(f"/api/connections/{cid}/schema-sync").status_code in (404, 405)

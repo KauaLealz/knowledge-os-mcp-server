@@ -1,18 +1,19 @@
-"""Projetos: liga um repositório (remote do git ou caminho) a um workspace/project."""
+"""Projetos: liga um repositório (remote do git ou caminho) a um workspace/project.
+
+A ligação é desta máquina (`storage.local_state`, `repos.json` no home) e aponta para uma
+conexão: cada `RepoService` só enxerga as ligações da sua conexão.
+"""
 
 import re
 import subprocess
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import Engine, select
-
-from knowledge_os.db.models import Project, RepoLink, Workspace
-from knowledge_os.db.search_query import strip_accents
-from knowledge_os.db.session import get_engine, get_session
-from knowledge_os.db.timeutil import utcnow
 from knowledge_os.exceptions import NotFoundError, ValidationError
-from knowledge_os.services.item_service import ItemService
+from knowledge_os.services.item_file import slugify
+from knowledge_os.storage import local_state
+from knowledge_os.storage.access import resolve_connection
+from knowledge_os.storage.search import strip_accents
 
 _SCHEME = re.compile(r"^[a-z][a-z0-9+.-]*://")
 
@@ -93,14 +94,18 @@ def repo_key(repo: str) -> str:
 
 
 class RepoService:
-    """Ligações projeto → workspace/project no banco da connection."""
+    """Ligações projeto → workspace/project da conexão (a informada ou a padrão)."""
 
-    def __init__(self, engine: Engine | None = None, connection_id: str | None = None) -> None:
-        self._engine = engine
+    def __init__(self, connection_id: str | None = None) -> None:
         self._connection_id = connection_id
 
-    def _get_engine(self) -> Engine:
-        return self._engine if self._engine is not None else get_engine(self._connection_id)
+    def _cid(self) -> str:
+        return resolve_connection(self._connection_id).id
+
+    def _links(self) -> dict[str, dict[str, Any]]:
+        cid = self._cid()
+        return {k: v for k, v in local_state.list_repos().items()
+                if v.get("connection_id") == cid}
 
     def link(
         self,
@@ -109,7 +114,7 @@ class RepoService:
         project: str | None = None,
         confirm_new: bool = False,
     ) -> dict[str, Any]:
-        """Liga (ou religa) o repositório; workspace e project são criados se não existirem.
+        """Liga (ou religa) o repositório; workspace e project passam a existir se faltarem.
 
         Workspace = contexto de trabalho (empresa, cliente, pessoal); project = o repositório.
         Sem workspace: o de outro repo do mesmo dono já ligado; senão o nome do dono no
@@ -120,102 +125,79 @@ class RepoService:
         casefold + sem acento) bater com um já existente mas com grafia diferente, não cria
         nada — devolve {status: "candidate", candidate_match: {...}} para o chamador confirmar.
         """
+        from knowledge_os.services.brain import Brain
+        from knowledge_os.services.item_service import ItemService
+
         key = repo_key(repo)
+        cid = self._cid()
         workspace = workspace or self._sibling_workspace(key) or owner_name(key)
         project = project or repo_name(key)
         if not confirm_new:
-            candidate = self._find_candidate(workspace, project)
+            candidate = self._find_candidate(Brain(cid), workspace, project)
             if candidate is not None:
                 return {"status": "candidate", "candidate_match": candidate}
-        ws_id, pj_id = ItemService(self._engine, self._connection_id).ensure_location(
-            workspace, project
-        )
-        session = get_session(self._get_engine())
-        try:
-            row = session.get(RepoLink, key)
-            if row is None:
-                session.add(RepoLink(repo_key=key, workspace_id=ws_id, project_id=pj_id))
-            else:
-                row.workspace_id, row.project_id = ws_id, pj_id
-                row.updated_at = utcnow()
-            session.commit()
-        finally:
-            session.close()
-        return {"repo_key": key, "workspace": workspace, "project": project}
+        ws_id, pj_id = ItemService(cid).ensure_location(workspace, project)
+        snap = Brain(cid).snapshot
+        ws_name = snap.workspace(ws_id).name
+        pj_name = snap.project(ws_id, pj_id).name
+        local_state.set_repo(key, connection_id=cid, workspace=ws_name, project=pj_name)
+        return {"repo_key": key, "workspace": ws_name, "project": pj_name}
 
     @staticmethod
     def _norm(name: str) -> str:
         return strip_accents(name).casefold()
 
-    def _find_candidate(self, workspace: str, project: str) -> dict[str, str] | None:
+    def _find_candidate(self, brain: Any, workspace: str, project: str) -> dict[str, str] | None:
         """Nome candidato de workspace/project parecido (casefold+sem acento) com um
         já existente, mas grafado diferente. Só sinaliza se o literal já não existir.
         """
-        engine = self._get_engine()
-        session = get_session(engine)
-        try:
-            from knowledge_os.db.session import connection_id_of
-
-            cid = self._connection_id or connection_id_of(engine) or "default"
-            workspaces = list(
-                session.scalars(select(Workspace).where(Workspace.connection_id == cid))
+        snap = brain.snapshot
+        workspaces = snap.workspaces()
+        existing_ws = next((w for w in workspaces if w.name == workspace), None)
+        if existing_ws is None:
+            norm_ws = self._norm(workspace)
+            match = next(
+                (w for w in workspaces
+                 if self._norm(w.name) == norm_ws or w.id == slugify(workspace)),
+                None,
             )
-            existing_ws = next((w for w in workspaces if w.name == workspace), None)
-            if existing_ws is None:
-                norm_ws = self._norm(workspace)
-                match = next((w for w in workspaces if self._norm(w.name) == norm_ws), None)
-                if match is not None:
-                    return {"field": "workspace", "input": workspace, "candidate": match.name}
-                return None
-            projects = list(
-                session.scalars(select(Project).where(Project.workspace_id == existing_ws.id))
-            )
-            if any(p.name == project for p in projects):
-                return None
-            norm_pj = self._norm(project)
-            match_pj = next((p for p in projects if self._norm(p.name) == norm_pj), None)
-            if match_pj is not None:
-                return {"field": "project", "input": project, "candidate": match_pj.name}
+            if match is not None:
+                return {"field": "workspace", "input": workspace, "candidate": match.name}
             return None
-        finally:
-            session.close()
+        projects = snap.projects(existing_ws.id)
+        if any(p.name == project for p in projects):
+            return None
+        norm_pj = self._norm(project)
+        match_pj = next(
+            (p for p in projects if self._norm(p.name) == norm_pj or p.id == slugify(project)),
+            None,
+        )
+        if match_pj is not None:
+            return {"field": "project", "input": project, "candidate": match_pj.name}
+        return None
 
     def _sibling_workspace(self, key: str) -> str | None:
         """Workspace de outro repositório do mesmo dono já ligado (o mais recente)."""
         prefix = owner_prefix(key)
         if prefix is None:
             return None
-        session = get_session(self._get_engine())
-        try:
-            return session.scalar(
-                select(Workspace.name)
-                .join(RepoLink, RepoLink.workspace_id == Workspace.id)
-                .where(RepoLink.repo_key.startswith(prefix), RepoLink.repo_key != key)
-                .order_by(RepoLink.updated_at.desc())
-                .limit(1)
-            )
-        finally:
-            session.close()
+        siblings = [
+            v for k, v in self._links().items() if k.startswith(prefix) and k != key
+        ]
+        if not siblings:
+            return None
+        return max(siblings, key=lambda v: v.get("updated_at") or "").get("workspace")
 
     def resolve(self, repo: str) -> dict[str, str] | None:
         """{repo_key, workspace_id, workspace, project_id, project} ou None se não ligado."""
         key = repo_key(repo)
-        session = get_session(self._get_engine())
-        try:
-            row = session.execute(
-                select(RepoLink, Workspace.name, Project.name)
-                .join(Workspace, Workspace.id == RepoLink.workspace_id)
-                .join(Project, Project.id == RepoLink.project_id)
-                .where(RepoLink.repo_key == key)
-            ).first()
-        finally:
-            session.close()
-        if row is None:
+        entry = self._links().get(key)
+        if entry is None:
             return None
-        link, ws_name, pj_name = row
+        ws, pj = entry.get("workspace") or "", entry.get("project") or ""
         return {
-            "repo_key": key, "workspace_id": link.workspace_id, "workspace": ws_name,
-            "project_id": link.project_id, "project": pj_name,
+            "repo_key": key, "workspace_id": slugify(ws), "workspace": ws,
+            "project_id": slugify(pj), "project": pj,
         }
 
     def require(self, repo: str) -> dict[str, str]:
@@ -231,36 +213,21 @@ class RepoService:
     def list_links(
         self, workspace: str | None = None, project: str | None = None
     ) -> list[dict[str, str]]:
-        """Todos os RepoLinks, opcionalmente filtrados por nome de workspace e/ou project."""
-        session = get_session(self._get_engine())
-        try:
-            query = (
-                select(RepoLink, Workspace.name, Project.name)
-                .join(Workspace, Workspace.id == RepoLink.workspace_id)
-                .join(Project, Project.id == RepoLink.project_id)
-            )
-            if workspace:
-                query = query.where(Workspace.name == workspace)
-            if project:
-                query = query.where(Project.name == project)
-            rows = session.execute(query.order_by(RepoLink.repo_key)).all()
-        finally:
-            session.close()
-        return [
-            {"repo_key": link.repo_key, "workspace": ws_name, "project": pj_name}
-            for link, ws_name, pj_name in rows
-        ]
+        """Ligações da conexão, opcionalmente filtradas por workspace e/ou project (nome ou id)."""
+        out = []
+        for key, entry in sorted(self._links().items()):
+            ws, pj = entry.get("workspace") or "", entry.get("project") or ""
+            if workspace and slugify(ws) != slugify(workspace):
+                continue
+            if project and slugify(pj) != slugify(project):
+                continue
+            out.append({"repo_key": key, "workspace": ws, "project": pj})
+        return out
 
     def unlink(self, repo: str) -> bool:
         """Apaga o vínculo do repositório. NotFoundError se não existir."""
         key = repo_key(repo)
-        session = get_session(self._get_engine())
-        try:
-            row = session.get(RepoLink, key)
-            if row is None:
-                raise NotFoundError(f"Projeto não ligado ao segundo cérebro: {key}")
-            session.delete(row)
-            session.commit()
-        finally:
-            session.close()
+        if key not in self._links():
+            raise NotFoundError(f"Projeto não ligado ao segundo cérebro: {key}")
+        local_state.delete_repo(key)
         return True

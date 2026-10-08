@@ -213,28 +213,6 @@ export function register(Alpine) {
       }
     },
 
-    // ---- schema-sync: dry-run primeiro, depois aplica ----
-    async syncSchema(dryRun) {
-      this.error = null;
-      this.syncMessage = null;
-      this.syncing = true;
-      try {
-        const id = encodeURIComponent(this.conn.id);
-        const r = await api('POST', `/connections/${id}/schema-sync`, { query: { dry_run: dryRun ? 'true' : 'false' } });
-        if (dryRun) {
-          this.plan = r;
-        } else {
-          this.plan = null;
-          this.syncMessage = `Schema synced (${r.status}).`;
-          this.app.toast('Schema synced');
-        }
-      } catch (e) {
-        this.error = e.message;
-      } finally {
-        this.syncing = false;
-      }
-    },
-
     // ---- zona de perigo ----
     async remove() {
       if (!this.dangerReady) return;

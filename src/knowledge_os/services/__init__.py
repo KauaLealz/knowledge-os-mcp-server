@@ -1,1 +1,1 @@
-"""Services: business logic para operações de banco de dados."""
+"""Services: regras do segundo cérebro sobre os arquivos de cada conexão."""

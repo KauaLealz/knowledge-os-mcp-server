@@ -19,7 +19,7 @@ from knowledge_os.api.routes import (
     tag,
     workspace,
 )
-from knowledge_os.exceptions import DatabaseError, NotFoundError, ValidationError
+from knowledge_os.exceptions import NotFoundError, StorageError, ValidationError
 
 app = FastAPI(
     title="Knowledge OS API",
@@ -87,8 +87,8 @@ async def _validation(_: Request, exc: ValidationError) -> JSONResponse:
     return JSONResponse(status_code=422, content={"detail": str(exc)})
 
 
-@app.exception_handler(DatabaseError)
-async def _database(_: Request, exc: DatabaseError) -> JSONResponse:
+@app.exception_handler(StorageError)
+async def _storage(_: Request, exc: StorageError) -> JSONResponse:
     return JSONResponse(status_code=500, content={"detail": str(exc)})
 
 

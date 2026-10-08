@@ -45,4 +45,4 @@ e guarde em `~/.knowledge-os/pending.jsonl`.
 - `vocabulary(kind, action, name, id)`: tags/labels.
 - `backup(action, workspace, project, file_path)`: export/import via ZIP.
 - `artifact(action, item_id, file_path, artifact_id)`: attach liga arquivo; get lê base64.
-- Outros bancos/migração: UI (`knowledge-mcp ui`). Senhas nunca passam pela conversa.
+- Conexões: `connection_create` ou `knowledge-mcp ui`. Senhas nunca passam pela conversa.

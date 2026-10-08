@@ -27,7 +27,7 @@ function normalizeConnection(c) {
     review_mode: c.review_mode || 'direct',
     enabled: c.enabled ?? c.is_active ?? true,
     is_default: !!c.is_default,
-    is_catalog: !!c.is_catalog || c.id === 'default',
+    is_catalog: !!c.is_catalog,
     last_test: c.last_test || null,
   };
 }
@@ -120,11 +120,8 @@ export const appStore = {
       this.connError = e.message;
       return;
     }
-    if (!list.length) list = [{ id: 'default', name: 'default', enabled: true, is_default: true }];
-    if (!list.some((c) => c.is_default)) {
-      const d = list.find((c) => c.id === 'default') || list[0];
-      d.is_default = true;
-    }
+    // Sem conexão cadastrada a lista fica vazia: nada é inventado (cria-se em Connections).
+    if (list.length && !list.some((c) => c.is_default)) list[0].is_default = true;
     this.connections = list;
   },
 

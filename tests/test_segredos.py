@@ -13,15 +13,13 @@ from pathlib import Path
 import pytest
 from fastmcp.exceptions import ToolError
 
-from knowledge_os import config
-from knowledge_os.exceptions import NotFoundError, ValidationError
+from knowledge_os.exceptions import ValidationError
 from knowledge_os.services import vault
 from knowledge_os.services.context_service import ContextService
 from knowledge_os.services.item_service import ItemService
 from knowledge_os.services.repo_service import RepoService
 from knowledge_os.services.secret_guard import ensure_no_secrets
 from knowledge_os.services.secret_service import SecretService
-from tests.helpers_multidb import catalog  # noqa: F401
 from tests.test_tools_mcp import call, server  # noqa: F401
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -32,16 +30,20 @@ SECRET = {"key": "segredo/npm-token", "type": "secret", "title": "Token do npm",
 
 
 @pytest.fixture
-def linked(test_engine):
-    RepoService(test_engine).link(PROJECT, "Org", "app")
-    return test_engine
+def linked(conn):
+    RepoService().link(PROJECT, "Org", "app")
+    return conn
 
 
-def _secret(engine, **extra):
-    link = RepoService(engine).require(PROJECT)
-    out = ItemService(engine).save([{**SECRET, **extra}],
-                                   default_location=(link["workspace_id"], link["project_id"]))
+def _secret(_conn=None, **extra):
+    link = RepoService().require(PROJECT)
+    out = ItemService().save([{**SECRET, **extra}],
+                             default_location=(link["workspace"], link["project"]))
     return out[0]["id"]
+
+
+def _enc(conn, item_id):
+    return conn.clone_path() / ".secrets" / f"{item_id}.enc"
 
 
 # ---- cifra e chave mestra ---------------------------------------------------------------
@@ -54,14 +56,14 @@ def test_cifra_ida_e_volta_e_o_texto_cifrado_nao_contem_o_valor():
 
 
 def test_sem_chave_e_com_valor_cifrado_da_erro_sem_gerar_chave(linked, monkeypatch):
-    item_id = _secret(linked)
-    SecretService(linked).set_value(item_id, VALUE)
+    item_id = _secret()
+    SecretService().set_value(item_id, VALUE)
     monkeypatch.delenv(vault.ENV_KEY)
     created = []
     monkeypatch.setattr(vault, "_keyring_get", lambda: None)
     monkeypatch.setattr(vault, "_keyring_set", lambda key: created.append(key))
     with pytest.raises(ValidationError, match="chave mestra"):
-        SecretService(linked).set_value(item_id, "outro")
+        SecretService().set_value(item_id, "outro")
     assert created == []
 
 
@@ -70,9 +72,9 @@ def test_primeiro_segredo_gera_a_chave_no_keyring(linked, monkeypatch):
     store = {}
     monkeypatch.setattr(vault, "_keyring_get", lambda: store.get("k"))
     monkeypatch.setattr(vault, "_keyring_set", lambda key: store.update(k=key))
-    item_id = _secret(linked)
-    SecretService(linked).set_value(item_id, VALUE)
-    assert store["k"] and SecretService(linked).resolve(PROJECT, "segredo/npm-token")[1] == VALUE
+    item_id = _secret()
+    SecretService().set_value(item_id, VALUE)
+    assert store["k"] and SecretService().resolve(PROJECT, "segredo/npm-token")[1] == VALUE
 
 
 # ---- agente cria vazio; nada devolve o valor -------------------------------------------
@@ -81,7 +83,7 @@ def test_item_save_cria_segredo_vazio_e_devolve_o_link(server):  # noqa: F811
     call(server, "repo", action="link", repo=PROJECT, workspace="Org", project="app")
     out = call(server, "item_save", repo=PROJECT, items=[SECRET])[0]
     assert out["action"] == "created" and out["has_value"] is False
-    assert out["fill_url"].startswith("http://127.0.0.1:8765/ui/#/c/default/w/")
+    assert out["fill_url"].startswith("http://127.0.0.1:8765/ui/#/c/teste/w/org/p/app/")
     assert out["fill_url"].endswith(f"/i/{out['id']}")
 
 
@@ -94,64 +96,73 @@ def test_item_save_recusa_o_valor_sem_ecoar(server, field):  # noqa: F811
 
 
 def test_nenhuma_leitura_devolve_o_valor(linked):
-    item_id = _secret(linked)
-    SecretService(linked).set_value(item_id, VALUE)
-    items = ItemService(linked)
+    item_id = _secret()
+    SecretService().set_value(item_id, VALUE)
+    items = ItemService()
     from knowledge_os.schemas.item_schemas import ItemResponse
 
     got = ItemResponse.from_item(items.get(item_id)).model_dump(mode="json")
     assert got["has_value"] is True and VALUE not in json.dumps(got)
     assert VALUE not in json.dumps(items.search(None, None, "npm", limit=5), default=str)
-    md = ContextService(linked).build(PROJECT)["markdown"]
+    md = ContextService().build(PROJECT)["markdown"]
     assert "Token do npm" in md and VALUE not in md
     assert "knowledge-mcp run --env" in md and "segredo/npm-token" in md
 
 
 def test_contexto_mostra_o_link_quando_falta_o_valor(linked):
-    _secret(linked)
-    md = ContextService(linked).build(PROJECT)["markdown"]
+    _secret()
+    md = ContextService().build(PROJECT)["markdown"]
     assert "sem valor" in md and "http://127.0.0.1:8765/ui/#/c/" in md
 
 
 def test_apagar_o_item_apaga_o_valor(linked):
-    item_id = _secret(linked)
-    SecretService(linked).set_value(item_id, VALUE)
-    ItemService(linked).delete(item_id)
-    with linked.connect() as conn:
-        from sqlalchemy import text
+    item_id = _secret()
+    SecretService().set_value(item_id, VALUE)
+    assert _enc(linked, item_id).is_file()
+    ItemService().delete(item_id)
+    assert not _enc(linked, item_id).exists()
 
-        assert conn.execute(text("SELECT count(*) FROM secret_values")).scalar() == 0
+
+def test_item_secret_vira_arquivo_so_com_metadados(linked):
+    item_id = _secret()
+    SecretService().set_value(item_id, VALUE)
+    path = linked.clone_path() / ItemService().get(item_id).path
+    text = path.read_text(encoding="utf-8")
+    assert "type: secret" in text and "Token do npm" in text and VALUE not in text
+    tracked = subprocess.run(["git", "ls-files"], cwd=linked.clone_path(), capture_output=True,
+                             text=True, check=True).stdout
+    assert ".secrets" not in tracked
 
 
 def test_segredo_com_valor_nao_vira_outro_tipo(linked):
-    item_id = _secret(linked)
-    SecretService(linked).set_value(item_id, VALUE)
+    item_id = _secret()
+    SecretService().set_value(item_id, VALUE)
     with pytest.raises(ValidationError, match="Apague o valor"):
-        ItemService(linked).update(item_id, type="knowledge")
+        ItemService().update(item_id, type="knowledge")
 
 
 def test_valor_so_em_item_secret(linked):
-    link = RepoService(linked).require(PROJECT)
-    rid = ItemService(linked).save(
+    link = RepoService().require(PROJECT)
+    rid = ItemService().save(
         [{"key": "regra/x", "type": "rule", "title": "X", "summary": "s", "content": "c"}],
-        default_location=(link["workspace_id"], link["project_id"]))[0]["id"]
+        default_location=(link["workspace"], link["project"]))[0]["id"]
     with pytest.raises(ValidationError, match="secret"):
-        SecretService(linked).set_value(rid, VALUE)
+        SecretService().set_value(rid, VALUE)
 
 
 def test_resolve_procura_no_repo_no_geral_e_no_global(linked):
-    items = ItemService(linked)
+    items = ItemService()
     out = items.save([{**SECRET, "workspace": "Global", "project": "Geral"}])
-    SecretService(linked).set_value(out[0]["id"], VALUE)
-    item, value = SecretService(linked).resolve(PROJECT, "segredo/npm-token")
+    SecretService().set_value(out[0]["id"], VALUE)
+    item, value = SecretService().resolve(PROJECT, "segredo/npm-token")
     assert value == VALUE and item.id == out[0]["id"]
     assert items.get(item.id).access_count == 1  # uso conta
 
 
 def test_resolve_sem_valor_aponta_o_link(linked):
-    _secret(linked)
+    _secret()
     with pytest.raises(ValidationError, match=r"sem valor.*http://127\.0\.0\.1:8765/ui/"):
-        SecretService(linked).resolve(PROJECT, "segredo/npm-token")
+        SecretService().resolve(PROJECT, "segredo/npm-token")
 
 
 def test_guard_ensina_o_fluxo_do_segredo():
@@ -170,17 +181,19 @@ def cli_env(tmp_path):
     (project / ".git").mkdir(parents=True)
     code = (
         "import sys\n"
-        "from knowledge_os.config import ensure_home, validate_and_init_config\n"
-        "ensure_home(); validate_and_init_config()\n"
+        "from knowledge_os.config import ensure_home\n"
+        "ensure_home()\n"
+        "from knowledge_os.services.connection_service import ConnectionService\n"
         "from knowledge_os.services.item_service import ItemService\n"
         "from knowledge_os.services.repo_service import RepoService\n"
         "from knowledge_os.services.secret_service import SecretService\n"
+        f"ConnectionService().create('Dados', {str(tmp_path / 'dados')!r}, test=False)\n"
         f"RepoService().link({str(project)!r}, 'Pessoal', 'app')\n"
         f"link = RepoService().resolve({str(project)!r})\n"
         "ids = ItemService().save([\n"
         "  {'key': 'segredo/token', 'type': 'secret', 'title': 'T', 'summary': 's'},\n"
         "  {'key': 'segredo/vazio', 'type': 'secret', 'title': 'V', 'summary': 's'}],\n"
-        "  default_location=(link['workspace_id'], link['project_id']))\n"
+        "  default_location=(link['workspace'], link['project']))\n"
         "SecretService().set_value(ids[0]['id'], sys.argv[1])\n"
     )
     subprocess.run([sys.executable, "-c", code, VALUE], env=env, cwd=ROOT, check=True,
@@ -234,142 +247,126 @@ def test_run_sem_valor_aponta_o_link_e_nao_roda(cli_env):
 
 # ---- achados das revisões ------------------------------------------------------------------
 
-def test_chave_perdida_depois_de_criada_nao_e_regerada_mesmo_com_banco_vazio(linked, monkeypatch):
-    """A chave vale para todas as conexões: outro banco vazio não autoriza gerar outra."""
+def test_chave_perdida_depois_de_criada_nao_e_regerada_mesmo_sem_valores(linked, monkeypatch):
+    """A chave vale para todas as conexões: uma conexão sem valores não autoriza gerar outra."""
     monkeypatch.delenv(vault.ENV_KEY)
     monkeypatch.setattr(vault, "_keyring_get", lambda: None)
     created = []
     monkeypatch.setattr(vault, "_keyring_set", lambda key: created.append(key))
     vault._marker().parent.mkdir(parents=True, exist_ok=True)
     vault._marker().write_text("x")
-    item_id = _secret(linked)
+    item_id = _secret()
     with pytest.raises(ValidationError, match="já foi criada"):
-        SecretService(linked).set_value(item_id, VALUE)
+        SecretService().set_value(item_id, VALUE)
     assert created == []
 
 
-def test_link_usa_a_conexao_default_configurada(linked, monkeypatch):
+def test_link_usa_a_conexao_informada(linked):
     import knowledge_os.services.secret_service as svc
 
-    monkeypatch.setattr(svc, "default_connection_id", lambda: "pg-1")
-    item = ItemService(linked).get(_secret(linked))
-    assert "/ui/#/c/pg-1/w/" in svc.fill_url(item)
+    item = ItemService().get(_secret())
+    assert "/ui/#/c/pg-1/w/org/p/app/i/" in svc.fill_url(item, "pg-1")
 
 
 def test_segredo_sem_key_e_recusado_e_resolve_aceita_o_id(linked):
-    link = RepoService(linked).require(PROJECT)
-    loc = (link["workspace_id"], link["project_id"])
+    link = RepoService().require(PROJECT)
+    loc = (link["workspace"], link["project"])
     with pytest.raises(ValidationError, match="precisa de key"):
-        ItemService(linked).save([{"type": "secret", "title": "T", "summary": "s"}],
+        ItemService().save([{"type": "secret", "title": "T", "summary": "s"}],
                                  default_location=loc)
-    item_id = _secret(linked)
-    SecretService(linked).set_value(item_id, VALUE)
-    assert SecretService(linked).resolve(PROJECT, item_id)[1] == VALUE
+    item_id = _secret()
+    SecretService().set_value(item_id, VALUE)
+    assert SecretService().resolve(PROJECT, item_id)[1] == VALUE
 
 
 @pytest.mark.parametrize("entry, match", [
     ({"Token": VALUE}, "não passa pelo agente"),
     ({"content": "outro texto"}, "não tem corpo"),
-    ({"summary": "token do banco: Zk81Lm2Qp9Xw4Rt7"}, "parece conter a credencial"),
+    ({"summary": "token da fila: Zk81Lm2Qp9Xw4Rt7"}, "parece conter a credencial"),
 ])
 def test_item_save_recusa_valor_disfarcado_em_segredo(linked, entry, match):
-    link = RepoService(linked).require(PROJECT)
+    link = RepoService().require(PROJECT)
     with pytest.raises(ValidationError, match=match) as exc:
-        ItemService(linked).save([{**SECRET, **entry}],
-                                 default_location=(link["workspace_id"], link["project_id"]))
+        ItemService().save([{**SECRET, **entry}],
+                                 default_location=(link["workspace"], link["project"]))
     assert VALUE not in str(exc.value) and "Zk81Lm2Qp9Xw4Rt7" not in str(exc.value)
 
 
 @pytest.mark.parametrize("value, match", [("abc", "curto demais"), ("ab\ud83dcd", "inválido")])
 def test_set_value_recusa_curto_e_utf16_solto(linked, value, match):
-    item_id = _secret(linked)
+    item_id = _secret()
     with pytest.raises(ValidationError, match=match):
-        SecretService(linked).set_value(item_id, value)
+        SecretService().set_value(item_id, value)
 
 
 def test_valor_trocado_de_linha_no_arquivo_nao_vira_outro_segredo(linked):
-    a = _secret(linked)
-    b = _secret(linked, key="segredo/aws", title="AWS")
-    SecretService(linked).set_value(a, VALUE)
-    SecretService(linked).set_value(b, "aws-" + VALUE)
-    secrets_dir = config.KNOWLEDGE_HOME / "repos" / "default" / ".secrets"
-    (secrets_dir / f"{b}.enc").write_text((secrets_dir / f"{a}.enc").read_text(encoding="utf-8"),
-                                          encoding="utf-8")
+    a = _secret()
+    b = _secret(key="segredo/aws", title="AWS")
+    SecretService().set_value(a, VALUE)
+    SecretService().set_value(b, "aws-" + VALUE)
+    _enc(linked, b).write_text(_enc(linked, a).read_text(encoding="utf-8"), encoding="utf-8")
     with pytest.raises(ValidationError, match="outro segredo"):
-        SecretService(linked).resolve(PROJECT, "segredo/aws")
+        SecretService().resolve(PROJECT, "segredo/aws")
 
 
 def test_resolve_prefere_o_repo_ao_global(linked):
-    items = ItemService(linked)
+    items = ItemService()
     glob = items.save([{**SECRET, "workspace": "Global", "project": "Geral"}])[0]["id"]
-    SecretService(linked).set_value(glob, "global-" + VALUE)
-    repo = _secret(linked)
-    SecretService(linked).set_value(repo, "repo-" + VALUE)
-    assert SecretService(linked).resolve(PROJECT, "segredo/npm-token")[1] == "repo-" + VALUE
+    SecretService().set_value(glob, "global-" + VALUE)
+    repo = _secret()
+    SecretService().set_value(repo, "repo-" + VALUE)
+    assert SecretService().resolve(PROJECT, "segredo/npm-token")[1] == "repo-" + VALUE
 
 
 def test_apagar_project_leva_o_valor(linked):
-    from sqlalchemy import delete, text
-    from sqlalchemy.orm import Session
+    from knowledge_os.services.project_service import ProjectService
 
-    from knowledge_os.db.models import Item
-    from knowledge_os.services._common import purge_item_links
-
-    item_id = _secret(linked)
-    SecretService(linked).set_value(item_id, VALUE)
-    with Session(linked) as s:
-        purge_item_links(s, [item_id])
-        s.execute(delete(Item).where(Item.id == item_id))
-        s.commit()
-    with linked.connect() as conn:
-        assert conn.execute(text("SELECT count(*) FROM secret_values")).scalar() == 0
+    item_id = _secret()
+    SecretService().set_value(item_id, VALUE)
+    ProjectService().delete("org", "app")
+    assert not _enc(linked, item_id).exists()
 
 
-# ---- ciphertext em arquivo no clone, fora do banco ------------------------------------------
+# ---- ciphertext em arquivo na pasta da conexão, fora do git ---------------------------------
 
 def test_set_value_grava_o_ciphertext_em_arquivo_no_clone(linked):
-    item_id = _secret(linked)
-    SecretService(linked).set_value(item_id, VALUE)
-    secret_path = config.KNOWLEDGE_HOME / "repos" / "default" / ".secrets" / f"{item_id}.enc"
+    item_id = _secret()
+    SecretService().set_value(item_id, VALUE)
+    secret_path = _enc(linked, item_id)
     assert secret_path.is_file()
     token = secret_path.read_text(encoding="utf-8")
     assert VALUE not in token
     assert vault.decrypt(token, bound_to=item_id) == VALUE
-    with linked.connect() as conn:
-        from sqlalchemy import text
-
-        cols = {row[1] for row in conn.execute(text("PRAGMA table_info(secret_values)"))}
-    assert "ciphertext" not in cols
 
 
 def test_primeira_gravacao_poe_secrets_no_gitignore_sem_duplicar(linked):
-    item_id = _secret(linked)
-    clone_path = config.KNOWLEDGE_HOME / "repos" / "default"
-    SecretService(linked).set_value(item_id, VALUE)
+    item_id = _secret()
+    clone_path = linked.clone_path()
+    SecretService().set_value(item_id, VALUE)
     gitignore = (clone_path / ".gitignore").read_text(encoding="utf-8")
     assert gitignore.splitlines().count(".secrets/") == 1
 
-    SecretService(linked).set_value(item_id, "outro-valor-com-tamanho-ok")
+    SecretService().set_value(item_id, "outro-valor-com-tamanho-ok")
     gitignore = (clone_path / ".gitignore").read_text(encoding="utf-8")
     assert gitignore.splitlines().count(".secrets/") == 1
 
 
 def test_clear_value_remove_o_arquivo(linked):
-    item_id = _secret(linked)
-    SecretService(linked).set_value(item_id, VALUE)
-    secret_path = config.KNOWLEDGE_HOME / "repos" / "default" / ".secrets" / f"{item_id}.enc"
+    item_id = _secret()
+    SecretService().set_value(item_id, VALUE)
+    secret_path = _enc(linked, item_id)
     assert secret_path.exists()
-    SecretService(linked).clear_value(item_id)
+    SecretService().clear_value(item_id)
     assert not secret_path.exists()
+    assert ItemService().get(item_id).has_value is False
 
 
-def test_resolve_com_arquivo_ausente_mas_indice_com_valor_da_erro_claro(linked):
-    item_id = _secret(linked)
-    SecretService(linked).set_value(item_id, VALUE)
-    secret_path = config.KNOWLEDGE_HOME / "repos" / "default" / ".secrets" / f"{item_id}.enc"
-    secret_path.unlink()
-    with pytest.raises(NotFoundError, match="arquivo cifrado não existe"):
-        SecretService(linked).resolve(PROJECT, "segredo/npm-token")
+def test_sem_o_arquivo_cifrado_o_segredo_fica_sem_valor(linked):
+    item_id = _secret()
+    SecretService().set_value(item_id, VALUE)
+    _enc(linked, item_id).unlink()
+    with pytest.raises(ValidationError, match="sem valor"):
+        SecretService().resolve(PROJECT, "segredo/npm-token")
 
 
 # ---- redação e execução --------------------------------------------------------------------
@@ -434,14 +431,12 @@ def test_run_redige_valor_com_acento_escrito_em_cp1252(cli_env, tmp_path):
              "print('v=' + os.environ['T'])")
     code = (
         "import sys\n"
-        "from knowledge_os.config import ensure_home, validate_and_init_config\n"
-        "ensure_home(); validate_and_init_config()\n"
         "from knowledge_os.services.item_service import ItemService\n"
         "from knowledge_os.services.repo_service import RepoService\n"
         "from knowledge_os.services.secret_service import SecretService\n"
         f"link = RepoService().resolve({str(project)!r})\n"
         "ids = ItemService().save([{'key': 'segredo/acento', 'type': 'secret', 'title': 'A',"
-        " 'summary': 's'}], default_location=(link['workspace_id'], link['project_id']))\n"
+        " 'summary': 's'}], default_location=(link['workspace'], link['project']))\n"
         "SecretService().set_value(ids[0]['id'], 'Senha-Ação-2024')\n"
     )
     subprocess.run([sys.executable, "-c", code], env=env, cwd=ROOT, check=True,
