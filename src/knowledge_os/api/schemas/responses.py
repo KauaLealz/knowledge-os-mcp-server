@@ -1,58 +1,54 @@
-"""Modelos de saída da API (reaproveita os schemas das tools MCP)."""
+"""Modelos de saída da API (os de itens, tags e organização vêm de `schemas/`)."""
 
 from datetime import datetime
 
 from pydantic import BaseModel
 
-from knowledge_os.schemas.item_schemas import ItemResponse, ItemSearchResult
-from knowledge_os.schemas.label_schemas import LabelResponse
-from knowledge_os.schemas.project_schemas import ProjectResponse
-from knowledge_os.schemas.relation_schemas import RelationResponse
-from knowledge_os.schemas.tag_schemas import TagResponse
-from knowledge_os.schemas.workspace_schemas import WorkspaceResponse
+from knowledge_os.schemas.item_schemas import ItemListResponse, ItemResponse
+from knowledge_os.schemas.project_schemas import ProjectRow, SubjectRow
+from knowledge_os.schemas.relation_schemas import RelationRow
+from knowledge_os.schemas.tag_schemas import TagRow
+from knowledge_os.schemas.workspace_schemas import WorkspaceRow
 
 __all__ = [
+    "ConnectionHealth",
     "ConnectionResponse",
     "ConnectionTest",
     "ConnectionTestResponse",
-    "GraphEdge",
-    "GraphNode",
     "ItemListResponse",
     "ItemResponse",
-    "ItemSearchResult",
-    "LabelResponse",
-    "ProjectResponse",
-    "ProjectStats",
-    "RelationResponse",
-    "SearchResponse",
-    "TagResponse",
+    "ProjectRow",
+    "RelationRow",
+    "ScopeGraph",
+    "SubjectRow",
+    "TagRow",
     "TreeItem",
     "TreeProject",
     "TreeSubject",
-    "WorkspaceGraph",
-    "WorkspaceResponse",
-    "WorkspaceStats",
+    "WorkspaceRow",
     "WorkspaceTree",
 ]
 
 
-class WorkspaceStats(BaseModel):
-    projects: int
-    items: int
-
-
 class TreeItem(BaseModel):
+    """Item na árvore da sidebar: o que a UI mostra sem abrir o item (`scope` = efetivo)."""
+
     id: str
+    key: str | None
     title: str
     type: str
-    memory_class: str
-    confidence: int | None
+    subtype: str | None
+    status: str
+    scope: str
     updated_at: datetime | None
 
 
 class TreeSubject(BaseModel):
     id: str
     name: str
+    description: str | None = None
+    scope: str
+    scope_explicit: str | None = None
     item_count: int
     items: list[TreeItem]
 
@@ -61,6 +57,8 @@ class TreeProject(BaseModel):
     id: str
     name: str
     description: str | None
+    scope: str
+    scope_explicit: str | None = None
     item_count: int
     items: list[TreeItem]
     subjects: list[TreeSubject] = []
@@ -70,47 +68,29 @@ class WorkspaceTree(BaseModel):
     projects: list[TreeProject]
 
 
-class GraphNode(BaseModel):
-    """Nó do grafo: um item do workspace."""
+class ScopeNode(BaseModel):
+    """Nó do grafo de um escopo: o nó do `item_graph` (sem `hop`) + onde o item mora."""
 
+    key: str | None
     id: str
-    title: str
     type: str
+    subtype: str | None
+    title: str
+    summary: str
+    scope: str
+    status: str
     project_id: str
     project_name: str
     subject_id: str | None = None
     subject_name: str | None = None
-    status: str
 
 
-class GraphEdge(BaseModel):
-    """Aresta do grafo: uma Relation entre dois items do workspace."""
+class ScopeGraph(BaseModel):
+    """Grafo de um escopo. Arestas como no `item_graph` (`{from, type, to}`), mas com os ids
+    dos itens nas pontas: no grafo de um workspace a mesma key pode existir em dois projects."""
 
-    source: str
-    target: str
-    relation_type: str
-
-
-class WorkspaceGraph(BaseModel):
-    nodes: list[GraphNode]
-    edges: list[GraphEdge]
-
-
-class ProjectStats(BaseModel):
-    items: int
-
-
-class ItemListResponse(BaseModel):
-    """Página de `GET /items`: os itens da página + o total real (sem o filtro de limit/offset)."""
-
-    items: list[ItemResponse]
-    total: int
-
-
-class SearchResponse(BaseModel):
-    query: str
-    total: int
-    results: list[ItemSearchResult]
+    nodes: list[ScopeNode]
+    edges: list[dict[str, str]]
 
 
 class ConnectionTest(BaseModel):
@@ -140,3 +120,18 @@ class ConnectionTestResponse(BaseModel):
     status: str
     message: str | None = None
     latency_ms: int | None = None
+
+
+class ParseError(BaseModel):
+    path: str
+    error: str
+
+
+class ConnectionHealth(BaseModel):
+    """`ConnectionService.health()`: a pasta, se é repositório git e os `.md` ignorados."""
+
+    id: str
+    name: str
+    path: str
+    ok: bool
+    parse_errors: list[ParseError]

@@ -1,3 +1,23 @@
+"""Instruções do MCP (entram no handshake e no contexto de toda sessão do agente).
+
+Texto fixo curto sobre o modelo (onde o item mora, onde ele vale, quando gravar e confirmar,
+fila offline, segredos) seguido das tabelas da taxonomia, geradas de `model.taxonomy_markdown`
+para nunca divergirem do que o servidor aceita. `mcp/INSTRUCTIONS.md` é a saída de
+`build_instructions()` gravada em disco (é o que `main.py` lê e o wheel empacota); um teste de
+contrato confere que os dois são iguais. Para regravar:
+
+    python -c "from knowledge_os.mcp.instructions import write; write()"
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from knowledge_os.model import taxonomy_markdown
+
+INSTRUCTIONS_FILE = Path(__file__).resolve().parent / "INSTRUCTIONS.md"
+
+_TEXT = """\
 # Segundo cérebro (Knowledge OS)
 
 Memória durável: regras, decisões e o porquê, como fazer, contexto do projeto e specs.
@@ -42,22 +62,14 @@ delete), `repo` (link, list, unlink, sync), `tag_list`/`tag_create`/`tag_update`
 
 ## Taxonomia
 
-| Tipo | Subtipos (opcionais) |
-|---|---|
-| `rule` | `code`, `pattern`, `security`, `business`, `process`, `decision` |
-| `howto` | `procedure`, `troubleshoot` |
-| `context` | `product`, `map`, `stack`, `glossary`, `environment` |
-| `spec` | `change`, `setup`, `dream` |
-| `secret` | — |
+"""
 
-| Campo | Valores |
-|---|---|
-| status | `active`, `review`, `archived`; só `spec`: `draft`, `done` (`expired` é derivado do ttl) |
-| scope | `scoped`, `workspace`, `global` (sem valor: herda subject → project → workspace; nada explícito = `scoped`) |
-| origin | `user`, `code`, `agent` (padrão `agent`) |
-| relação | `related_to`, `depends_on`, `implements`, `references`, `supersedes`, `derived_from` |
-| feedback (outcome) | `helped`, `irrelevant`, `wrong`, `outdated`, `verified` |
 
-Key: `<tipo>/<nome>` (nome em minúsculas com `-`); fora do padrão grava com aviso, e a key de um item existente nunca muda.
+def build_instructions() -> str:
+    """O texto completo das instruções: o fixo + a taxonomia gerada de `model`."""
+    return _TEXT + taxonomy_markdown()
 
-Modelo do `content` (só avisa): `rule/decision` → `## Por quê`, `## Alternativa descartada`; `rule/pattern` → `Arquivo-modelo:`; `howto/troubleshoot` → `## Sintoma`, `## Causa`, `## Solução`; `context/environment` → ao menos um item em `links`.
+
+def write(path: Path = INSTRUCTIONS_FILE) -> None:
+    """Regrava `INSTRUCTIONS.md` com `build_instructions()`."""
+    path.write_text(build_instructions(), encoding="utf-8", newline="\n")

@@ -1,10 +1,14 @@
 // Edição inline do item (textarea mono + preview) e modais Novo item / workspace / project.
+// Campos do v2: tipo + subtipo, scope (vazio = herda), status, links, tags e ttl_days; a
+// origem (`origin`) só aparece, não se edita. Quem valida é a API (mensagem do serviço).
 import { api } from '../api.js';
 import { go, hrefs } from '../router.js';
 import { renderTo } from '../markdown.js';
-import { ITEM_TYPES } from '../util.js';
+import { ITEM_TYPES, SCOPES, linksToText, statusesFor, subtypesOf, textToLinks } from '../util.js';
 
-const EDITABLE = ['title', 'type', 'summary', 'content', 'tags'];
+const EDITABLE = ['title', 'type', 'subtype', 'scope', 'status', 'summary', 'content', 'tags', 'links', 'ttl_days'];
+// Podem ficar vazios: subtipo, scope e prazo vazios são "nenhum" (o scope volta a herdar).
+const NULLABLE = ['subtype', 'scope', 'ttl_days'];
 
 const splitTags = (t) => String(t).split(',').map((x) => x.trim()).filter(Boolean);
 
@@ -12,21 +16,24 @@ function pick(item) {
   const out = {};
   for (const k of EDITABLE) out[k] = item[k] ?? '';
   out.tags = (item.tags || []).join(', ');
+  out.links = linksToText(item.links);
+  out.ttl_days = item.ttl_days == null ? '' : String(item.ttl_days);
   return out;
 }
 
 const blank = (v) => v === '' || v === null || v === undefined;
 
-/** Campos que mudaram (título, resumo e conteúdo em branco não contam). Tags viram lista. */
+/** Campos que mudaram (título, resumo e conteúdo em branco não contam). Tags e links viram
+ * lista; subtipo/scope/prazo em branco viram null. */
 function changes(draft, saved) {
   const out = {};
   for (const k of EDITABLE) {
-    if (k === 'tags') {
-      if (draft.tags !== saved.tags) out.tags = splitTags(draft.tags);
-      continue;
-    }
-    if (blank(draft[k])) continue;
-    if (draft[k] !== saved[k]) out[k] = draft[k];
+    if (draft[k] === saved[k]) continue;
+    if (k === 'tags') out.tags = splitTags(draft.tags);
+    else if (k === 'links') out.links = textToLinks(draft.links);
+    else if (k === 'ttl_days') out.ttl_days = blank(draft.ttl_days) ? null : Number(draft.ttl_days);
+    else if (NULLABLE.includes(k)) out[k] = blank(draft[k]) ? null : draft[k];
+    else if (!blank(draft[k])) out[k] = draft[k];
   }
   return out;
 }
@@ -37,6 +44,8 @@ export function register(Alpine) {
     return {
       // Segredo só nasce pelo agente; ao editar um, o tipo dele continua na lista.
       types: item.type === 'secret' ? ['secret', ...ITEM_TYPES] : ITEM_TYPES,
+      scopes: SCOPES,
+      origin: item.origin,
       draft: pick(item),
       saved: pick(item),
       saving: false,
@@ -48,6 +57,12 @@ export function register(Alpine) {
       get dirty() {
         return Object.keys(changes(this.draft, this.saved)).length > 0;
       },
+      get subtypes() {
+        return subtypesOf(this.draft.type);
+      },
+      get statuses() {
+        return statusesFor(this.draft.type);
+      },
 
       init() {
         this.app.saveHook = () => this.save();
@@ -57,6 +72,11 @@ export function register(Alpine) {
             this.app.dirty = v;
           },
         );
+        // Trocar o tipo limpa o subtipo que não serve mais (e o status só de spec).
+        this.$watch('draft.type', (t) => {
+          if (this.draft.subtype && !subtypesOf(t).includes(this.draft.subtype)) this.draft.subtype = '';
+          if (!statusesFor(t).includes(this.draft.status)) this.draft.status = 'active';
+        });
         beforeUnload = (e) => {
           if (this.dirty) {
             e.preventDefault();
@@ -82,8 +102,8 @@ export function register(Alpine) {
           this.app.toast('Nothing to save');
           return;
         }
-        if (blank(this.draft.title) || blank(this.draft.summary) || blank(this.draft.content)) {
-          this.error = 'Title, summary and content cannot be empty.';
+        if (blank(this.draft.title) || blank(this.draft.summary)) {
+          this.error = 'Title and summary cannot be empty.';
           return;
         }
         this.saving = true;
@@ -91,6 +111,7 @@ export function register(Alpine) {
         try {
           const updated = await api('PUT', `/items/${item.id}`, { body: changes(this.draft, this.saved) });
           this.saved = pick(updated);
+          this.draft = pick(updated);
           applyUpdate(updated);
           this.app.toast('Changes saved');
           this.app.loadTree(); // atualiza updated_at na árvore
@@ -105,6 +126,7 @@ export function register(Alpine) {
 
   Alpine.data('newModal', () => ({
     types: ITEM_TYPES,
+    scopes: SCOPES,
     form: {},
     initial: '',
     saving: false,
@@ -119,6 +141,9 @@ export function register(Alpine) {
     get projects() {
       return this.app.tree?.projects || [];
     },
+    get subtypes() {
+      return subtypesOf(this.form.type);
+    },
     get title() {
       return { item: 'New item', workspace: 'New workspace', project: 'New project' }[this.kind] || '';
     },
@@ -130,7 +155,9 @@ export function register(Alpine) {
         description: '',
         workspace_id: p.ws || this.app.workspaces[0]?.id || '',
         project_id: p.pj || this.projects[0]?.id || '',
-        type: 'knowledge',
+        type: 'rule',
+        subtype: '',
+        scope: '',
         title: '',
         summary: '',
         content: '',
@@ -138,6 +165,9 @@ export function register(Alpine) {
       };
       this.initial = JSON.stringify(this.form);
       this.app.modalGuard = () => JSON.stringify(this.form) !== this.initial;
+      this.$watch('form.type', (t) => {
+        if (this.form.subtype && !subtypesOf(t).includes(this.form.subtype)) this.form.subtype = '';
+      });
       this.$nextTick(() => this.$refs.first?.focus());
     },
 
@@ -168,7 +198,7 @@ export function register(Alpine) {
       const f = this.form;
       if (!f.name.trim()) throw new Error('Enter the workspace name.');
       const ws = await api('POST', '/workspaces', {
-        body: { name: f.name.trim(), description: f.description.trim() || null },
+        body: { name: f.name.trim(), description: f.description.trim() || null, scope: f.scope || null },
       });
       await this.app.loadWorkspaces();
       this.app.modal = null;
@@ -181,7 +211,12 @@ export function register(Alpine) {
       if (!f.workspace_id) throw new Error('Choose the workspace.');
       if (!f.name.trim()) throw new Error('Enter the project name.');
       const pj = await api('POST', '/projects', {
-        body: { workspace_id: f.workspace_id, name: f.name.trim(), description: f.description.trim() || null },
+        body: {
+          workspace_id: f.workspace_id,
+          name: f.name.trim(),
+          description: f.description.trim() || null,
+          scope: f.scope || null,
+        },
       });
       await this.app.loadTree(f.workspace_id);
       this.app.expanded[pj.id] = true;
@@ -195,14 +230,17 @@ export function register(Alpine) {
       const ws = this.app.route.params.ws;
       if (!ws) throw new Error('Open a workspace before creating an item.');
       if (!f.project_id) throw new Error('Choose the project (create one if there isn\'t one yet).');
-      for (const [k, label] of [['title', 'title'], ['summary', 'summary'], ['content', 'content']]) {
+      for (const [k, label] of [['title', 'title'], ['summary', 'summary']]) {
         if (!String(f[k]).trim()) throw new Error(`Enter the ${label}.`);
       }
+      // Itens criados pela UI nascem com origin "user" (quem escreveu foi a pessoa).
       const body = {
         workspace_id: ws,
         project_id: f.project_id,
         type: f.type,
-        memory_class: 'longterm', // a UI não expõe classe de memória: itens novos nascem duradouros
+        subtype: f.subtype || null,
+        scope: f.scope || null,
+        origin: 'user',
         title: f.title.trim(),
         summary: f.summary.trim(),
         content: f.content,

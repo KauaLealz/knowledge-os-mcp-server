@@ -41,6 +41,7 @@
   <symbol id="i-graph" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M8.3 6h7.4M7.4 8.2l3.2 7.6M16.6 8.2l-3.2 7.6"/></symbol>
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 6.3"/><path d="M20 4v7h-7"/></symbol>
   <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 5h16l-6 7v6l-4 2v-8z"/></symbol>
+  <symbol id="i-tag" viewBox="0 0 24 24"><path d="M3 12V4h8l10 10-8 8L3 12z"/><circle cx="7.5" cy="8.5" r="1.5"/></symbol>
 </svg>
 
 <div x-data x-cloak>
@@ -150,7 +151,7 @@
                                 <a class="tree-item" :class="{ active: $store.app.route.params.item === it.id }"
                                    :href="$store.app.hItemIn(w.id, p.id, it.id)" :title="it.title">
                                   <span class="tdot" :class="$tc(it.type)" aria-hidden="true"></span>
-                                  <span class="sr-only" x-text="$tlabel(it.type) + ': '"></span><span x-text="it.title"></span>
+                                  <span class="sr-only" x-text="$kind(it.type, it.subtype) + ': '"></span><span x-show="it.status === 'review'" title="In review">⚠ </span><span x-text="it.title"></span>
                                 </a>
                               </template>
                               <div class="tree-empty" x-show="!s.items.length">No items</div>
@@ -161,7 +162,7 @@
                           <a class="tree-item" :class="{ active: $store.app.route.params.item === it.id }"
                              :href="$store.app.hItemIn(w.id, p.id, it.id)" :title="it.title">
                             <span class="tdot" :class="$tc(it.type)" aria-hidden="true"></span>
-                            <span class="sr-only" x-text="$tlabel(it.type) + ': '"></span><span x-text="it.title"></span>
+                            <span class="sr-only" x-text="$kind(it.type, it.subtype) + ': '"></span><span x-show="it.status === 'review'" title="In review">⚠ </span><span x-text="it.title"></span>
                           </a>
                         </template>
                         <div class="tree-empty" x-show="!p.items.length && !(p.subjects || []).length">No items</div>
@@ -180,6 +181,9 @@
       </nav>
 
       <div class="side-foot">
+        <a class="side-link" x-show="$store.app.connId" :class="{ active: $store.app.route.name === 'tags' }" :href="$store.app.hTags()">
+          <svg class="ic"><use href="#i-tag"/></svg> Tags
+        </a>
         <a class="side-link" :class="{ active: $store.app.route.name === 'connections' }" :href="$store.app.hConnections()">
           <svg class="ic"><use href="#i-settings"/></svg> Settings · Connections
         </a>
@@ -263,6 +267,7 @@
                     <span class="card-foot" x-show="w.stats">
                       <span><b x-text="w.stats?.projects"></b> projects</span>
                       <span><b x-text="w.stats?.items"></b> items</span>
+                      <span x-text="'Scope: ' + $scopetext(w.scope, w.scope_explicit, null)"></span>
                     </span>
                   </a>
                 </template>
@@ -287,6 +292,13 @@
                   <div class="page-head">
                     <h1 class="page-title" x-text="$store.app.workspace.name"></h1>
                     <div class="toolbar">
+                      <label class="scope-pick">
+                        <span class="chip outline" :class="{ inherited: !$store.app.workspace.scope_explicit }" x-text="'Scope: ' + scopeInfo"></span>
+                        <select class="select sm" aria-label="Workspace scope" @change="setScope($event.target.value)">
+                          <option value="" :selected="!$store.app.workspace.scope_explicit">Not set (scoped)</option>
+                          <template x-for="sc in scopes" :key="sc"><option :value="sc" :selected="sc === $store.app.workspace.scope_explicit" x-text="sc"></option></template>
+                        </select>
+                      </label>
                       <a class="btn" :href="graphHref()"><svg class="ic"><use href="#i-graph"/></svg> View graph</a>
                       <button class="btn" @click="$store.app.openModal('project')"><svg class="ic"><use href="#i-plus"/></svg> New project</button>
                     </div>
@@ -342,6 +354,19 @@
                             </template>
                           </div>
                         </div>
+                        <div class="filter-group" x-show="chipSubtypes.length" x-data="{ open: false }">
+                          <button type="button" class="filter-group-title" @click="open = !open" :aria-expanded="open">
+                            Subtype <svg class="ic" :class="{ open }"><use href="#i-chevron"/></svg>
+                          </button>
+                          <div class="type-chips" role="group" aria-label="Filter by subtype" x-show="open">
+                            <template x-for="c in chipSubtypes" :key="c.subtype">
+                              <button class="tchip" :class="{ on: filters.subtypes.includes(c.subtype) }"
+                                      :aria-pressed="filters.subtypes.includes(c.subtype)" @click="toggleSubtype(c.subtype)">
+                                <span x-text="c.label"></span> <span class="n" x-show="c.count != null" x-text="c.count"></span>
+                              </button>
+                            </template>
+                          </div>
+                        </div>
                         <div class="filter-group" x-data="{ open: false }">
                           <button type="button" class="filter-group-title" @click="open = !open" :aria-expanded="open">
                             Sort <svg class="ic" :class="{ open }"><use href="#i-chevron"/></svg>
@@ -371,7 +396,11 @@
                           <div class="ir-title" x-text="it.title"></div>
                           <div class="ir-sum" x-text="it.summary"></div>
                           <div class="ir-meta">
-                            <span class="tbadge" :class="$tc(it.type)"><span class="tdot" aria-hidden="true"></span><span x-text="$tlabel(it.type)"></span></span>
+                            <span class="tbadge" :class="$tc(it.type)"><span class="tdot" aria-hidden="true"></span><span x-text="$kind(it.type, it.subtype)"></span></span>
+                            <span class="chip warn" x-show="it.status === 'review'" title="In review: check it before trusting it">⚠ Review</span>
+                            <span class="chip outline" x-show="it.status && !['active', 'review'].includes(it.status)" x-text="it.expired ? 'expired' : it.status"></span>
+                            <span class="chip outline" :class="{ inherited: $inherited(it) }" x-show="it.scope || it.effective_scope" x-text="$iscope(it)"></span>
+                            <span class="chip outline" x-show="it.origin" :title="'Origin: ' + it.origin" x-text="$origin(it.origin)"></span>
                             <span class="chip outline" x-show="where(it)" x-text="where(it)"></span>
                             <span class="muted" style="font-size:12.5px" x-show="it.updated_at" x-text="$ago(it.updated_at)"></span>
                           </div>
@@ -520,6 +549,13 @@
                   <div class="page-head">
                     <h1 class="page-title" x-text="$store.app.project.name"></h1>
                     <div class="toolbar">
+                      <label class="scope-pick">
+                        <span class="chip outline" :class="{ inherited: !$store.app.project.scope_explicit }" x-text="'Scope: ' + scopeInfo"></span>
+                        <select class="select sm" aria-label="Project scope" @change="setScope($event.target.value)">
+                          <option value="" :selected="!$store.app.project.scope_explicit">Not set (inherit)</option>
+                          <template x-for="sc in scopes" :key="sc"><option :value="sc" :selected="sc === $store.app.project.scope_explicit" x-text="sc"></option></template>
+                        </select>
+                      </label>
                       <a class="btn" :href="graphHref()"><svg class="ic"><use href="#i-graph"/></svg> View graph</a>
                       <button class="btn primary" @click="$store.app.openModal('item')"><svg class="ic"><use href="#i-plus"/></svg> New item</button>
                     </div>
@@ -562,6 +598,19 @@
                             </template>
                           </div>
                         </div>
+                        <div class="filter-group" x-show="chipSubtypes.length" x-data="{ open: false }">
+                          <button type="button" class="filter-group-title" @click="open = !open" :aria-expanded="open">
+                            Subtype <svg class="ic" :class="{ open }"><use href="#i-chevron"/></svg>
+                          </button>
+                          <div class="type-chips" role="group" aria-label="Filter by subtype" x-show="open">
+                            <template x-for="c in chipSubtypes" :key="c.subtype">
+                              <button class="tchip" :class="{ on: filters.subtypes.includes(c.subtype) }"
+                                      :aria-pressed="filters.subtypes.includes(c.subtype)" @click="toggleSubtype(c.subtype)">
+                                <span x-text="c.label"></span> <span class="n" x-show="c.count != null" x-text="c.count"></span>
+                              </button>
+                            </template>
+                          </div>
+                        </div>
                         <div class="filter-group" x-data="{ open: false }">
                           <button type="button" class="filter-group-title" @click="open = !open" :aria-expanded="open">
                             Sort <svg class="ic" :class="{ open }"><use href="#i-chevron"/></svg>
@@ -586,7 +635,11 @@
                           <div class="ir-title" x-text="it.title"></div>
                           <div class="ir-sum" x-text="it.summary"></div>
                           <div class="ir-meta">
-                            <span class="tbadge" :class="$tc(it.type)"><span class="tdot" aria-hidden="true"></span><span x-text="$tlabel(it.type)"></span></span>
+                            <span class="tbadge" :class="$tc(it.type)"><span class="tdot" aria-hidden="true"></span><span x-text="$kind(it.type, it.subtype)"></span></span>
+                            <span class="chip warn" x-show="it.status === 'review'" title="In review: check it before trusting it">⚠ Review</span>
+                            <span class="chip outline" x-show="it.status && !['active', 'review'].includes(it.status)" x-text="it.expired ? 'expired' : it.status"></span>
+                            <span class="chip outline" :class="{ inherited: $inherited(it) }" x-show="it.scope || it.effective_scope" x-text="$iscope(it)"></span>
+                            <span class="chip outline" x-show="it.origin" :title="'Origin: ' + it.origin" x-text="$origin(it.origin)"></span>
                             <span class="muted" style="font-size:12.5px" x-show="it.updated_at" x-text="$ago(it.updated_at)"></span>
                           </div>
                         </div>
@@ -655,6 +708,13 @@
                   <div class="page-head">
                     <h1 class="page-title" x-text="$store.app.subject.name"></h1>
                     <div class="toolbar">
+                      <label class="scope-pick">
+                        <span class="chip outline" :class="{ inherited: !$store.app.subject.scope_explicit }" x-text="'Scope: ' + scopeInfo"></span>
+                        <select class="select sm" aria-label="Subject scope" @change="setScope($event.target.value)">
+                          <option value="" :selected="!$store.app.subject.scope_explicit">Not set (inherit)</option>
+                          <template x-for="sc in scopes" :key="sc"><option :value="sc" :selected="sc === $store.app.subject.scope_explicit" x-text="sc"></option></template>
+                        </select>
+                      </label>
                       <a class="btn" :href="graphHref()"><svg class="ic"><use href="#i-graph"/></svg> View graph</a>
                     </div>
                   </div>
@@ -678,6 +738,19 @@
                               <button class="tchip" :class="[$tc(c.type), { on: filters.types.includes(c.type) }]"
                                       :aria-pressed="filters.types.includes(c.type)" @click="toggleType(c.type)">
                                 <span class="tdot" aria-hidden="true"></span>
+                                <span x-text="c.label"></span> <span class="n" x-show="c.count != null" x-text="c.count"></span>
+                              </button>
+                            </template>
+                          </div>
+                        </div>
+                        <div class="filter-group" x-show="chipSubtypes.length" x-data="{ open: false }">
+                          <button type="button" class="filter-group-title" @click="open = !open" :aria-expanded="open">
+                            Subtype <svg class="ic" :class="{ open }"><use href="#i-chevron"/></svg>
+                          </button>
+                          <div class="type-chips" role="group" aria-label="Filter by subtype" x-show="open">
+                            <template x-for="c in chipSubtypes" :key="c.subtype">
+                              <button class="tchip" :class="{ on: filters.subtypes.includes(c.subtype) }"
+                                      :aria-pressed="filters.subtypes.includes(c.subtype)" @click="toggleSubtype(c.subtype)">
                                 <span x-text="c.label"></span> <span class="n" x-show="c.count != null" x-text="c.count"></span>
                               </button>
                             </template>
@@ -707,7 +780,11 @@
                           <div class="ir-title" x-text="it.title"></div>
                           <div class="ir-sum" x-text="it.summary"></div>
                           <div class="ir-meta">
-                            <span class="tbadge" :class="$tc(it.type)"><span class="tdot" aria-hidden="true"></span><span x-text="$tlabel(it.type)"></span></span>
+                            <span class="tbadge" :class="$tc(it.type)"><span class="tdot" aria-hidden="true"></span><span x-text="$kind(it.type, it.subtype)"></span></span>
+                            <span class="chip warn" x-show="it.status === 'review'" title="In review: check it before trusting it">⚠ Review</span>
+                            <span class="chip outline" x-show="it.status && !['active', 'review'].includes(it.status)" x-text="it.expired ? 'expired' : it.status"></span>
+                            <span class="chip outline" :class="{ inherited: $inherited(it) }" x-show="it.scope || it.effective_scope" x-text="$iscope(it)"></span>
+                            <span class="chip outline" x-show="it.origin" :title="'Origin: ' + it.origin" x-text="$origin(it.origin)"></span>
                             <span class="muted" style="font-size:12.5px" x-show="it.updated_at" x-text="$ago(it.updated_at)"></span>
                           </div>
                         </div>
@@ -797,6 +874,11 @@
 
                     <p class="page-lead" x-text="item.summary"></p>
 
+                    <div class="banner" role="alert" x-show="item.status === 'review'">
+                      <svg class="ic"><use href="#i-alert"/></svg>
+                      <span>⚠ In review: someone flagged this item as wrong or outdated. Check it, fix it and set the status back to active.</span>
+                    </div>
+
                     <!-- Segredo · valor -->
                     <template x-if="item.type === 'secret' && !$store.app.route.params.edit">
                       <section class="card secret-box" x-data="secretForm(item, (u) => applyUpdate(u))">
@@ -819,11 +901,43 @@
                     <!-- /Segredo · valor -->
 
                     <div class="chips">
-                      <span class="tbadge lg" :class="$tc(item.type)"><span class="tdot" aria-hidden="true"></span><span x-text="$tlabel(item.type)"></span></span>
+                      <span class="tbadge lg" :class="$tc(item.type)"><span class="tdot" aria-hidden="true"></span><span x-text="$kind(item.type, item.subtype)"></span></span>
+                      <span class="chip warn" x-show="item.status === 'review'">⚠ Review</span>
+                      <span class="chip outline" x-show="!['active', 'review'].includes(item.status) || item.expired" x-text="item.expired ? 'expired' : item.status"></span>
+                      <span class="chip outline" :class="{ inherited: $inherited(item) }" :title="'Where it is valid: ' + $iscope(item)" x-text="$iscope(item)"></span>
+                      <span class="chip outline" :title="'Origin: ' + item.origin" x-text="$origin(item.origin)"></span>
                       <template x-for="t in item.tags" :key="'t' + t"><span class="chip outline" x-text="'#' + t"></span></template>
-                      <template x-for="l in item.labels" :key="'l' + l"><span class="chip accent" x-text="l"></span></template>
                       <span class="muted" style="font-size:12.5px" :title="fullDate(item.updated_at)" x-text="'updated ' + $ago(item.updated_at)"</span>
                     </div>
+
+                    <dl class="item-facts" x-show="!$store.app.route.params.edit">
+                      <dt>Lives in</dt><dd x-text="item.where + (item.subject ? ' / ' + item.subject : '')"></dd>
+                      <dt>Key</dt><dd class="mono" x-text="item.key || '—'"></dd>
+                      <dt>Scope</dt><dd x-text="$iscope(item)"></dd>
+                      <dt>Origin</dt><dd x-text="$origin(item.origin)"></dd>
+                      <dt>Verified</dt>
+                      <dd>
+                        <span x-text="item.verified_at ? fullDate(item.verified_at) + (item.verified_commit ? ' · ' + item.verified_commit.slice(0, 8) : '') : 'never'"></span>
+                        <button class="btn ghost sm" type="button" @click="markVerified()">Mark verified</button>
+                      </dd>
+                      <template x-if="item.ttl_days">
+                        <div style="display:contents"><dt>Expires</dt><dd x-text="fullDate(item.expires_at) + ' (' + item.ttl_days + ' days)'"></dd></div>
+                      </template>
+                      <template x-if="item.source">
+                        <div style="display:contents"><dt>Source</dt><dd x-text="item.source"></dd></div>
+                      </template>
+                    </dl>
+
+                    <template x-if="item.links.length && !$store.app.route.params.edit">
+                      <section>
+                        <h2 class="section-title">Links</h2>
+                        <ul class="links">
+                          <template x-for="l in item.links" :key="l.url">
+                            <li><a :href="l.url" target="_blank" rel="noopener noreferrer" x-text="l.title || l.url"></a></li>
+                          </template>
+                        </ul>
+                      </section>
+                    </template>
 
                     <template x-if="!$store.app.route.params.edit && item.type !== 'secret'">
                       <div>
@@ -838,14 +952,34 @@
                         <div class="editor-meta">
                           <div class="field grow"><label for="ed-title">Title</label>
                             <input id="ed-title" class="input" type="text" maxlength="255" x-model="draft.title"></div>
-                          <div class="field"><label for="ed-type">Tipo</label>
+                          <div class="field"><label for="ed-type">Type</label>
                             <select id="ed-type" class="select" x-model="draft.type">
                               <template x-for="t in types" :key="t"><option :value="t" :selected="t === draft.type" x-text="$tlabel(t)"></option></template>
                             </select></div>
-                          <div class="field grow"><label for="ed-summary">Resumo</label>
+                          <div class="field"><label for="ed-subtype">Subtype</label>
+                            <select id="ed-subtype" class="select" x-model="draft.subtype" :disabled="!subtypes.length">
+                              <option value="" :selected="!draft.subtype">None</option>
+                              <template x-for="st in subtypes" :key="st"><option :value="st" :selected="st === draft.subtype" x-text="$stlabel(st)"></option></template>
+                            </select></div>
+                          <div class="field"><label for="ed-status">Status</label>
+                            <select id="ed-status" class="select" x-model="draft.status">
+                              <template x-for="st in statuses" :key="st"><option :value="st" :selected="st === draft.status" x-text="st"></option></template>
+                            </select></div>
+                          <div class="field"><label for="ed-scope">Scope</label>
+                            <select id="ed-scope" class="select" x-model="draft.scope">
+                              <option value="" :selected="!draft.scope">Inherit</option>
+                              <template x-for="sc in scopes" :key="sc"><option :value="sc" :selected="sc === draft.scope" x-text="sc"></option></template>
+                            </select></div>
+                          <div class="field grow"><label for="ed-summary">Summary</label>
                             <input id="ed-summary" class="input" type="text" x-model="draft.summary"></div>
                           <div class="field grow"><label for="ed-tags">Tags (comma-separated)</label>
                             <input id="ed-tags" class="input" type="text" x-model="draft.tags"></div>
+                          <div class="field"><label for="ed-ttl">Expires in (days)</label>
+                            <input id="ed-ttl" class="input" type="number" min="1" placeholder="never" x-model="draft.ttl_days"></div>
+                          <div class="field"><label>Origin</label>
+                            <span class="chip outline" :title="'Origin: ' + origin" x-text="$origin(origin)"></span></div>
+                          <div class="field grow"><label for="ed-links">Links (one per line: Title | https://…)</label>
+                            <textarea id="ed-links" class="textarea mono" rows="2" x-model="draft.links" spellcheck="false"></textarea></div>
                         </div>
                         <div class="editor-grid">
                           <div class="editor-col">
@@ -876,20 +1010,22 @@
                           <div x-show="out.length">
                             <h3 class="rel-h">References</h3>
                             <template x-for="r in out" :key="r.id">
-                              <a class="rel" :href="relHref(r.other)">
+                              <a class="rel" :href="relHref(r)">
                                 <span class="chip" x-text="r.type"></span>
                                 <svg class="ic"><use href="#i-arrow-right"/></svg>
-                                <span class="rel-t" x-text="relTitle(r.other)"></span>
+                                <span class="rel-t" x-text="relTitle(r)"></span>
+                                <span class="chip warn" x-show="r.node.status === 'review'">⚠</span>
                               </a>
                             </template>
                           </div>
                           <div x-show="inc.length">
                             <h3 class="rel-h">Referenced by</h3>
                             <template x-for="r in inc" :key="r.id">
-                              <a class="rel" :href="relHref(r.other)">
+                              <a class="rel" :href="relHref(r)">
                                 <span class="chip" x-text="r.type"></span>
                                 <svg class="ic"><use href="#i-arrow-left"/></svg>
-                                <span class="rel-t" x-text="relTitle(r.other)"></span>
+                                <span class="rel-t" x-text="relTitle(r)"></span>
+                                <span class="chip warn" x-show="r.node.status === 'review'">⚠</span>
                               </a>
                             </template>
                           </div>
@@ -936,6 +1072,57 @@
             </div>
           </template>
 
+          <!-- Tags gerenciadas: contagem, criar, renomear (mescla) e apagar com prévia -->
+          <template x-if="$store.app.route.name === 'tags'">
+            <div class="page"><div class="doc" x-data="tagsView">
+              <nav class="crumbs">
+                <a :href="$store.app.hConn()" x-text="$store.app.connName"></a><span class="sep">/</span>
+                <span>Tags</span>
+              </nav>
+              <div class="page-head">
+                <h1 class="page-title">Tags</h1>
+              </div>
+              <form class="toolbar" @submit.prevent="create()" autocomplete="off">
+                <input class="input" type="text" x-model="newNames" placeholder="new-tag, another-tag" aria-label="New tags (comma-separated)" style="max-width:320px">
+                <button type="submit" class="btn primary" :disabled="busy || !newNames.trim()"><svg class="ic"><use href="#i-plus"/></svg> Create</button>
+              </form>
+              <p class="form-hint-text">Names become kebab-case. Renaming to a name that already exists merges the two tags in every item.</p>
+              <p class="form-error" x-show="error" x-text="error" role="alert"></p>
+              <div class="state error" x-show="$store.app.tagsError" role="alert">
+                <svg class="logo"><use href="#logo"/></svg>
+                <h3>Could not list tags</h3>
+                <p x-text="$store.app.tagsError"></p>
+                <button class="btn" @click="$store.app.loadTags()">Try again</button>
+              </div>
+              <div class="state" x-show="!$store.app.tagsError && !$store.app.tagsLoading && !tags.length">
+                <svg class="logo"><use href="#logo"/></svg>
+                <h3>No tags yet</h3>
+                <p>Tags appear here when an item uses one, or when you create one above.</p>
+              </div>
+              <div class="tag-list">
+                <template x-for="t in tags" :key="t.name">
+                  <div class="tag-row">
+                    <template x-if="editing !== t.name">
+                      <span class="grow"><span class="chip outline" x-text="'#' + t.name"></span> <span class="muted" x-text="t.count + (t.count === 1 ? ' item' : ' items')"></span></span>
+                    </template>
+                    <template x-if="editing === t.name">
+                      <form class="grow toolbar" @submit.prevent="rename()">
+                        <input class="input" type="text" x-model="newName" :aria-label="'New name for ' + t.name" style="max-width:260px">
+                        <button type="submit" class="btn primary sm" :disabled="busy">Save</button>
+                        <button type="button" class="btn ghost sm" @click="cancel()">Cancel</button>
+                      </form>
+                    </template>
+                    <span class="muted" x-show="pending?.name === t.name" x-text="'Removes it from ' + pending?.items + ' item(s).'"></span>
+                    <button class="btn sm" x-show="editing !== t.name" :disabled="busy" @click="startRename(t)"><svg class="ic"><use href="#i-edit"/></svg> Rename</button>
+                    <button class="btn danger sm" :disabled="busy" @click="remove(t)" x-text="pending?.name === t.name ? 'Confirm: delete' : 'Delete'"></button>
+                    <button class="btn ghost sm" x-show="pending?.name === t.name" @click="cancel()">Cancel</button>
+                  </div>
+                </template>
+              </div>
+            </div></div>
+          </template>
+          <!-- /Tags -->
+
           <!-- Configurações · Conexões: listar, editar, definir a padrão e apagar. Criar é pelo MCP. -->
           <template x-if="$store.app.route.name === 'connections'">
             <div class="page"><div class="doc" x-data="connectionsView">
@@ -975,6 +1162,7 @@
                             <span class="chip accent" x-show="c.is_default">Padrão</span>
                             <span class="chip outline" x-show="!c.enabled">Desativada</span>
                             <span class="chip outline" :class="{ accent: folderState(c).ok }" x-text="folderState(c).label"></span>
+                            <span class="chip warn" x-show="parseErrors(c).length" x-text="'⚠ ' + parseErrors(c).length + ' arquivo(s) ilegível(is)'"></span>
                           </span>
                           <span class="conn-sub mono" x-text="c.path || '(sem caminho)'" :title="c.path"></span>
                           <span class="conn-sub" x-text="c.remote_url ? 'Remote: ' + c.remote_url : 'Só local (sem remote)'"></span>
@@ -999,6 +1187,19 @@
                     <span class="chip outline" x-show="conn" x-text="conn ? folderState(conn).label : ''"></span>
                   </p>
                   <p class="mono" x-show="conn" x-text="conn?.path"></p>
+                  <template x-if="conn && parseErrors(conn).length">
+                    <div class="banner" role="alert">
+                      <svg class="ic"><use href="#i-alert"/></svg>
+                      <div>
+                        <b>Arquivos ignorados na leitura</b>
+                        <ul class="links">
+                          <template x-for="e in parseErrors(conn)" :key="e.path">
+                            <li><span class="mono" x-text="e.path"></span>: <span x-text="e.error"></span></li>
+                          </template>
+                        </ul>
+                      </div>
+                    </div>
+                  </template>
 
                   <div class="state error" x-show="notFound" role="alert">
                     <svg class="logo"><use href="#logo"/></svg>
@@ -1110,7 +1311,7 @@
                   <span class="pal-sub" x-show="e.sub" x-text="e.sub"></span>
                   <span class="pal-sub" x-show="e.summary" x-text="e.summary"></span>
                 </span>
-                <span class="tbadge" x-show="e.type" :class="$tc(e.type)"><span class="tdot" aria-hidden="true"></span><span x-text="$tlabel(e.type)"></span></span>
+                <span class="tbadge" x-show="e.type" :class="$tc(e.type)"><span class="tdot" aria-hidden="true"></span><span x-text="$kind(e.type, e.subtype)"></span></span>
               </button>
             </template>
           </div>
@@ -1135,6 +1336,11 @@
               <input id="m-name" x-ref="first" class="input" type="text" x-model="form.name" maxlength="255" required></div>
             <div class="field"><label for="m-desc">Description</label>
               <textarea id="m-desc" class="textarea" rows="3" x-model="form.description"></textarea></div>
+            <div class="field"><label for="m-scope">Scope</label>
+              <select id="m-scope" class="select" x-model="form.scope">
+                <option value="">Not set (scoped)</option>
+                <template x-for="sc in scopes" :key="sc"><option :value="sc" x-text="sc"></option></template>
+              </select></div>
             <p class="muted" style="font-size:13px;margin:0">Will be created in the <b x-text="$store.app.connName"></b> connection.</p>
           </div>
         </template>
@@ -1149,6 +1355,11 @@
               <input id="m-pname" x-ref="first" class="input" type="text" x-model="form.name" maxlength="255" required></div>
             <div class="field"><label for="m-pdesc">Description</label>
               <textarea id="m-pdesc" class="textarea" rows="3" x-model="form.description"></textarea></div>
+            <div class="field"><label for="m-pscope">Scope</label>
+              <select id="m-pscope" class="select" x-model="form.scope">
+                <option value="">Not set (inherit from workspace)</option>
+                <template x-for="sc in scopes" :key="sc"><option :value="sc" x-text="sc"></option></template>
+              </select></div>
           </div>
         </template>
 
@@ -1162,16 +1373,26 @@
                 <select id="m-project" class="select" x-model="form.project_id">
                   <template x-for="p in projects" :key="p.id"><option :value="p.id" x-text="p.name"></option></template>
                 </select></div>
-              <div class="field"><label for="m-type">Tipo</label>
+              <div class="field"><label for="m-type">Type</label>
                 <select id="m-type" class="select" x-model="form.type">
                   <template x-for="t in types" :key="t"><option :value="t" x-text="$tlabel(t)"></option></template>
                 </select></div>
+              <div class="field"><label for="m-subtype">Subtype</label>
+                <select id="m-subtype" class="select" x-model="form.subtype" :disabled="!subtypes.length">
+                  <option value="">None</option>
+                  <template x-for="st in subtypes" :key="st"><option :value="st" x-text="$stlabel(st)"></option></template>
+                </select></div>
+              <div class="field"><label for="m-iscope">Scope</label>
+                <select id="m-iscope" class="select" x-model="form.scope">
+                  <option value="">Inherit</option>
+                  <template x-for="sc in scopes" :key="sc"><option :value="sc" x-text="sc"></option></template>
+                </select></div>
             </div>
             <p class="form-hint" x-show="!projects.length">This workspace has no projects yet: create one before the item.</p>
-            <div class="field"><label for="m-sum">Resumo</label>
+            <div class="field"><label for="m-sum">Summary</label>
               <input id="m-sum" class="input" type="text" x-model="form.summary" required></div>
             <div class="field"><label for="m-content">Content (Markdown)</label>
-              <textarea id="m-content" class="textarea mono" rows="8" x-model="form.content" spellcheck="false" required></textarea></div>
+              <textarea id="m-content" class="textarea mono" rows="8" x-model="form.content" spellcheck="false"></textarea></div>
             <div class="form-row">
               <div class="field"><label for="m-tags">Tags (comma-separated)</label>
                 <input id="m-tags" class="input" type="text" x-model="form.tags"></div>

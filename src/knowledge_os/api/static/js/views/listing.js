@@ -1,8 +1,9 @@
 // Shared logic for item listings (Workspace, Project and Subject pages): paged loading,
-// type chips (multi-select), server search and project/subject filters. Filter state lives
-// in Alpine.store('app').filters (survives navigation).
+// type and subtype chips (multi-select), server search and project/subject filters. Filter
+// state lives in Alpine.store('app').filters (survives navigation). Items in `review` are
+// marked ⚠ and listed after the others (as search does).
 import { api } from '../api.js';
-import { TYPE_ORDER, parseDate, typeLabel } from '../util.js';
+import { TYPE_ORDER, isReview, parseDate, subtypeLabel, subtypesOf, typeLabel } from '../util.js';
 
 export const PAGE_SIZE = 50; // items per page (same size as search)
 const SEARCH_LIMIT = 50; // max accepted by search
@@ -51,6 +52,7 @@ export function listingMixin(Alpine) {
       return (
         this.searchMode ||
         this.filters.types.length > 0 ||
+        this.filters.subtypes.length > 0 ||
         this.filters.projectIds.length > 0 ||
         this.filters.subjectIds.length > 0
       );
@@ -58,7 +60,7 @@ export function listingMixin(Alpine) {
 
     initListing() {
       this.$watch(
-        () => this.filters.q + '|' + this.filters.types.join(',') + '|' + JSON.stringify(this.scope()),
+        () => this.filters.q + '|' + this.filters.types.join(',') + '|' + this.filters.subtypes.join(',') + '|' + JSON.stringify(this.scope()),
         () => this.runSearch(),
       );
       // project/subject filter on the server (not just the loaded page, like type does) —
@@ -127,6 +129,7 @@ export function listingMixin(Alpine) {
         try {
           const q = { ...this.scope(), query: this.query, limit: SEARCH_LIMIT };
           if (this.filters.types.length) q.types = this.filters.types.join(',');
+          if (this.filters.subtypes.length) q.subtypes = this.filters.subtypes.join(',');
           if (this.filters.projectIds.length) q.project_id = this.filters.projectIds.join(',');
           if (this.filters.subjectIds.length) q.subject_id = this.filters.subjectIds.join(',');
           const res = await api('GET', '/items/search', { query: q });
@@ -146,10 +149,18 @@ export function listingMixin(Alpine) {
     toggleType(t) {
       const cur = this.filters.types;
       this.filters.types = cur.includes(t) ? cur.filter((x) => x !== t) : [...cur, t];
+      // subtipo de um tipo que saiu do filtro não faz mais sentido
+      const keep = new Set(this.filters.types.flatMap((x) => subtypesOf(x)));
+      if (this.filters.types.length) this.filters.subtypes = this.filters.subtypes.filter((x) => keep.has(x));
+    },
+    toggleSubtype(st) {
+      const cur = this.filters.subtypes;
+      this.filters.subtypes = cur.includes(st) ? cur.filter((x) => x !== st) : [...cur, st];
     },
     clearFilters() {
       this.filters.q = '';
       this.filters.types = [];
+      this.filters.subtypes = [];
       this.filters.projectIds = [];
       this.filters.subjectIds = [];
     },
@@ -199,18 +210,32 @@ export function listingMixin(Alpine) {
       }));
     },
 
+    /** Subtype chips: the subtypes of the chosen types (or of every type present), with a
+     * count in the listing. */
+    get chipSubtypes() {
+      const types = this.filters.types.length ? this.filters.types : TYPE_ORDER;
+      const counts = {};
+      for (const it of this.items) if (it.subtype) counts[it.subtype] = (counts[it.subtype] || 0) + 1;
+      const all = [...new Set(types.flatMap((t) => subtypesOf(t)))];
+      const shown = this.searchMode ? all : all.filter((st) => counts[st] || this.filters.subtypes.includes(st));
+      return shown.map((st) => ({ subtype: st, label: subtypeLabel(st), count: this.searchMode ? null : counts[st] || 0 }));
+    },
+
     // ---- displayed list: a single flat list, sorted — no grouping by type ----
     get visible() {
       if (this.searchMode) return this.remote;
       const sel = this.filters.types;
-      const list = sel.length ? this.items.filter((i) => sel.includes(i.type)) : this.items.slice();
-      if (this.sort === 'recent') return list.sort((a, b) => time(b) - time(a));
-      return list.sort((a, b) => a.title.localeCompare(b.title));
+      const sub = this.filters.subtypes;
+      let list = sel.length ? this.items.filter((i) => sel.includes(i.type)) : this.items.slice();
+      if (sub.length) list = list.filter((i) => sub.includes(i.subtype));
+      const byReview = (a, b) => Number(isReview(a)) - Number(isReview(b));
+      if (this.sort === 'recent') return list.sort((a, b) => byReview(a, b) || time(b) - time(a));
+      return list.sort((a, b) => byReview(a, b) || a.title.localeCompare(b.title));
     },
-    /** Item's project: search returns the name; the listing only has the id (resolved via
-     * the tree). */
+    /** Where the item lives: search returns `where` ("Workspace/Project"); the listing has the
+     * project id (resolved via the tree). */
     where(it) {
-      return it.project || this.app.tree?.projects?.find((p) => p.id === it.project_id)?.name || '';
+      return it.where || it.project || this.app.tree?.projects?.find((p) => p.id === it.project_id)?.name || '';
     },
   };
 }

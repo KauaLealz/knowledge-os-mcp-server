@@ -88,13 +88,13 @@ export function register(Alpine) {
             if (seen.has(r.id)) continue;
             seen.add(r.id);
             const hash = r.workspace_id && r.project_id ? hrefs.item(app.connId, r.workspace_id, r.project_id, r.id) : app.hItemById(r.id);
-            items.push({ key: 'i' + r.id, title: r.title, sub: this.where(r), summary: r.summary, type: r.type, hash });
+            items.push({ key: 'i' + r.id, title: r.title, sub: this.where(r), summary: r.summary, type: r.type, subtype: r.subtype, hash });
           }
           // Se a busca do servidor falhou, ainda acha pelo título nos itens do workspace aberto.
           if (!this.remote.length) {
             for (const it of Object.values(app.itemIndex)) {
               if (!match(it.title)) continue;
-              items.push({ key: 'i' + it.id, title: it.title, sub: it.project_name, type: it.type, hash: app.hItemById(it.id) });
+              items.push({ key: 'i' + it.id, title: it.title, sub: it.project_name, type: it.type, subtype: it.subtype, hash: app.hItemById(it.id) });
             }
           }
           add('Items', items.slice(0, REMOTE_LIMIT));
@@ -123,10 +123,11 @@ export function register(Alpine) {
         return groups;
       },
 
-      /** "Workspace › Project" de um resultado da busca. */
+      /** "Workspace › Project" de um resultado da busca (`where` = "Workspace/Project"),
+       * com ⚠ quando o item está em revisão. */
       where(r) {
-        const ws = this.app.workspaces.find((w) => w.id === r.workspace_id)?.name;
-        return [ws, r.project].filter(Boolean).join(' › ');
+        const place = String(r.where || '').split('/').filter(Boolean).join(' › ');
+        return r.status === 'review' ? `⚠ review · ${place}` : place;
       },
 
       /** Ações da paleta. */

@@ -203,6 +203,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .chip .ic { width: 12px; height: 12px; }
 .chip.accent { background: var(--accent-soft); color: var(--accent-text); }
 .chip.outline { background: none; border-color: var(--border); }
+/* v2: item em revisão (⚠) e o scope herdado (mais discreto que o explícito) */
+.chip.warn { background: var(--warn-bg); border-color: var(--warn-border); color: var(--warn-text); }
+.chip.inherited { background: none; border-color: var(--border); border-style: dashed; }
 .muted { color: var(--text-3); }
 
 /* ===== Estados ===== */
@@ -253,6 +256,13 @@ button { font: inherit; color: inherit; cursor: pointer; }
   border-radius: var(--radius); font-size: 14px; line-height: 1.5;
 }
 .banner .ic { margin-top: 3px; }
+.item-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 0 0 var(--sp-5); font-size: 13.5px; color: var(--text-2); }
+.item-facts dt { color: var(--text-3); }
+.item-facts dd { margin: 0; overflow-wrap: anywhere; }
+.links { margin: 0; padding-left: 18px; }
+.tag-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 4px; border-bottom: 1px solid var(--border); }
+.tag-row .grow { flex: 1 1 160px; }
+.scope-pick { display: inline-flex; align-items: center; gap: 6px; }
 
 .prose { font-size: 16px; line-height: 1.7; overflow-wrap: anywhere; }
 .prose > :first-child { margin-top: 0; }
@@ -423,10 +433,7 @@ body { overflow-x: clip; }
 
 /* ===== Tipos de item: cor, selo, chips e grupos ===== */
 .t-rule { --tc: var(--t-rule); }
-.t-insight { --tc: var(--t-insight); }
-.t-procedure { --tc: var(--t-procedure); }
-.t-pattern { --tc: var(--t-pattern); }
-.t-knowledge { --tc: var(--t-knowledge); }
+.t-howto { --tc: var(--t-howto); }
 .t-context { --tc: var(--t-context); }
 .t-secret { --tc: var(--t-secret); }
 .t-spec { --tc: var(--t-spec); }

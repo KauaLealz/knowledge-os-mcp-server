@@ -1,4 +1,5 @@
-// Configurações · Conexões: lista, detalhe com edição, teste, padrão e exclusão.
+// Configurações · Conexões: lista, detalhe com edição, teste, padrão e exclusão. A saúde
+// (`GET /connections/health`) mostra o caminho da pasta e os `.md` que a leitura ignorou.
 // Cada conexão é um repositório git numa pasta local. `review_mode` decide como as
 // mudanças são publicadas: direto na branch principal, ou por PR. A UI não cria
 // conexão: a criação é pelo MCP (`connection_create`).
@@ -23,6 +24,7 @@ export function register(Alpine) {
     notFound: false,
     alert: null, // { kind: 'ok' | 'error', message, latency }
     confirmName: '',
+    health: {}, // id -> { path, ok, parse_errors: [{ path, error }] }
 
     get app() {
       return Alpine.store('app');
@@ -49,6 +51,7 @@ export function register(Alpine) {
       this.loading = true;
       try {
         await this.app.loadConnections();
+        await this.loadHealth();
       } catch (e) {
         this.error = e.message;
       } finally {
@@ -83,6 +86,18 @@ export function register(Alpine) {
       } catch (e) {
         this.error = e.message;
       }
+    },
+
+    async loadHealth() {
+      try {
+        const rows = await api('GET', '/connections/health');
+        this.health = Object.fromEntries(rows.map((h) => [h.id, h]));
+      } catch {
+        this.health = {}; // a lista continua útil sem a saúde
+      }
+    },
+    parseErrors(c) {
+      return this.health[c.id]?.parse_errors || [];
     },
 
     // ---- apresentação ----

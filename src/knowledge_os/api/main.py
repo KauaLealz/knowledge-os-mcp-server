@@ -12,7 +12,6 @@ from knowledge_os import __version__
 from knowledge_os.api.routes import (
     connection,
     item,
-    label,
     project,
     relation,
     tag,
@@ -98,11 +97,10 @@ def health() -> dict[str, str]:
 
 for _module, _tag in (
     (workspace, "workspaces"),
-    (project, "projects"),
+    (project, "projects & subjects"),
     (item, "items"),
     (relation, "relations"),
     (tag, "tags"),
-    (label, "labels"),
     (connection, "connections"),
 ):
     app.include_router(_module.router, prefix="/api", tags=[_tag])

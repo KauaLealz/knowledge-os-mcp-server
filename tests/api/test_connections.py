@@ -150,3 +150,25 @@ def test_set_default_disabled_is_422_and_missing_is_404(client, tmp_path):
 def test_rota_de_sincronizar_schema_saiu(client, tmp_path):
     cid = _create(client, tmp_path).json()["id"]
     assert client.post(f"/api/connections/{cid}/schema-sync").status_code in (404, 405)
+
+
+def test_health_mostra_caminho_e_arquivos_quebrados(client, tmp_path, mk):
+    mk.tree()  # a primeira escrita transforma a pasta em repositório git
+    r = client.get("/api/connections/health")
+    assert r.status_code == 200, r.text
+    (row,) = r.json()
+    assert set(row) == {"id", "name", "path", "ok", "parse_errors"}
+    assert row["id"] == "teste" and row["ok"] is True and row["parse_errors"] == []
+    folder = tmp_path / "dados"
+    assert row["path"] == str(folder)
+    (folder / "ws" / "dom" / "quebrado.md").write_text("---\n: [\n---\n", encoding="utf-8")
+    (row,) = client.get("/api/connections/health").json()
+    assert [e["path"] for e in row["parse_errors"]] == ["ws/dom/quebrado.md"]
+    assert row["parse_errors"][0]["error"]
+
+
+def test_health_marca_pasta_sem_git(client, tmp_path):
+    c = _create(client, tmp_path).json()
+    shutil.rmtree(c["path"], ignore_errors=True)
+    rows = {x["id"]: x for x in client.get("/api/connections/health").json()}
+    assert rows[c["id"]]["ok"] is False and rows[c["id"]]["path"] == c["path"]

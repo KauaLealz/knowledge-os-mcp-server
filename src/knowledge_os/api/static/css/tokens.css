@@ -28,10 +28,7 @@
 
   /* Cor por tipo de item (contraste AA sobre o fundo claro) */
   --t-rule: #b91c1c;
-  --t-insight: #b45309;
-  --t-procedure: #1d4ed8;
-  --t-pattern: #6d28d9;
-  --t-knowledge: #15803d;
+  --t-howto: #1d4ed8;
   --t-context: #475569;
   --t-secret: #9a3412;
   --t-spec: #a21caf;
@@ -84,10 +81,7 @@
     --danger-soft: rgba(248, 113, 113, 0.12);
     --ok: #4ade80;
     --t-rule: #f87171;
-    --t-insight: #fbbf24;
-    --t-procedure: #60a5fa;
-    --t-pattern: #a78bfa;
-    --t-knowledge: #4ade80;
+    --t-howto: #60a5fa;
     --t-context: #94a3b8;
     --t-secret: #fb923c;
     --t-spec: #e879f9;
@@ -124,10 +118,7 @@
   --danger-soft: rgba(248, 113, 113, 0.12);
   --ok: #4ade80;
   --t-rule: #f87171;
-  --t-insight: #fbbf24;
-  --t-procedure: #60a5fa;
-  --t-pattern: #a78bfa;
-  --t-knowledge: #4ade80;
+  --t-howto: #60a5fa;
   --t-context: #94a3b8;
   --t-secret: #fb923c;
   --t-spec: #e879f9;
