@@ -103,7 +103,8 @@ class TestWorkspaceService:
         svc.create("tgt", None)
         ProjectService().create("src", "p1", None)
         result = svc.merge("src", "tgt")
-        assert result == {"merged_projects": 1, "renamed_collisions": 0}
+        assert result == {"merged_projects": 1, "renamed_collisions": 0,
+                          "scope_changes": {"items": 0}}
         assert [p.name for p in ProjectService().list("tgt")] == ["p1"]
         with pytest.raises(NotFoundError):
             svc.get("src")
@@ -116,7 +117,8 @@ class TestWorkspaceService:
         item_id = _item("src", "shared")
 
         result = svc.merge("src", "tgt")
-        assert result == {"merged_projects": 1, "renamed_collisions": 1}
+        assert result == {"merged_projects": 1, "renamed_collisions": 1,
+                          "scope_changes": {"items": 0}}
         assert [p.name for p in ProjectService().list("tgt")] == ["shared"]
         moved = ItemService().get(item_id)
         assert (moved.workspace_id, moved.project_id) == ("tgt", "shared")
@@ -177,7 +179,8 @@ class TestProjectService:
         item_id = _item("W", "src")
         ProjectService().create("w", "tgt", None)
         result = ProjectService().merge("w", "src", "tgt")
-        assert result == {"merged_items": 1, "merged_subjects": 0}
+        assert result == {"merged_items": 1, "merged_subjects": 0,
+                          "scope_changes": {"items": 0}}
         assert ItemService().get(item_id).project_id == "tgt"
         with pytest.raises(NotFoundError):
             ProjectService().get("w", "src")
@@ -188,7 +191,8 @@ class TestProjectService:
         SubjectService().create("w", "src", "only-in-src", None)
 
         result = ProjectService().merge("w", "src", "tgt")
-        assert result == {"merged_items": 1, "merged_subjects": 1}
+        assert result == {"merged_items": 1, "merged_subjects": 1,
+                          "scope_changes": {"items": 0}}
         assert ItemService().get(item_id).subject_id == "shared"
         assert SubjectService().get("w", "tgt", "only-in-src").name == "only-in-src"
 
@@ -264,7 +268,8 @@ class TestSubjectService:
         item_id = _item("W", "D", subject="src")
         SubjectService().create("w", "d", "tgt", None)
         result = SubjectService().merge("w", "d", "src", "tgt")
-        assert result == {"merged_items": 1}
+        assert result == {"merged_items": 1,
+                          "scope_changes": {"items": 0}}
         assert ItemService().get(item_id).subject == "tgt"
         with pytest.raises(NotFoundError):
             SubjectService().get("w", "d", "src")

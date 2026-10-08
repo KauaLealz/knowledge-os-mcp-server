@@ -40,6 +40,7 @@ COUNTERS = ("shown", "opened", "helped", "wrong", "outdated", "irrelevant", "ver
 # Uso de verdade (abrir, ajudar) renova `last_used_at`; aparecer numa busca não.
 _TOUCHES = ("opened", "helped")
 _lock = threading.RLock()  # threads deste processo (UI + MCP)
+MAX_LOGGED_QUERY = 200  # caracteres de uma busca vazia que vão para `searches/<conn>.jsonl`
 
 
 @contextmanager
@@ -220,11 +221,19 @@ def _searches_path(connection_id: str) -> Path:
 
 
 def log_empty_search(connection_id: str, query: str) -> None:
-    """Registra uma busca que voltou vazia (`{ts, query}`). Best-effort, como o contador."""
+    """Registra uma busca que voltou vazia (`{ts, query}`). Best-effort, como o contador.
+
+    Consulta com cara de segredo (o agente colou um token na busca) não é registrada, e a
+    gravada é cortada em `MAX_LOGGED_QUERY` caracteres: o arquivo fica no home, legível pelo
+    relatório, e não é lugar de credencial.
+    """
+    from knowledge_os.services.secret_guard import find_secret
+
     try:
         query = " ".join((query or "").split())
-        if not query:
+        if not query or find_secret(query):
             return
+        query = query[:MAX_LOGGED_QUERY]
         path = _searches_path(connection_id)
         line = json.dumps({"ts": _now(), "query": query}, ensure_ascii=False)
         with _locked():

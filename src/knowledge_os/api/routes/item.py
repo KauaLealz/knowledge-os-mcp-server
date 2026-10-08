@@ -102,6 +102,9 @@ def list_items(
 
 @router.post("/items", status_code=status.HTTP_201_CREATED, response_model=ItemResponse)
 def create_item(req: ItemCreate, cid: str = Depends(get_connection_id)):
+    if req.sent("id"):
+        raise ValidationError("POST /api/items cria um item: não envie id (ele é gerado); para "
+                              "editar use PUT /api/items/{id}")
     fields = req.service_fields()
     ws, pj, sj = fields.pop("workspace"), fields.pop("project"), fields.pop("subject", None)
     _require_place(cid, ws, pj, sj)
@@ -201,7 +204,8 @@ def delete_item(id: str, cid: str = Depends(get_connection_id)) -> Response:
 def item_feedback(id: str, req: FeedbackRequest, cid: str = Depends(get_connection_id)):
     """`ItemService.feedback` de um item: `helped`/`irrelevant` só contam; `wrong`/`outdated`
     põem em `review` (com a nota no conteúdo); `verified` grava `verified_at`."""
-    result = ItemService(cid).feedback([{"id": id, **req.model_dump(exclude_unset=True)}])
+    body = {k: v for k, v in req.model_dump(exclude_unset=True).items() if k not in ("id", "key")}
+    result = ItemService(cid).feedback([{**body, "id": id}])  # o item é sempre o da rota
     if result.get("missing"):
         raise NotFoundError(f"Item não encontrado: {id}")
     return result

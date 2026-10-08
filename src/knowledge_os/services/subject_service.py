@@ -3,7 +3,9 @@
 O subject de um item é o campo `subject` do frontmatter; a lista `subjects` do
 `.knowledge.yaml` do project guarda os subjects sem item e os que têm descrição ou `scope`
 explícito (`[{name, description?, scope?}]`; um nome solto também vale). Ao mesclar, vale o
-scope do destino. `scope` segue a convenção de `workspace_service` (None / valor / `""`).
+scope do destino para o subject; ao mesclar ou remover, o item que herdava e mudaria de
+alcance ganha o scope de antes como explícito (`Draft.keep_scopes`: ninguém muda de alcance
+sem pedir). `scope` segue a convenção de `workspace_service` (None / valor / `""`).
 """
 
 from __future__ import annotations
@@ -148,7 +150,8 @@ class SubjectService:
         logger.info("Subject atualizado: %s -> %s (project %s)", ref, name, project_id)
         return brain.snapshot.subject(ws.id, pj.id, new_id)
 
-    def merge(self, workspace_id: str, project_id: str, source: str, target: str) -> dict[str, int]:
+    def merge(self, workspace_id: str, project_id: str, source: str,
+              target: str) -> dict[str, Any]:
         """Move os itens de source para target e apaga source."""
         brain = self._brain()
         with brain.editing() as d:
@@ -162,12 +165,32 @@ class SubjectService:
             for record in records:
                 d.put(dataclasses.replace(record, subject=tgt.name, updated_at=utcnow()))
             _set_subject_meta(d, ws, pj, src.id, None)
+            changes = d.keep_scopes()
             brain.commit(d, f"knowledge-os: mescla subject {src.name} em {tgt.name}")
         logger.info("Subject mesclado: %s -> %s (project %s)", source, target, project_id)
-        return {"merged_items": len(records)}
+        return {"merged_items": len(records), "scope_changes": {"items": changes}}
+
+    @staticmethod
+    def _delete_in(d: Draft, ws: Workspace, pj: Project, sj: Subject) -> int:
+        """Tira o subject dos itens e do `.knowledge.yaml`; quem herdava o scope dele ganha o
+        scope de antes como explícito (`Draft.keep_scopes`). Devolve quantos ganharam."""
+        for record in d.items_in(ws.id, pj.id, sj.id):
+            d.put(dataclasses.replace(record, subject=None, updated_at=utcnow()))
+        _set_subject_meta(d, ws, pj, sj.id, None)
+        return d.keep_scopes()
+
+    def delete_scope_changes(self, workspace_id: str, project_id: str, name: str) -> int:
+        """Prévia do `delete`: quantos itens ganhariam scope explícito (nada é gravado)."""
+        brain = self._brain()
+        with brain.editing() as d:
+            ws = d.workspace(workspace_id)
+            pj = d.project(ws.id, project_id)
+            sj = d.find_subject(ws.id, pj.id, name)
+            return 0 if sj is None else self._delete_in(d, ws, pj, sj)
 
     def delete(self, workspace_id: str, project_id: str, name: str) -> bool:
-        """Remove o subject, deixando os itens dele sem subject. False se não existe."""
+        """Remove o subject, deixando os itens dele sem subject (com o alcance de antes, ver
+        `_delete_in`), num commit. False se não existe."""
         brain = self._brain()
         with brain.editing() as d:
             ws = d.workspace(workspace_id)
@@ -176,9 +199,7 @@ class SubjectService:
             if sj is None:
                 logger.debug("Subject inexistente para delete: %s", name)
                 return False
-            for record in d.items_in(ws.id, pj.id, sj.id):
-                d.put(dataclasses.replace(record, subject=None, updated_at=utcnow()))
-            _set_subject_meta(d, ws, pj, sj.id, None)
+            self._delete_in(d, ws, pj, sj)
             brain.commit(d, f"knowledge-os: remove subject {pj.name}/{sj.name}")
         logger.info("Subject removido: %s", name)
         return True

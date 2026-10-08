@@ -188,11 +188,13 @@ class WorkspaceService:
         d.set_meta(meta_location(new_id), {**meta, "name": new_name})
         return new_name
 
-    def merge(self, source: str, target: str) -> dict[str, int]:
+    def merge(self, source: str, target: str) -> dict[str, Any]:
         """Move todos os projects de source para target e apaga source.
 
         Projects homônimos (mesmo nome em source e target) são mesclados (itens e subjects
-        juntos) em vez de duplicados. Repositórios ligados a source passam para target.
+        juntos) em vez de duplicados. Repositórios ligados a source passam para target. Item
+        sem scope próprio que mudaria de alcance (herdava do workspace/project de source) ganha
+        o scope de antes como explícito, no mesmo commit (`scope_changes.items`).
         """
         from knowledge_os.services.project_service import merge_project_in
 
@@ -215,11 +217,13 @@ class WorkspaceService:
                 merged_projects += 1
             move_project_metas(d, src.id, tgt.id)
             d.set_meta(meta_location(src.id), None)
+            changes = d.keep_scopes()
             result = brain.commit(d, f"knowledge-os: mescla workspace {src.name} em {tgt.name}")
         if is_published(result):
             relink(brain.cid, src.id, None, workspace=tgt.name)
         logger.info("Workspace mesclado: %s -> %s", source, target)
-        return {"merged_projects": merged_projects, "renamed_collisions": renamed_collisions}
+        return {"merged_projects": merged_projects, "renamed_collisions": renamed_collisions,
+                "scope_changes": {"items": changes}}
 
     def delete(self, name: str) -> bool:
         """Remove o workspace (projects e itens). False se não existe."""

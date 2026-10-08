@@ -265,7 +265,8 @@ def test_workspace_crud_com_scope_e_previa(server):
                        "would_delete": {"workspace": "Antigo", "projects": 1, "items": 1}}
     assert len(call(server, "workspace_list")) == 2  # nada apagado sem confirm
     assert call(server, "workspace_merge", source="Antigo", target="Polara") == {
-        "merged_projects": 1, "renamed_collisions": 0}
+        "merged_projects": 1, "renamed_collisions": 0,
+        "scope_changes": {"items": 1}}
     done = call(server, "workspace_delete", name="Polara", confirm=True)
     assert done["status"] == "deleted" and done["items"] == 1
     assert call(server, "workspace_list") == []
@@ -293,10 +294,11 @@ def test_project_e_subject_crud_com_scope(server):
     assert [(p["name"], p["subjects"]) for p in projects] == [
         ("app", ["cobranca", "pagamentos"]), ("app-old", [])]
     assert call(server, "subject_merge", workspace="W", project="app", source="cobranca",
-                target="pagamentos") == {"merged_items": 1}
+                target="pagamentos") == {"merged_items": 1, "scope_changes": {"items": 1}}
     preview = call(server, "subject_delete", workspace="W", project="app", name="pagamentos")
     assert preview == {"status": "preview",
-                       "would_delete": {"subject": "pagamentos", "items_sem_assunto": 1}}
+                       "would_delete": {"subject": "pagamentos", "items_sem_assunto": 1},
+                       "scope_changes": {"items": 0}}
     call(server, "subject_delete", workspace="W", project="app", name="pagamentos", confirm=True)
     (item,) = call(server, "item_get", keys=["rule/a"], workspace="W", project="app")
     assert item["subject"] is None  # o item fica, sem subject

@@ -91,8 +91,13 @@ class SecretService:
         return out
 
     def resolve(self, repo: str, key: str) -> tuple[Item, str]:
-        """(item, valor) do segredo `key` (ou id) no alcance do repo: o project ligado
-        primeiro, depois os de scope workspace/global (`services.scope`).
+        """(item, valor) do segredo `key` (ou id) no alcance do repo, do mais perto ao mais
+        longe: o project ligado; depois outro project do mesmo workspace com `scope: workspace`
+        ou `global` explícito no item; depois outro workspace com `scope: global` explícito.
+
+        Segredo nunca herda scope (`Snapshot.effective_scope`): um workspace `global` não
+        espalha os segredos dele — só o `scope` do próprio item tira o segredo do project. Dois
+        candidatos igualmente próximos com a mesma key são ambíguos: erro que pede o id.
 
         Conta o uso. Sem item ou sem valor: erro que diz o que fazer, sem rodar nada.
         """
@@ -101,12 +106,17 @@ class SecretService:
         brain = Brain(self._connection_id)
         link = RepoService(brain.cid).require(repo)
         viewpoint = (link["workspace_id"], link["project_id"])
-        item = next(
-            (brain.view(record) for record, _weight in scope.reach(brain.snapshot, viewpoint)
-             if record.type == "secret" and record.status == "active"
-             and key in (record.key, record.id)),
-            None,
-        )
+        found = [(record, weight) for record, weight in scope.reach(brain.snapshot, viewpoint)
+                 if record.type == "secret" and record.status == "active"
+                 and key in (record.key, record.id)]
+        closest = [record for record, weight in found if weight == found[0][1]] if found else []
+        if len(closest) > 1:
+            places = ", ".join(sorted(scope.where(r) for r in closest))
+            raise ValidationError(
+                f"Segredo {key} existe em mais de um lugar com o mesmo alcance ({places}): "
+                "passe o id do item no lugar da key (item_search mostra o id)."
+            )
+        item = brain.view(closest[0]) if closest else None
         if item is None:
             raise NotFoundError(
                 f"Segredo não encontrado: {key}. O agente cria o item (type secret, sem "

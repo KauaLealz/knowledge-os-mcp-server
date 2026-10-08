@@ -21,6 +21,8 @@ if TYPE_CHECKING:
     from knowledge_os.services.brain import Item
 
 LOCATION_IDS = {"workspace_id": "workspace", "project_id": "project", "subject_id": "subject"}
+# Do corpo, nunca prevalecem sobre a rota (o id vem da URL; o lugar, dos `*_id`).
+BODY_IGNORED = ("id", "workspace", "project", "subject")
 
 
 class _Entry(BaseModel):
@@ -29,9 +31,19 @@ class _Entry(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     def service_fields(self) -> dict[str, Any]:
-        """Os campos enviados (só os presentes), com o local traduzido para o serviço."""
+        """Os campos enviados (só os presentes), com o local traduzido para o serviço.
+
+        O corpo nunca vence a rota: `id` e o lugar cru (`workspace`/`project`/`subject`) do
+        JSON saem — o item é o da URL e o lugar só muda pelos `*_id`, que a rota valida.
+        """
         data = self.model_dump(exclude_unset=True)
+        for name in BODY_IGNORED:
+            data.pop(name, None)
         return {LOCATION_IDS.get(k, k): v for k, v in data.items()}
+
+    def sent(self, name: str) -> bool:
+        """O campo veio no corpo (mesmo como extra)?"""
+        return name in self.model_fields_set or name in (self.model_extra or {})
 
 
 class ItemCreate(_Entry):

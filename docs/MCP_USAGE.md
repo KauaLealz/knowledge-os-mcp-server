@@ -245,7 +245,12 @@ subject_delete(workspace="Polara", project="app", name="pagamentos", confirm=Tru
   para todos os repositórios de um workspace; um item com `scope="global"` vale para você em
   qualquer lugar.
 - `merge` e `delete` são destrutivos: o `delete` devolve uma prévia sem `confirm`; só passe
-  `confirm=True` com pedido explícito do usuário.
+  `confirm=True` com pedido explícito do usuário. Quando o merge/delete mudaria o alcance de
+  um item que herdava, o scope de antes vira explícito no item (`scope_changes: {items}` na
+  prévia do `subject_delete` e na resposta dos `*_merge`).
+- **O scope não é fronteira de segurança:** controla o que a busca e o pacote mostram;
+  `item_get(ids=[...])` e `everywhere=True` leem a conexão inteira. `secret` é a exceção: nunca
+  herda scope, e só sai do project dele (pelo `knowledge-mcp run`) com `scope` explícito no item.
 
 ## Conexões e saúde
 

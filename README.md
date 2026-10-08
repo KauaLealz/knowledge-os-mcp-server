@@ -129,6 +129,14 @@ mudam o alcance de tudo que herda, sem mover arquivo. Na busca, o item do projec
 pesa 1.0; o de scope `workspace` de outro project do mesmo workspace, 0.85; o `global` de fora,
 0.7; o resto é invisível.
 
+> **O scope não é fronteira de segurança.** Ele decide o que a busca e o pacote do hook mostram,
+> não quem pode ler: `item_get(ids=[...])` e `item_search(everywhere=True)` leem a conexão
+> inteira. A exceção é `secret`: o segredo **nunca herda** scope (sem `scope` próprio vale só no
+> project dele, mesmo num workspace `global`), e o `knowledge-mcp run` só entrega o valor de um
+> segredo de fora do project do repositório quando o item declara `scope: workspace`/`global`.
+> Merge e delete de workspace, project ou subject gravam o scope que o item tinha como explícito
+> quando ele mudaria de alcance (`scope_changes` na resposta).
+
 ### Ciclo de vida
 
 Sem aprovação: o que o agente grava já vale. Para corrigir, regrave pela mesma `key`; para

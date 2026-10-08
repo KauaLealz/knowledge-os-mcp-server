@@ -16,8 +16,10 @@ Erros de validação dizem como corrigir (os valores válidos).
 from __future__ import annotations
 
 import re
+import reprlib
 import unicodedata
 from typing import Any
+from urllib.parse import urlsplit
 
 from knowledge_os.exceptions import ValidationError
 
@@ -73,18 +75,63 @@ def _listing(values: tuple[str, ...] | list[str]) -> str:
 # --------------------------------------------------------------------------- campos isolados
 
 
-def key_problem(key: Any) -> str | None:
+# Nomes que o Windows reserva para dispositivos (com ou sem extensão: `nul.txt` também).
+WINDOWS_RESERVED = frozenset(
+    ["con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)),
+     *(f"lpt{i}" for i in range(1, 10))]
+)
+
+
+def segment_problem(segment: str, what: str) -> str | None:
+    """Motivo pelo qual o segmento de path não é portável para o Windows (None se é).
+
+    O NTFS tira ponto e espaço do fim do nome (`rule.` e `rule` viram o mesmo arquivo) e não
+    aceita os nomes de dispositivo (`con`, `nul`, `com1`... também com extensão). Um segmento
+    assim faria dois itens dividirem um arquivo — ou o arquivo nunca seria gravado.
+    """
+    if segment != segment.rstrip(". "):
+        return (f"{what} inválido: {_short(segment)} termina em '.' ou espaço, que o Windows "
+                "descarta (dois nomes virariam o mesmo arquivo); tire o ponto/espaço do fim")
+    if segment.split(".", 1)[0].casefold() in WINDOWS_RESERVED:
+        return (f"{what} inválido: {_short(segment)} é um nome reservado do Windows "
+                f"({', '.join(sorted(WINDOWS_RESERVED))}); use outro nome (ex.: "
+                f"{segment.split('.', 1)[0].lower()}-regras)")
+    return None
+
+
+_REPR = reprlib.Repr(maxlevel=2, maxlist=4, maxdict=4, maxstring=60, maxother=60,
+                     maxlong=40)
+
+
+def short_repr(value: Any, limit: int = 80) -> str:
+    """`repr` cortado (`reprlib` + no máximo `limit` caracteres): a mensagem de erro nunca
+    cresce com o valor recebido — nem com uma estrutura aninhada enorme."""
+    text = _REPR.repr(value)
+    return text if len(text) <= limit else text[:limit - 1] + "…"
+
+
+_short = short_repr
+
+
+def key_problem(key: Any, *, portable: bool = True) -> str | None:
     """Motivo pelo qual a key não serve de path dentro do project (None se serve).
 
     A key vira `<ws>/<pj>/<key>.md`: cada segmento separado por "/" precisa começar por letra
     ou número e ter só letras, números, ".", "_" e "-". Isso recusa segmento vazio, ".", "..",
-    pasta oculta, barra invertida, ":" e caminho absoluto.
+    pasta oculta, barra invertida, ":" e caminho absoluto. Com `portable` (toda gravação),
+    recusa também o que o Windows não guarda (`segment_problem`); a leitura de um arquivo que
+    já existe passa `portable=False`, para não sumir com ele.
     """
     if not isinstance(key, str) or not key or len(key) > 200:
         return "key deve ser um texto de 1 a 200 caracteres"
     if not all(_KEY_SEGMENT_RE.fullmatch(seg) for seg in key.split("/")):
-        return (f"key inválida: {key!r} (cada parte entre '/' começa por letra ou número e "
-                "usa só letras, números, '.', '_' e '-')")
+        return (f"key inválida: {_short(key)} (cada parte entre '/' começa por letra ou número "
+                "e usa só letras, números, '.', '_' e '-')")
+    if portable:
+        for seg in key.split("/"):
+            problem = segment_problem(seg, "key")
+            if problem:
+                return problem
     return None
 
 
@@ -94,7 +141,7 @@ def key_warnings(key: str | None, item_type: str | None) -> list[str]:
         return []
     if re.fullmatch(rf"{re.escape(item_type)}/{_KEY_NAME}", key):
         return []
-    return [f"key {key!r} fora do padrão {item_type}/<nome> (nome em minúsculas com '-', "
+    return [f"key {_short(key)} fora do padrão {item_type}/<nome> (nome em minúsculas com '-', "
             f"ex.: {item_type}/money-em-pagamentos); gravado assim mesmo"]
 
 
@@ -124,10 +171,10 @@ def content_warnings(item_type: str | None, subtype: str | None, content: str | 
 def normalize_tag(name: Any) -> str:
     """Nome de tag em kebab-case minúsculo, sem acento; vazio é erro."""
     if not isinstance(name, str):
-        raise ValidationError(f"tag deve ser texto: {name!r}")
+        raise ValidationError(f"tag deve ser texto: {_short(name)}")
     slug = re.sub(r"[^a-z0-9]+", "-", _fold(name.strip())).strip("-")
     if not _TAG_RE.fullmatch(slug):
-        raise ValidationError(f"tag inválida: {name!r} (use kebab-case, ex.: pagamentos-pix)")
+        raise ValidationError(f"tag inválida: {_short(name)} (use kebab-case, ex.: pagamentos-pix)")
     return slug
 
 
@@ -140,7 +187,7 @@ def statuses_for(item_type: str | None) -> tuple[str, ...]:
 
 def _check_choice(name: str, value: Any, valid: tuple[str, ...]) -> str:
     if not isinstance(value, str) or value.strip().lower() not in valid:
-        raise ValidationError(f"{name} inválido: {value!r}. Válidos: {_listing(valid)}")
+        raise ValidationError(f"{name} inválido: {_short(value)}. Válidos: {_listing(valid)}")
     return value.strip().lower()
 
 
@@ -158,7 +205,7 @@ def _check_subtype(item_type: str | None, value: Any) -> str | None:
         return _check_choice("subtype", value, valid)
     valid = TYPES[item_type]
     if not isinstance(value, str) or value.strip().lower() not in valid:
-        raise ValidationError(f"subtype inválido para {item_type}: {value!r}. "
+        raise ValidationError(f"subtype inválido para {item_type}: {_short(value)}. "
                               f"Válidos: {_listing(valid)}")
     return value.strip().lower()
 
@@ -172,7 +219,7 @@ def _check_status(item_type: str | None, value: Any) -> str:
         hint = f" ({value} só em spec)"
     elif value == EXPIRED:
         hint = " (expired é derivado do ttl_days, nunca gravado)"
-    raise ValidationError(f"status inválido: {value!r}{hint}. Válidos: {_listing(valid)}")
+    raise ValidationError(f"status inválido: {_short(value)}{hint}. Válidos: {_listing(valid)}")
 
 
 def _check_text(name: str, value: Any, *, required: bool) -> str | None:
@@ -181,7 +228,7 @@ def _check_text(name: str, value: Any, *, required: bool) -> str | None:
             raise ValidationError(f"{name} não pode ser vazio")
         return None
     if not isinstance(value, str):
-        raise ValidationError(f"{name} deve ser texto: {value!r}")
+        raise ValidationError(f"{name} deve ser texto: {_short(value)}")
     if required and not value.strip():
         raise ValidationError(f"{name} não pode ser vazio")
     return value
@@ -191,16 +238,25 @@ def _check_str_list(name: str, value: Any) -> list[str]:
     if value is None:
         return []
     if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
-        raise ValidationError(f"{name} deve ser lista de textos: {value!r}")
+        raise ValidationError(f"{name} deve ser lista de textos: {_short(value)}")
     return [v.strip() for v in value if v.strip()]
 
 
+LINK_SCHEMES = ("http", "https", "mailto")
+
+# Limites de `scope_paths`: cada padrão vira um casamento de glob a cada busca com `paths`.
+MAX_SCOPE_PATHS = 20
+MAX_SCOPE_PATH_CHARS = 200
+MAX_SCOPE_PATH_WILDCARDS = 8
+
+
 def check_links(value: Any) -> list[dict[str, str]]:
-    """`links` = `[{title, url}]`; sem `title`, vale a própria url."""
+    """`links` = `[{title, url}]`; sem `title`, vale a própria url. Só `LINK_SCHEMES`: um
+    `javascript:` ou `data:` viraria código ao ser clicado na UI; `file:` aponta para fora."""
     if value is None:
         return []
     if not isinstance(value, list):
-        raise ValidationError(f"links deve ser lista de {{title, url}}: {value!r}")
+        raise ValidationError(f"links deve ser lista de {{title, url}}: {_short(value)}")
     out: list[dict[str, str]] = []
     for link in value:
         url = link.get("url") if isinstance(link, dict) else None
@@ -208,17 +264,47 @@ def check_links(value: Any) -> list[dict[str, str]]:
         if not isinstance(url, str) or not url.strip() or (
                 title is not None and not isinstance(title, str)):
             raise ValidationError(
-                f"link inválido: {link!r}. Formato: {{\"title\": \"Painel\", \"url\": \"https://...\"}}"
+                f"link inválido: {_short(link)}. Formato: "
+                "{\"title\": \"Painel\", \"url\": \"https://...\"}"
+            )
+        try:
+            scheme = urlsplit(url.strip()).scheme.lower()
+        except ValueError:
+            scheme = ""
+        if scheme not in LINK_SCHEMES:
+            raise ValidationError(
+                f"link com esquema não aceito: {_short(url.strip())}. Aceitos: "
+                f"{', '.join(LINK_SCHEMES)} (ex.: https://painel.exemplo.com)"
             )
         out.append({"title": (title or "").strip() or url.strip(), "url": url.strip()})
     return out
+
+
+def check_scope_paths(value: Any) -> list[str]:
+    """`scope_paths`: até `MAX_SCOPE_PATHS` globs de até `MAX_SCOPE_PATH_CHARS` caracteres,
+    cada um com no máximo `MAX_SCOPE_PATH_WILDCARDS` curingas (`*`/`?`)."""
+    paths = _check_str_list("scope_paths", value)
+    if len(paths) > MAX_SCOPE_PATHS:
+        raise ValidationError(f"scope_paths: no máximo {MAX_SCOPE_PATHS} padrões por item "
+                              f"(recebi {len(paths)}); junte os parecidos (ex.: src/**/*.py)")
+    for path in paths:
+        if len(path) > MAX_SCOPE_PATH_CHARS:
+            raise ValidationError(f"scope_paths: cada padrão tem até {MAX_SCOPE_PATH_CHARS} "
+                                  f"caracteres ({_short(path)} tem {len(path)})")
+        wildcards = path.count("*") + path.count("?")
+        if wildcards > MAX_SCOPE_PATH_WILDCARDS:
+            raise ValidationError(
+                f"scope_paths: no máximo {MAX_SCOPE_PATH_WILDCARDS} curingas (* ou ?) por "
+                f"padrão ({_short(path)} tem {wildcards}); use ** para cruzar pastas"
+            )
+    return paths
 
 
 def _check_ttl(value: Any) -> int | None:
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        raise ValidationError(f"ttl_days deve ser inteiro positivo (dias): {value!r}")
+        raise ValidationError(f"ttl_days deve ser inteiro positivo (dias): {_short(value)}")
     return value
 
 
@@ -234,7 +320,7 @@ def validate_entry(entry: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
     Defaults (status, origin) não são preenchidos aqui: numa atualização apagariam o valor atual.
     """
     if not isinstance(entry, dict):
-        raise ValidationError(f"Cada item deve ser um objeto: {entry!r}")
+        raise ValidationError(f"Cada item deve ser um objeto: {_short(entry)}")
     unknown = [k for k in entry if k not in ITEM_FIELDS and k not in LOCATION_FIELDS]
     if unknown:
         raise ValidationError(
@@ -276,7 +362,7 @@ def validate_entry(entry: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
     if "links" in entry:
         clean["links"] = check_links(entry["links"])
     if "scope_paths" in entry:
-        clean["scope_paths"] = _check_str_list("scope_paths", entry["scope_paths"])
+        clean["scope_paths"] = check_scope_paths(entry["scope_paths"])
     if "ttl_days" in entry:
         clean["ttl_days"] = _check_ttl(entry["ttl_days"])
 

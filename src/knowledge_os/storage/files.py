@@ -8,8 +8,9 @@ sumiu — barato o bastante para ser chamado antes de cada operação. As consul
 `by_key`...) leem o estado do último `refresh()`/`write()`/`delete()`; quem precisa ver mudanças
 feitas por fora (ex.: um `git pull`) chama `refresh()` antes.
 
-Arquivo inválido nunca derruba a leitura: vai para `errors` com o motivo. Dois arquivos com o
-mesmo id: vale o de mtime mais recente e o outro também vai para `errors`.
+Arquivo inválido nunca derruba a leitura: vai para `errors` com o motivo (inclusive o maior que
+`MAX_ITEM_BYTES`, que nem é lido, e o YAML hostil que estoura memória ou recursão). Dois
+arquivos com o mesmo id: vale o de mtime mais recente e o outro também vai para `errors`.
 
 A escrita é atômica (arquivo temporário na mesma pasta + `os.replace`) e o path segue
 `item_path`; se a key, o workspace ou o project mudarem, o arquivo antigo é removido.
@@ -32,6 +33,8 @@ from knowledge_os.services.item_file import (
     serialize_item,
 )
 from knowledge_os.storage.search import SearchIndex
+
+MAX_ITEM_BYTES = 1 << 20  # 1 MiB: acima disso o `.md` vai para `errors` sem ser lido
 
 
 @dataclass
@@ -152,13 +155,23 @@ class FileStore:
         return found
 
     def _load(self, rel: str, mtime_ns: int, size: int) -> None:
+        record: ItemRecord | None = None
+        if size > MAX_ITEM_BYTES:
+            # Nem lê: um arquivo assim (vindo de um remote) não é item, e parseá-lo custaria
+            # memória a cada leitura da pasta.
+            self._parse_errors[rel] = (f"arquivo grande demais ({size} bytes; máximo "
+                                       f"{MAX_ITEM_BYTES}): não é lido como item")
+            self._cache[rel] = (mtime_ns, size, None)
+            return
         try:
             raw = (self.root / rel).read_text(encoding="utf-8")
-            record: ItemRecord | None = _record_from_parsed(parse_item_file(raw), rel)
+            record = _record_from_parsed(parse_item_file(raw), rel)
             self._parse_errors.pop(rel, None)
         except (OSError, UnicodeDecodeError, ValidationError) as exc:
-            record = None
-            self._parse_errors[rel] = str(exc)
+            self._parse_errors[rel] = str(exc)[:500]
+        except (MemoryError, RecursionError) as exc:
+            # Último recurso contra YAML hostil: um arquivo nunca derruba a leitura da pasta.
+            self._parse_errors[rel] = f"arquivo não pôde ser lido ({type(exc).__name__})"
         self._cache[rel] = (mtime_ns, size, record)
 
     def refresh(self) -> None:

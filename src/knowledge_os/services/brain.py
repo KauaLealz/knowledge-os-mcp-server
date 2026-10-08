@@ -40,9 +40,9 @@ import yaml
 
 from knowledge_os.config import ConnectionConfig
 from knowledge_os.exceptions import NotFoundError, ValidationError
-from knowledge_os.model import DEFAULT_SCOPE, SCOPES
+from knowledge_os.model import DEFAULT_SCOPE, SCOPES, segment_problem, short_repr
 from knowledge_os.services.git_repo_service import PublishResult
-from knowledge_os.services.item_file import id_problem, safe_join, slugify
+from knowledge_os.services.item_file import id_problem, load_yaml_text, safe_join, slugify
 from knowledge_os.storage import local_state
 from knowledge_os.storage.access import (
     folder_lock,
@@ -91,12 +91,16 @@ def is_published(result: PublishResult | None) -> bool:
 
 
 def check_name(name: str | None, what: str) -> str:
-    """Nome de workspace/project/subject: não vazio e com slug (vira nome de pasta)."""
+    """Nome de workspace/project/subject: não vazio e com slug (vira nome de pasta) que o
+    Windows guarda (sem ponto final nem nome reservado: `model.segment_problem`)."""
     name = (name or "").strip()
     if not name or len(name) > 255:
         raise ValidationError(f"Nome de {what} deve ter de 1 a 255 caracteres")
     if not slugify(name) or slugify(name).startswith((".", "_")):
-        raise ValidationError(f"Nome de {what} inválido: {name!r}")
+        raise ValidationError(f"Nome de {what} inválido: {short_repr(name)}")
+    problem = segment_problem(slugify(name), f"Nome de {what}")
+    if problem:
+        raise ValidationError(problem)
     return name
 
 
@@ -193,11 +197,29 @@ class Item:
 # --------------------------------------------------------------------------- leitura
 
 
-def _load_yaml(path: Path) -> dict[str, Any]:
+MAX_META_BYTES = 256 * 1024  # `.knowledge.yaml` maior que isso é ignorado (vai para `errors`)
+
+
+def _load_yaml(path: Path, errors: dict[str, str] | None = None,
+               rel: str | None = None) -> dict[str, Any]:
+    """Um `.knowledge.yaml`; inválido, grande demais ou com alias YAML vira `{}` (e o motivo
+    em `errors[rel]`), sem derrubar a leitura da pasta."""
+    reason: str | None = None
+    data: Any = None
     try:
-        data = yaml.load(path.read_text(encoding="utf-8"), Loader=_LOADER)  # noqa: S506
-    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
-        logger.warning("Ignorando %s inválido: %s", path, exc)
+        size = path.stat().st_size
+        if size > MAX_META_BYTES:
+            reason = f"arquivo grande demais ({size} bytes; máximo {MAX_META_BYTES})"
+        else:
+            data = load_yaml_text(path.read_text(encoding="utf-8"), ".knowledge.yaml")
+    except (OSError, UnicodeDecodeError, ValidationError) as exc:
+        reason = str(exc)[:300]
+    except (MemoryError, RecursionError) as exc:
+        reason = f"arquivo não pôde ser lido ({type(exc).__name__})"
+    if reason is not None:
+        logger.warning("Ignorando %s: %s", path, reason)
+        if errors is not None:
+            errors[rel or path.name] = reason
         return {}
     return data if isinstance(data, dict) else {}
 
@@ -212,18 +234,24 @@ def _visible_dirs(folder: Path) -> list[os.DirEntry[str]]:
         return []
 
 
-def read_metas(root: Path) -> dict[str, dict[str, Any]]:
-    """Todos os `.knowledge.yaml` (raiz, workspaces e projects), por path relativo."""
+def read_metas(root: Path, errors: dict[str, str] | None = None) -> dict[str, dict[str, Any]]:
+    """Todos os `.knowledge.yaml` (raiz, workspaces e projects), por path relativo.
+
+    O que não pôde ser lido entra como `{}` e, com `errors`, o motivo vai para
+    `errors[path relativo]` (o `health_check` mostra junto dos `.md` quebrados).
+    """
     metas: dict[str, dict[str, Any]] = {}
-    if (root / META_FILE).is_file():
-        metas[META_FILE] = _load_yaml(root / META_FILE)
+
+    def load(folder: Path, rel: str) -> None:
+        if (folder / META_FILE).is_file():
+            metas[rel] = _load_yaml(folder / META_FILE, errors, rel)
+
+    load(root, META_FILE)
     for ws in _visible_dirs(root):
         ws_path = Path(ws.path)
-        if (ws_path / META_FILE).is_file():
-            metas[f"{ws.name}/{META_FILE}"] = _load_yaml(ws_path / META_FILE)
+        load(ws_path, f"{ws.name}/{META_FILE}")
         for pj in _visible_dirs(ws_path):
-            if (Path(pj.path) / META_FILE).is_file():
-                metas[f"{ws.name}/{pj.name}/{META_FILE}"] = _load_yaml(Path(pj.path) / META_FILE)
+            load(Path(pj.path), f"{ws.name}/{pj.name}/{META_FILE}")
     return metas
 
 
@@ -483,13 +511,33 @@ class Snapshot:
             }
         return self._keys.get((ws_id, pj_id, key))
 
+    def key_clash(self, ws_id: str, pj_id: str, key: str,
+                  exclude: str | None = None) -> ItemRecord | None:
+        """Outro item do project cuja key difere desta só pela caixa (`Rule/Money` x
+        `rule/money`): no Windows/macOS os dois seriam o mesmo arquivo."""
+        folded = key.casefold()
+        for r in self.records.values():
+            if (r.key and r.id != exclude and r.key != key and r.key.casefold() == folded
+                    and slugify(r.workspace or "") == ws_id
+                    and slugify(r.project or "") == pj_id):
+                return r
+        return None
+
     # ------------------------------------------------------------------ scope
 
     def effective_scope(self, record: ItemRecord) -> str:
         """Scope que vale para o item: o primeiro explícito subindo item → subject → project
-        → workspace; nada explícito = `scoped`."""
+        → workspace; nada explícito = `scoped`.
+
+        Exceção: `secret` nunca herda — vale só o `scope` do próprio item (padrão `scoped`).
+        Um workspace `global` não pode tornar global, sem ninguém pedir, cada segredo dele: o
+        `knowledge-mcp run` de outro cliente receberia o valor. Para usar um segredo fora do
+        project, o item declara `scope: workspace` ou `global`.
+        """
         if record.scope:
             return record.scope
+        if record.type == "secret":
+            return DEFAULT_SCOPE
         ws = self.tree.get(slugify(record.workspace or ""))
         pj = ws.children.get(slugify(record.project or "")) if ws else None
         sj = pj.children.get(slugify(record.subject)) if (pj and record.subject) else None
@@ -639,6 +687,28 @@ class Draft(Snapshot):
     def meta(self, rel: str) -> dict[str, Any]:
         return dict(self.metas.get(rel) or {})
 
+    # ------------------------------------------------------------------ scope
+
+    def keep_scopes(self) -> int:
+        """Grava como `scope` explícito o alcance que cada item tinha antes do rascunho, nos
+        itens sem scope próprio cujo scope efetivo mudaria (merge/delete que tira ou troca o
+        `.knowledge.yaml` de onde ele herdava). Ninguém muda de alcance sem pedir. Devolve
+        quantos itens ganharam scope explícito. `secret` não entra: nunca herda.
+        """
+        changed = []
+        for record_id, record in self.records.items():
+            old = self._base.records.get(record_id)
+            if old is None or record.scope or old.scope or record.type == "secret":
+                continue
+            before = self._base.effective_scope(old)
+            if self.effective_scope(record) != before:
+                changed.append((record_id, before))
+        for record_id, before in changed:
+            self.records[record_id] = dataclasses.replace(self.records[record_id], scope=before)
+        if changed:
+            self._invalidate()
+        return len(changed)
+
     # ------------------------------------------------------------------ resultado
 
     def files(self) -> dict[str, str | None]:
@@ -656,22 +726,27 @@ class Draft(Snapshot):
                 out[old.path] = None
                 for dup in self.duplicates.get(record_id, []):
                     out[dup] = None  # senão o item "volta" pelo arquivo duplicado
+        # Caminhos comparados sem caixa: no Windows/macOS `rule/money.md` e `Rule/Money.md` são
+        # o mesmo arquivo, e gravar um apagaria o outro.
         occupied = {
-            r.path: r.id for r in self.records.values()
+            r.path.casefold(): r.id for r in self.records.values()
             if base.get(r.id) is r and r.path
         }
         written: dict[str, str] = {}
+        written_folded: set[str] = set()
         for record_id, record in self.records.items():
             old = base.get(record_id)
             if old is record:
                 continue
             path, text = record_text(record)
-            other = occupied.get(path)
-            if path in written or (other is not None and other != record_id):
+            other = occupied.get(path.casefold())
+            if path.casefold() in written_folded or (other is not None and other != record_id):
                 raise ValidationError(
-                    f"Dois itens no mesmo arquivo ({path}): key repetida no project?"
+                    f"Dois itens no mesmo arquivo ({path}): key repetida no project (a caixa "
+                    "não diferencia)?"
                 )
             written[path] = text
+            written_folded.add(path.casefold())
             if old is not None and old.path and old.path != path:
                 out.setdefault(old.path, None)
             for dup in self.duplicates.get(record_id, []):

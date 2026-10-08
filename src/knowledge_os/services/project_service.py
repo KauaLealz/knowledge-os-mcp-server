@@ -3,7 +3,9 @@
 Um project é uma pasta dentro da do workspace (o slug do nome); nome de exibição, descrição,
 `scope` explícito e os subjects (`[{name, description?, scope?}]`) ficam no `.knowledge.yaml`
 dela. Ao mover um project (merge de workspace) o scope vai junto; ao mesclar dois, vale o do
-destino. `scope` segue a convenção de `workspace_service` (None / valor / `""`).
+destino para o project — mas o item que herdava e mudaria de alcance ganha o scope de antes
+como explícito (`Draft.keep_scopes`), para ninguém mudar de alcance sem pedir. `scope` segue a
+convenção de `workspace_service` (None / valor / `""`).
 """
 
 from __future__ import annotations
@@ -40,7 +42,7 @@ def _subject_key(entry: Any) -> str:
 
 def merge_project_in(
     d: Draft, src_ws: Workspace, src: Project, tgt_ws: Workspace, tgt: Project
-) -> dict[str, int]:
+) -> dict[str, Any]:
     """Move os itens (e subjects) de `src` para `tgt` e apaga `src`, no rascunho.
 
     Subjects homônimos: os itens passam para o subject de `tgt`. Os demais vão junto com o
@@ -167,7 +169,7 @@ class ProjectService:
         logger.info("Project atualizado: %s -> %s (workspace %s)", ref, name, workspace_id)
         return brain.snapshot.project(ws.id, new_id)
 
-    def merge(self, workspace_id: str, source: str, target: str) -> dict[str, int]:
+    def merge(self, workspace_id: str, source: str, target: str) -> dict[str, Any]:
         """Move os itens de source para target e apaga source (mesmo workspace).
 
         Subjects homônimos são mesclados; os demais passam para target com o mesmo nome.
@@ -180,6 +182,7 @@ class ProjectService:
             if src.id == tgt.id:
                 raise ValidationError("source e target são o mesmo project")
             result = merge_project_in(d, ws, src, ws, tgt)
+            result["scope_changes"] = {"items": d.keep_scopes()}
             published = is_published(
                 brain.commit(d, f"knowledge-os: mescla project {src.name} em {tgt.name}")
             )

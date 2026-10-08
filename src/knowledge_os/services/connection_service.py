@@ -284,7 +284,8 @@ class ConnectionService:
         parse_errors: [{path, error}]}]`.
 
         `ok` é falso se a pasta não existe ou não é um repositório git. `parse_errors` são os
-        `.md` que a leitura ignorou (frontmatter inválido, id duplicado), do `FileStore`.
+        `.md` que a leitura ignorou (frontmatter inválido, id duplicado, arquivo grande demais),
+        do `FileStore`, e os `.knowledge.yaml` ignorados (`brain.read_metas`).
         Sem conexão: `[]`.
         """
         rows = []
@@ -293,9 +294,12 @@ class ConnectionService:
             exists = root.is_dir()
             errors: list[dict[str, str]] = []
             if exists:
+                from knowledge_os.services.brain import read_metas
+
                 store = access.store_for(conn)
-                errors = [{"path": path, "error": err}
-                          for path, err in sorted(store.errors.items())]
+                found = dict(store.errors)
+                read_metas(root, found)  # `.knowledge.yaml` ignorado (grande, com alias...)
+                errors = [{"path": path, "error": err} for path, err in sorted(found.items())]
             rows.append({"id": conn.id, "name": conn.name, "path": str(root),
                          "ok": exists and (root / ".git").exists(), "parse_errors": errors})
         return rows

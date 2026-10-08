@@ -137,16 +137,39 @@ def test_fila_offline_no_home_e_gravada_no_inicio_da_sessao(env, project, tmp_pa
     assert not queue.exists()
 
 
-def test_entrada_no_formato_antigo_fica_na_fila_com_o_erro(env, conn, project):
+def test_entrada_no_formato_antigo_sai_da_fila_para_as_rejeitadas(env, conn, project):
     cli = _link_inprocess(project)
     queue = cli._pending_file()
-    old = json.dumps({"key": "gotcha/velha", "type": "knowledge", "memory_class": "working",
-                      "title": "Formato antigo", "summary": "s", "content": "c"})
-    queue.write_text(old + "\n", encoding="utf-8")
+    old = {"key": "gotcha/velha", "type": "knowledge", "memory_class": "working",
+           "title": "Formato antigo", "summary": "s", "content": "c"}
+    queue.write_text(json.dumps(old) + "\n", encoding="utf-8")
     saved, err = cli._flush_file(queue, project)
-    assert saved == 0 and "memory_class" in err
-    assert "gotcha/velha" in queue.read_text(encoding="utf-8")
+    assert saved == 0 and "1 entrada(s) inválida(s)" in err
+    assert not queue.exists() or not queue.read_text(encoding="utf-8").strip()
+    rejected = queue.with_name("pending.rejected.jsonl").read_text(encoding="utf-8")
+    row = json.loads(rejected.splitlines()[0])
+    assert row["entry"]["key"] == "gotcha/velha" and "memory_class" in row["error"]
     assert not list(queue.parent.glob("pending*.claimed"))
+
+
+def test_fila_envenenada_grava_as_boas_e_rejeita_a_antiga(env, conn, project):
+    from knowledge_os.services.brain import Brain
+
+    cli = _link_inprocess(project)
+    queue = cli._pending_file()
+    old = json.dumps({"key": "gotcha/velha", "type": "howto", "memory_class": "longterm",
+                      "title": "Antiga", "summary": "s", "content": "c"})
+    queue.write_text(_entry("gotcha/a", "A") + "\n" + old + "\n" + _entry("gotcha/b", "B")
+                     + "\n" + _entry("gotcha/c", "C") + "\n", encoding="utf-8")
+    saved, err = cli._flush_file(queue, project)
+    assert saved == 3
+    assert "1 entrada(s) inválida(s)" in err and "pending.rejected.jsonl" in err
+    keys = {r.key for r in Brain().snapshot.records.values()}
+    assert {"gotcha/a", "gotcha/b", "gotcha/c"} <= keys and "gotcha/velha" not in keys
+    assert not queue.exists() or not queue.read_text(encoding="utf-8").strip()
+    lines = queue.with_name("pending.rejected.jsonl").read_text(encoding="utf-8").splitlines()
+    assert [json.loads(ln)["entry"]["key"] for ln in lines] == ["gotcha/velha"]
+    assert cli._flush_file(queue, project) == (0, None)  # a próxima sessão não tropeça nela
 
 
 def test_hook_claude_com_o_pacote_v2(env, project):

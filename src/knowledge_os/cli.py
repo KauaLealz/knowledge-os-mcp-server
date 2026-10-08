@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from knowledge_os import __version__
-from knowledge_os.exceptions import NoConnectionError
+from knowledge_os.exceptions import NoConnectionError, ValidationError
 
 BRAIN_COMMANDS = ("context", "recent", "report", "pending", "link", "run")
 PENDING_NAME = "pending.jsonl"  # no home do cérebro, fora de qualquer repositório
@@ -138,7 +138,8 @@ def _flush_file(path: Path, repo: Path) -> tuple[int, str | None]:
 
     A fila é tomada por rename antes de ler: duas sessões abrindo juntas não processam as
     mesmas linhas, e o que o agente acrescentar depois cai num arquivo novo. Entradas sem
-    `repo` vão para o projeto da sessão. O que falhar volta para a fila.
+    `repo` vão para o projeto da sessão. O que falhar por git/disco volta para a fila; a
+    entrada que o item_save recusa (validação) vai para `pending.rejected.jsonl` e sai dela.
     """
     claimed_files, errors = _claimed_files(path)
     saved = 0
@@ -195,6 +196,7 @@ def _flush_claimed(claimed: Path, queue: Path, repo: Path) -> tuple[int, str | N
     if invalid:
         read_size = _rewrite_claimed(claimed, [ln for v in pending.values() for ln in v],
                                      read_size)
+    rejected = 0
     for proj, items in groups.items():
         # O item_save v2 grava até MAX_BATCH por lote: a fila vai em lotes, cada um atômico.
         for start in range(0, len(items), MAX_BATCH):
@@ -203,8 +205,14 @@ def _flush_claimed(claimed: Path, queue: Path, repo: Path) -> tuple[int, str | N
             try:
                 link = RepoService().resolve(proj)
                 default = (link["workspace"], link["project"]) if link else None
-                ItemService().save(entries, default_location=default)
-                saved += len(entries)
+                try:
+                    ItemService().save(entries, default_location=default)
+                    saved += len(entries)
+                except ValidationError:
+                    # Uma entrada inválida (ex.: formato antigo) desfaz o lote inteiro: regrava
+                    # uma por uma, e a inválida sai da fila (senão envenena toda sessão).
+                    n, bad = _save_one_by_one(entries, default, queue, proj)
+                    saved, rejected = saved + n, rejected + bad
             except Exception as exc:  # noqa: BLE001 - a fila fica para a próxima tentativa
                 errors.append(f"{type(exc).__name__}: {exc}")
                 _requeue(queue, [json.dumps({**e, "repo": proj}, ensure_ascii=False)
@@ -217,7 +225,36 @@ def _flush_claimed(claimed: Path, queue: Path, repo: Path) -> tuple[int, str | N
     if late:
         _requeue(queue, late.decode("utf-8").splitlines())
     claimed.unlink(missing_ok=True)
+    if rejected:
+        errors.append(f"{rejected} entrada(s) inválida(s) saíram da fila e estão em "
+                      f"{_rejected_file(queue)} (com o erro de cada uma)")
     return saved, "; ".join(errors) or None
+
+
+def _rejected_file(queue: Path) -> Path:
+    """`pending.rejected.jsonl` ao lado da fila: as entradas que o item_save recusou."""
+    return queue.with_name(f"{queue.stem}.rejected.jsonl")
+
+
+def _save_one_by_one(entries: list[dict[str, Any]], default: tuple[str, str] | None,
+                     queue: Path, proj: str) -> tuple[int, int]:
+    """Grava cada entrada sozinha: as boas gravam; a que o item_save recusa (validação) vai
+    para `pending.rejected.jsonl` como `{entry, error}` e sai da fila; outra falha (git, disco)
+    devolve a entrada à fila. Devolve (gravadas, rejeitadas)."""
+    from knowledge_os.services.item_service import ItemService
+
+    saved = rejected = 0
+    for entry in entries:
+        try:
+            ItemService().save([entry], default_location=default)
+            saved += 1
+        except ValidationError as exc:
+            row = {"entry": {**entry, "repo": proj}, "error": str(exc)}
+            _requeue(_rejected_file(queue), [json.dumps(row, ensure_ascii=False)])
+            rejected += 1
+        except Exception:  # noqa: BLE001 - fica para a próxima tentativa
+            _requeue(queue, [json.dumps({**entry, "repo": proj}, ensure_ascii=False)])
+    return saved, rejected
 
 
 def _flush_pending(repo: Path) -> tuple[int, str | None]:
@@ -279,7 +316,7 @@ def _context(args: argparse.Namespace) -> int:
         if flushed:
             text += f"\n\n_{flushed} item(ns) da fila offline gravados._"
         if flush_error:
-            text += (f"\n\n_Fila offline não gravada ({flush_error}); "
+            text += (f"\n\n_Fila offline com problema ({flush_error}); o que não gravou "
                      f"continua em {_pending_file()}._")
     except NoConnectionError as exc:
         if args.hook and not _is_project(repo.resolve()):
@@ -430,7 +467,7 @@ def _pending(args: argparse.Namespace) -> int:
     _init()
     count, error = _flush_pending(Path(args.repo).resolve())
     if error:
-        print(f"Fila não gravada: {error}", file=sys.stderr)
+        print(f"Fila offline com problema: {error}", file=sys.stderr)
         return 1
     print(f"{count} item(ns) gravados" if count else "Fila vazia")
     return 0

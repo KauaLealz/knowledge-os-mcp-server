@@ -74,7 +74,7 @@ from knowledge_os.services.brain import (
 )
 from knowledge_os.services.item_file import slugify
 from knowledge_os.services.relation_service import review_fields
-from knowledge_os.services.secret_guard import ensure_no_secrets
+from knowledge_os.services.secret_guard import ensure_no_secrets, find_secret
 from knowledge_os.services.secret_service import fill_url
 from knowledge_os.services.tag_service import TagService
 from knowledge_os.storage import local_state
@@ -333,6 +333,8 @@ class ItemService:
                 if problem:
                     raise ValidationError(problem)
                 existing = d.by_key(slugify(names[0]), slugify(names[1]), key)
+                if existing is None:
+                    _refuse_case_clash(d, names, key, None)
 
         probe = dict(raw)
         if existing is not None and "type" not in probe:
@@ -341,6 +343,7 @@ class ItemService:
         if existing is not None and "type" not in raw:
             clean.pop("type", None)
         ensure_no_secrets(**{f: clean.get(f) for f in _TEXT_FIELDS if f in clean})
+        _refuse_credentials(clean)
 
         similar: list[dict[str, Any]] = []
         if existing is None:
@@ -439,6 +442,8 @@ class ItemService:
             if clash is not None and clash.id != record.id:
                 raise ValidationError(f"já existe item com key {record.key!r} no project de "
                                       "destino")
+            _refuse_case_clash(d, (record.workspace or "", record.project or ""), record.key,
+                               record.id)
         return d.put(dataclasses.replace(record, updated_at=utcnow())), "updated"
 
     # ------------------------------------------------------------------ leitura
@@ -770,15 +775,24 @@ class ItemService:
 
     def create(self, workspace_id: str, project_id: str, subject_id: str | None = None,
                **fields: Any) -> Item:
-        """Cria um item (campos de `model.ITEM_FIELDS`) e devolve o `brain.Item`."""
-        entry = {"workspace": workspace_id, "project": project_id, **fields}
+        """Cria um item (campos de `model.ITEM_FIELDS`) e devolve o `brain.Item`.
+
+        O lugar vem só dos parâmetros: `id` nos campos é recusado (com ele o `save` editaria ou
+        moveria um item existente em vez de criar) e `workspace`/`project`/`subject` nos campos
+        não valem sobre os parâmetros."""
+        if "id" in fields:
+            raise ValidationError("para criar um item não envie id (ele é gerado); para editar "
+                                  "um existente use update (PUT /api/items/{id})")
+        entry = {**fields, "workspace": workspace_id, "project": project_id}
+        entry.pop("subject", None)
         if subject_id:
             entry["subject"] = subject_id
         return self._saved(self.save([entry])[0])
 
     def update(self, item_id: str, **fields: Any) -> Item:
-        """Atualiza só os campos informados (tags substituem as atuais)."""
-        return self._saved(self.save([{"id": item_id, **fields}])[0])
+        """Atualiza só os campos informados (tags substituem as atuais). O `id` é sempre o do
+        parâmetro: um `id` nos campos não troca o item editado."""
+        return self._saved(self.save([{**fields, "id": item_id}])[0])
 
     def _saved(self, row: dict[str, Any]) -> Item:
         if "action" not in row:  # modo PR: só existe depois do merge
@@ -787,6 +801,36 @@ class ItemService:
 
 
 # --------------------------------------------------------------------------- helpers
+
+
+def _refuse_case_clash(snap: Snapshot, names: tuple[str, str], key: str,
+                       exclude: str | None) -> None:
+    """Key que difere de outra do project só pela caixa: no Windows/macOS seria o mesmo
+    arquivo, e gravar uma sobrescreveria a outra."""
+    clash = snap.key_clash(slugify(names[0]), slugify(names[1]), key, exclude)
+    if clash is not None:
+        raise ValidationError(f"já existe `{clash.key}` (a caixa não diferencia) no project "
+                              f"{names[1]}: use essa key para atualizar o item, ou outro nome")
+
+
+_CREDENTIAL_HINT = (
+    "tire a credencial do valor (numa URL, deixe só o endereço: sem usuário:senha nem token "
+    "na query); para guardar o segredo, grave um item type secret (key secret/<nome>) sem "
+    "valor e passe ao usuário o fill_url da resposta."
+)
+
+
+def _refuse_credentials(clean: dict[str, Any]) -> None:
+    """`links` (url e título), `source` e `scope_paths` também passam pelo detector de segredo:
+    uma URL com `usuário:senha@` ou `?api_key=...` vazaria para todo agente que lê o item."""
+    fields: list[tuple[str, str | None]] = [("source", clean.get("source"))]
+    for i, link in enumerate(clean.get("links") or []):
+        fields += [(f"links[{i}].url", link.get("url")), (f"links[{i}].title", link.get("title"))]
+    fields += [(f"scope_paths[{i}]", p) for i, p in enumerate(clean.get("scope_paths") or [])]
+    for name, value in fields:
+        kind = find_secret(value)
+        if kind:
+            raise ValidationError(f"'{name}' parece conter um segredo ({kind}): {_CREDENTIAL_HINT}")
 
 
 def _checked(brain: Brain, record: ItemRecord, old: ItemRecord | None,

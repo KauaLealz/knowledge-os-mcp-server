@@ -132,7 +132,8 @@ def workspace_merge(source: str, target: str,
     mesclados, não duplicados), religa os repositórios e apaga `source`.
 
     **Use quando:** Dois workspaces acabaram duplicados (grafias diferentes do mesmo cliente).
-    **Retorna:** {merged_projects, renamed_collisions}.
+    **Retorna:** {merged_projects, renamed_collisions, scope_changes: {items}} (itens que
+        ganharam como explícito o scope que herdavam, para não mudar de alcance).
     **Exemplo:** workspace_merge(source="polara-antiga", target="Polara")
     """
     return WorkspaceService(connection_id=connection_id).merge(source, target)
@@ -211,7 +212,7 @@ def project_merge(workspace: str, source: str, target: str,
     (subjects homônimos mesclados), religa os repositórios e apaga `source`.
 
     **Use quando:** Dois projects acabaram duplicados.
-    **Retorna:** {merged_items, merged_subjects}.
+    **Retorna:** {merged_items, merged_subjects, scope_changes: {items}}.
     **Exemplo:** project_merge(workspace="Polara", source="app-old", target="app")
     """
     return ProjectService(connection_id=connection_id).merge(workspace, source, target)
@@ -290,7 +291,7 @@ def subject_merge(workspace: str, project: str, source: str, target: str,
     apaga `source`.
 
     **Use quando:** Dois subjects acabaram duplicados.
-    **Retorna:** {merged_items}.
+    **Retorna:** {merged_items, scope_changes: {items}}.
     **Exemplo:** subject_merge(workspace="Polara", project="app", source="pagto",
         target="pagamentos")
     """
@@ -303,8 +304,9 @@ def subject_delete(workspace: str, project: str, name: str, confirm: bool = Fals
 
     **Use quando:** Um assunto não serve mais, mas os itens continuam valendo.
     **Retorna:** sem `confirm` → {status: "preview", would_delete: {subject,
-        items_sem_assunto}}; com `confirm=True` → {status: "deleted", subject,
-        items_sem_assunto}.
+        items_sem_assunto}, scope_changes: {items}}; com `confirm=True` → {status: "deleted",
+        subject, items_sem_assunto, scope_changes}. `scope_changes.items`: quantos itens que
+        herdavam o scope do subject ganham esse scope como explícito (o alcance não muda).
     **Exemplo:** subject_delete(workspace="Polara", project="app", name="pagamentos",
         confirm=True)
     """
@@ -312,10 +314,11 @@ def subject_delete(workspace: str, project: str, name: str, confirm: bool = Fals
     sj = svc.get(workspace, project, name)
     row = _row(svc.rows(workspace, project), sj.id, {"items": 0})
     would = {"subject": sj.name, "items_sem_assunto": row["items"]}
+    changes = {"items": svc.delete_scope_changes(workspace, project, sj.id)}
     if not confirm:
-        return {"status": "preview", "would_delete": would}
+        return {"status": "preview", "would_delete": would, "scope_changes": changes}
     svc.delete(workspace, project, sj.id)
-    return {"status": "deleted", **would}
+    return {"status": "deleted", **would, "scope_changes": changes}
 
 
 # --------------------------------------------------------------------------------------

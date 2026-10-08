@@ -20,6 +20,7 @@ traga algum campo de valor (`_SECRET_VALUE_FIELDS`).
 
 from __future__ import annotations
 
+import os
 import re
 import unicodedata
 from datetime import datetime
@@ -37,10 +38,19 @@ from knowledge_os.model import (
     STATUSES,
     TYPES,
     key_problem,  # mora em `model`; segue importável daqui
+    segment_problem,
+    short_repr,
     translate_legacy,
 )
 
+# Teto do caminho completo (raiz da conexão + relativo) no Windows: o limite clássico é 260;
+# 240 deixa folga para o temporário da escrita atômica (`.<nome>.<sorteio>.tmp`). `None` fora do
+# Windows. Um caminho acima disso é recusado antes de qualquer escrita do lote.
+MAX_PATH_CHARS: int | None = 240 if os.name == "nt" else None
+MAX_REL_PATH_CHARS = 1000  # relativo à raiz, em qualquer sistema
+
 _SEM_KEY_DIR = "_sem-key"
+_s = short_repr  # valor citado em mensagem de erro: sempre cortado
 
 # Loader seguro em C quando o PyYAML foi compilado com libyaml: abrir milhares de itens com o
 # loader em Python puro leva segundos.
@@ -96,17 +106,37 @@ _ID_RE = re.compile(r"[A-Za-z0-9-]{1,100}")
 def id_problem(item_id: Any) -> str | None:
     """Motivo pelo qual o id não serve (None se serve): só letras, números e hífen."""
     if not isinstance(item_id, str) or not _ID_RE.fullmatch(item_id):
-        return f"id inválido: {item_id!r} (use só letras, números e '-')"
+        return f"id inválido: {_s(item_id)} (use só letras, números e '-')"
     return None
 
 
 def folder_problem(name: Any, what: str) -> str | None:
     """Motivo pelo qual o nome de workspace/project não vira uma pasta segura (None se vira)."""
     if not isinstance(name, str):
-        return f"{what} deve ser texto: {name!r}"
+        return f"{what} deve ser texto: {_s(name)}"
     slug = slugify(name)
     if not slug or slug.startswith(".") or slug in (".", ".."):
-        return f"{what} inválido para nome de pasta: {name!r}"
+        return f"{what} inválido para nome de pasta: {_s(name)}"
+    return None
+
+
+def portable_folder_problem(name: Any, what: str) -> str | None:
+    """`folder_problem` + o que o Windows não guarda no slug (ponto final, nome reservado):
+    vale para toda gravação; a leitura de um arquivo existente usa só `folder_problem`."""
+    return folder_problem(name, what) or segment_problem(slugify(name), what)
+
+
+def path_length_problem(root: Path | None, rel: str) -> str | None:
+    """Motivo pelo qual o caminho é longo demais para gravar (None se cabe)."""
+    if len(rel) > MAX_REL_PATH_CHARS:
+        return (f"caminho longo demais ({len(rel)} caracteres, máximo {MAX_REL_PATH_CHARS}): "
+                f"{_s(rel)}; encurte o nome do workspace/project ou a key")
+    if root is not None and MAX_PATH_CHARS:
+        full = len(str(Path(root).resolve() / rel))
+        if full > MAX_PATH_CHARS:
+            return (f"caminho longo demais para o Windows ({full} caracteres, máximo "
+                    f"{MAX_PATH_CHARS}): {_s(rel)}; encurte o nome do workspace/project "
+                    "ou a key")
     return None
 
 
@@ -115,12 +145,17 @@ def safe_join(root: Path, rel: str) -> Path:
 
     Última barreira de toda gravação e remoção na pasta da conexão: um path relativo vindo de
     key, id ou nome que escape da pasta (ex.: "../../x", absoluto, ou por um symlink que aponta
-    para fora) levanta `ValidationError` em vez de tocar o disco.
+    para fora) levanta `ValidationError` em vez de tocar o disco. Caminho longo demais para o
+    sistema (`MAX_PATH_CHARS`, no Windows) também: quem grava confere o lote inteiro aqui antes
+    da primeira escrita.
     """
     base = Path(root).resolve()
     target = Path(root) / rel
     if not target.resolve().is_relative_to(base) or target.resolve() == base:
-        raise ValidationError(f"Caminho fora da pasta da conexão: {rel!r}")
+        raise ValidationError(f"Caminho fora da pasta da conexão: {_s(rel)}")
+    problem = path_length_problem(root, rel)
+    if problem:
+        raise ValidationError(problem)
     return target
 
 
@@ -135,16 +170,18 @@ def item_path(workspace_name: str, project_name: str, key: str | None, item_id: 
     Levanta `ValidationError` se key, id, workspace ou project levariam o arquivo para fora da
     pasta do project (ex.: key com "..").
     """
-    problem = (folder_problem(workspace_name, "workspace")
-               or folder_problem(project_name, "project")
+    problem = (portable_folder_problem(workspace_name, "workspace")
+               or portable_folder_problem(project_name, "project")
                or (key_problem(key) if key else id_problem(item_id)))
     if problem:
         raise ValidationError(problem)
     ws = slugify(workspace_name)
     dm = slugify(project_name)
-    if key:
-        return f"{ws}/{dm}/{key}.md"
-    return f"{ws}/{dm}/{_SEM_KEY_DIR}/{item_id}.md"
+    rel = f"{ws}/{dm}/{key}.md" if key else f"{ws}/{dm}/{_SEM_KEY_DIR}/{item_id}.md"
+    problem = path_length_problem(None, rel)
+    if problem:
+        raise ValidationError(problem)
+    return rel
 
 
 # --------------------------------------------------------------------------- helpers de campo
@@ -167,12 +204,12 @@ def _parse_dt(raw: Any, field: str) -> datetime:
     if isinstance(raw, datetime):
         return raw.replace(tzinfo=None)
     if not isinstance(raw, str) or not raw:
-        raise ValidationError(f"Frontmatter com {field!r} inválido ou ausente: {raw!r}")
+        raise ValidationError(f"Frontmatter com {field!r} inválido ou ausente: {_s(raw)}")
     text = raw[:-1] if raw.endswith("Z") else raw
     try:
         return datetime.fromisoformat(text)
     except ValueError as exc:
-        raise ValidationError(f"Frontmatter com {field!r} em formato inválido: {raw!r}") from exc
+        raise ValidationError(f"Frontmatter com {field!r} em formato inválido: {_s(raw)}") from exc
 
 
 # --------------------------------------------------------------------------- serialize
@@ -251,6 +288,27 @@ def serialize_item(
 
 # --------------------------------------------------------------------------- parse
 
+# Âncora YAML (`&nome`) fora de aspas: só então vale varrer os eventos atrás de alias.
+_ANCHOR_HINT = re.compile(r"&[^\s&]")
+
+
+def load_yaml_text(text: str, what: str) -> Any:
+    """`yaml.load` seguro de um texto de arquivo da conexão, sem alias.
+
+    Alias (`*nome`) é recusado: com âncoras aninhadas, um arquivo de 1 KB vira uma estrutura
+    que, ao ser percorrida ou impressa, ocupa GBs ("billion laughs") e derruba toda leitura da
+    pasta. A varredura de eventos (`yaml.parse`) é linear no texto e só roda quando há algo com
+    cara de âncora. Levanta `ValidationError` (mensagem curta) se o YAML não serve.
+    """
+    try:
+        if _ANCHOR_HINT.search(text) and any(
+                isinstance(event, yaml.AliasEvent) for event in yaml.parse(text, Loader=_LOADER)):
+            raise ValidationError(f"{what} com alias YAML não é aceito (tire os '*nome' e "
+                                  "escreva o valor por extenso)")
+        return yaml.load(text, Loader=_LOADER)  # noqa: S506 - loader seguro
+    except yaml.YAMLError as exc:
+        raise ValidationError(f"{what} YAML malformado: {str(exc)[:200]}") from exc
+
 
 def parse_item_file(raw: str) -> dict[str, Any]:
     """Faz o caminho inverso de `serialize_item`: devolve um dict com os campos do
@@ -267,11 +325,7 @@ def parse_item_file(raw: str) -> dict[str, Any]:
     if match is None:
         raise ValidationError("Arquivo sem frontmatter YAML (esperado '---' no início)")
     raw_frontmatter, content = match.groups()
-
-    try:
-        data = yaml.load(raw_frontmatter, Loader=_LOADER)  # noqa: S506 - loader seguro
-    except yaml.YAMLError as exc:
-        raise ValidationError(f"Frontmatter YAML malformado: {exc}") from exc
+    data = load_yaml_text(raw_frontmatter, "Frontmatter")
     if not isinstance(data, dict):
         raise ValidationError("Frontmatter YAML malformado: esperado um mapeamento no topo")
 
@@ -290,7 +344,7 @@ def parse_item_file(raw: str) -> dict[str, Any]:
 
     problem = id_problem(data["id"])
     if not problem and data.get("key") is not None:
-        problem = key_problem(data["key"])
+        problem = key_problem(data["key"], portable=False)
     for name in ("workspace", "project"):
         if not problem and data.get(name) is not None:
             problem = folder_problem(data[name], name)
@@ -343,20 +397,20 @@ def _check_taxonomy(data: dict[str, Any]) -> None:
     """
     item_type = data["type"]
     if item_type not in TYPES:
-        raise ValidationError(f"Frontmatter com 'type' fora da taxonomia: {item_type!r} "
+        raise ValidationError(f"Frontmatter com 'type' fora da taxonomia: {_s(item_type)} "
                               f"(válidos: {', '.join(TYPES)})")
     subtype = data.get("subtype")
     if subtype is not None and subtype not in TYPES[item_type]:
         raise ValidationError(f"Frontmatter com 'subtype' inválido para {item_type}: "
-                              f"{subtype!r} (válidos: {', '.join(TYPES[item_type]) or '—'})")
+                              f"{_s(subtype)} (válidos: {', '.join(TYPES[item_type]) or '—'})")
     status = data["status"]
     if status not in STATUSES + SPEC_STATUSES:
-        raise ValidationError(f"Frontmatter com 'status' inválido: {status!r} "
+        raise ValidationError(f"Frontmatter com 'status' inválido: {_s(status)} "
                               f"(válidos: {', '.join(STATUSES + SPEC_STATUSES)})")
     for name, valid in (("scope", SCOPES), ("origin", ORIGINS)):
         value = data.get(name)
         if value is not None and value not in valid:
-            raise ValidationError(f"Frontmatter com {name!r} inválido: {value!r} "
+            raise ValidationError(f"Frontmatter com {name!r} inválido: {_s(value)} "
                                   f"(válidos: {', '.join(valid)})")
 
 
@@ -365,7 +419,7 @@ def _text(data: dict[str, Any], name: str, *, required: bool) -> None:
     if value is None and not required:
         return
     if not isinstance(value, str):
-        raise ValidationError(f"Frontmatter com {name!r} que não é texto: {value!r}")
+        raise ValidationError(f"Frontmatter com {name!r} que não é texto: {_s(value)}")
 
 
 def _str_list(data: dict[str, Any], name: str) -> list[str]:
@@ -373,7 +427,7 @@ def _str_list(data: dict[str, Any], name: str) -> list[str]:
     if value is None:
         return []
     if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
-        raise ValidationError(f"Frontmatter com {name!r} que não é lista de textos: {value!r}")
+        raise ValidationError(f"Frontmatter com {name!r} que não é lista de textos: {_s(value)}")
     return list(value)
 
 
@@ -382,7 +436,7 @@ def _int(data: dict[str, Any], name: str) -> int | None:
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, int):
-        raise ValidationError(f"Frontmatter com {name!r} que não é número inteiro: {value!r}")
+        raise ValidationError(f"Frontmatter com {name!r} que não é número inteiro: {_s(value)}")
     return value
 
 
@@ -397,7 +451,7 @@ def _links(data: dict[str, Any]) -> list[dict[str, str]]:
     )
     if not ok:
         raise ValidationError(
-            f"Frontmatter com 'links' fora do formato [{{title, url}}]: {value!r}"
+            f"Frontmatter com 'links' fora do formato [{{title, url}}]: {_s(value)}"
         )
     return [{"title": lk["title"], "url": lk["url"]} for lk in value]
 
@@ -413,6 +467,6 @@ def _relations(data: dict[str, Any]) -> list[dict[str, str]]:
     )
     if not ok:
         raise ValidationError(
-            f"Frontmatter com 'relations' fora do formato [{{type, target}}]: {value!r}"
+            f"Frontmatter com 'relations' fora do formato [{{type, target}}]: {_s(value)}"
         )
     return [{"type": r["type"], "target": r["target"]} for r in value]

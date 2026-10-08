@@ -34,8 +34,8 @@ def check_query(request: Request, allowed: Iterable[str]) -> None:
 def scope_source(snap: Snapshot, record: ItemRecord) -> str | None:
     """De onde vem o scope efetivo de um item sem scope próprio: `subject`, `project` ou
     `workspace` (o primeiro explícito subindo a cadeia); None se o item define o seu ou se
-    nada na cadeia define (vale o padrão `scoped`)."""
-    if record.scope:
+    nada na cadeia define (vale o padrão `scoped`). `secret` nunca herda: sempre None."""
+    if record.scope or record.type == "secret":
         return None
     ws_id, pj_id = slugify(record.workspace or ""), slugify(record.project or "")
     ws = snap.find_workspace(ws_id)

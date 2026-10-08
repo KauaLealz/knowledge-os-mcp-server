@@ -138,41 +138,90 @@ def _norm_path(path: str) -> str:
     return path.lstrip("/")
 
 
-def _glob_regex(glob: str) -> re.Pattern[str]:
-    """Glob de caminho: `**` cruza pastas (e `/**` no fim casa a própria pasta), `*` e `?`
-    ficam dentro de um segmento."""
-    out, i = [], 0
+# Tokens do glob: `**/` (nada ou pastas inteiras), `/**` no fim (a própria pasta ou o que está
+# dentro), `**` (qualquer coisa, cruzando pastas), `*` e `?` (dentro de um segmento), literal.
+_DIRS, _TAIL, _ANY, _STAR, _ONE = "dirs", "tail", "any", "star", "one"
+# Teto de passos de um casamento (tokens × caracteres): acima disso, "não casa". Os limites do
+# `item_save` (200 caracteres, 8 curingas) ficam muito abaixo; o teto protege itens vindos de um
+# remote que não passaram por eles.
+MAX_GLOB_STEPS = 200_000
+
+
+def _glob_tokens(glob: str) -> list[tuple[str, str]]:
+    out: list[tuple[str, str]] = []
+    i = 0
     while i < len(glob):
         if glob.startswith("**/", i):
-            out.append("(?:.*/)?")
+            out.append((_DIRS, ""))
             i += 3
         elif glob.startswith("/**", i) and i + 3 == len(glob):
-            out.append("(?:/.*)?")
+            out.append((_TAIL, ""))
             i += 3
         elif glob.startswith("**", i):
-            out.append(".*")
+            out.append((_ANY, ""))
             i += 2
         elif glob[i] == "*":
-            out.append("[^/]*")
+            out.append((_STAR, ""))
             i += 1
         elif glob[i] == "?":
-            out.append("[^/]")
+            out.append((_ONE, ""))
             i += 1
         else:
-            out.append(re.escape(glob[i]))
+            out.append(("lit", glob[i]))
             i += 1
-    return re.compile("".join(out) + r"\Z")
+    return out
+
+
+def glob_match(glob: str, path: str) -> bool:
+    """O caminho inteiro casa o glob? Programação dinâmica (tokens × posições), sem regex:
+    custo linear no produto dos tamanhos, nunca o backtracking exponencial de uma regex com
+    `[^/]*` repetido (um `scope_paths` como `**/*?*?*?*?#` travava a busca)."""
+    tokens = _glob_tokens(glob)
+    n = len(path)
+    if len(tokens) * (n + 1) > MAX_GLOB_STEPS:
+        return False
+    # nxt[j]: os tokens a partir do seguinte casam path[j:]; começa pelo fim (nenhum token).
+    nxt = [False] * n + [True]
+    for kind, char in reversed(tokens):
+        cur = [False] * (n + 1)
+        if kind == _TAIL:
+            for j in range(n + 1):
+                cur[j] = j == n or path[j] == "/"
+        elif kind == _ANY:
+            cur[n] = nxt[n]
+            for j in range(n - 1, -1, -1):
+                cur[j] = nxt[j] or cur[j + 1]
+        elif kind == _STAR:
+            cur[n] = nxt[n]
+            for j in range(n - 1, -1, -1):
+                cur[j] = nxt[j] or (path[j] != "/" and cur[j + 1])
+        elif kind == _DIRS:
+            # nada, ou qualquer trecho terminado em "/": `ends[j]` = existe k ≥ j com
+            # path[k] == "/" e nxt[k + 1].
+            ends = False
+            for j in range(n - 1, -1, -1):
+                ends = ends or (path[j] == "/" and nxt[j + 1])
+                cur[j] = nxt[j] or ends
+            cur[n] = nxt[n]
+        elif kind == _ONE:
+            for j in range(n):
+                cur[j] = path[j] != "/" and nxt[j + 1]
+        else:
+            for j in range(n):
+                cur[j] = path[j] == char and nxt[j + 1]
+        nxt = cur
+    return nxt[0]
 
 
 def paths_match(record: ItemRecord, paths: Sequence[str]) -> bool:
     """Algum dos `paths` casa algum glob de `record.scope_paths` (ou, se o path dado for ele
-    mesmo um glob, casa um `scope_paths` literal)."""
-    scopes = [_norm_path(s) for s in (record.scope_paths or []) if s and s.strip()]
+    mesmo um glob, casa um `scope_paths` literal). Seguro para qualquer padrão gravado, mesmo
+    fora dos limites do `item_save` (`glob_match` tem teto de passos)."""
+    scopes = [_norm_path(s) for s in (record.scope_paths or []) if isinstance(s, str) and s.strip()]
     given = [_norm_path(p) for p in paths if p and p.strip()]
     for scope in scopes:
-        scope_re = _glob_regex(scope)
         for path in given:
-            if scope_re.match(path) or _glob_regex(path).match(scope):
+            if glob_match(scope, path) or glob_match(path, scope):
                 return True
     return False
 

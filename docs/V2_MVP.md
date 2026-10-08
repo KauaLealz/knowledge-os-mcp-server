@@ -89,6 +89,17 @@ verified}}` (lê também o formato antigo `{uses, last_used}`: `uses` vira `open
 
 - **Scope efetivo** de um item: o primeiro explícito subindo item → subject → project → workspace;
   nada explícito = `scoped`. Calculado no `Snapshot`.
+- **`secret` nunca herda:** o scope efetivo de um segredo é só o `scope` do próprio item (padrão
+  `scoped`). `SecretService.resolve` (o `knowledge-mcp run`) e a seção Segredos do pacote só
+  aceitam segredo de fora do project do repositório quando o item tem `scope` explícito
+  `workspace`/`global`. A key resolve do mais perto ao mais longe (project do repo → mesmo
+  workspace → global); dois candidatos igualmente próximos são erro (passe o id).
+- **Merge/delete preservam o alcance:** `workspace_merge`, `project_merge`, `subject_merge` e
+  `subject_delete` gravam como `scope` explícito o scope efetivo anterior dos itens (sem scope
+  próprio) que mudariam de alcance, no mesmo commit; a resposta (e a prévia do `subject_delete`)
+  traz `scope_changes: {items: n}`. Segredos não entram (nunca herdam).
+- O scope controla o que a busca e o pacote **mostram**; não é fronteira de segurança
+  (`item_get(ids=...)` e `everywhere=True` leem a conexão inteira) — `secret` é a exceção.
 - O item **mora** onde foi salvo; o alcance vem do scope. `workspace_update`/`project_update`/
   `subject_update(scope=...)` mudam o alcance de tudo que herda, sem mover arquivo de item.
 - **`services/scope.py`** (novo, resolvedor único; busca, pacote, grafo, `item_get` e `item_save`
