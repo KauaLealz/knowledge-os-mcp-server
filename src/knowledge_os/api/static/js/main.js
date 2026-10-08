@@ -1,7 +1,10 @@
 // Ponto de entrada: Alpine + store + views. Sem build step (ES modules + import map).
 import Alpine from '../vendor/alpine.esm.js';
 import { appStore } from './store.js';
-import { itemScope, kindLabel, originLabel, scopeInherited, scopeText, subtypeLabel, typeLabel, typeClass, timeAgo } from './util.js';
+import {
+  connectionBadges, isFaded, itemBadges, itemMeta, kindLabel, originLabel, scopeBadges, scopeLabel,
+  subtypeLabel, typeLabel, typeClass, timeAgo,
+} from './util.js';
 import { register as registerSidebar } from './views/sidebar.js';
 import { register as registerWorkspace } from './views/workspace.js';
 import { register as registerProject } from './views/project.js';
@@ -18,13 +21,18 @@ window.Alpine = Alpine;
 Alpine.magic('ago', () => timeAgo);
 Alpine.magic('tlabel', () => typeLabel);
 Alpine.magic('tc', () => typeClass);
-// v2: "Tipo · Subtipo", scope com o herdado indicado e a origem do item.
+// v2: "Tipo · Subtipo" e a origem do item (texto do editor).
 Alpine.magic('kind', () => kindLabel);
 Alpine.magic('stlabel', () => subtypeLabel);
-Alpine.magic('iscope', () => itemScope);
-Alpine.magic('inherited', () => scopeInherited);
-Alpine.magic('scopetext', () => scopeText);
+Alpine.magic('scopelabel', () => scopeLabel);
 Alpine.magic('origin', () => originLabel);
+// Sistema único de badges (type, state, scope) e do metadado muted (onde, origem, tempo):
+// todo template percorre estas listas com o mesmo trecho de markup.
+Alpine.magic('badges', () => itemBadges);
+Alpine.magic('scopebadges', () => scopeBadges);
+Alpine.magic('connbadges', () => connectionBadges);
+Alpine.magic('meta', () => itemMeta);
+Alpine.magic('faded', () => isFaded);
 
 registerSidebar(Alpine);
 registerWorkspace(Alpine);

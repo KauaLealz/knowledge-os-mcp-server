@@ -2,7 +2,7 @@
 // e o scope do workspace (herdado por tudo o que não define o seu).
 import { api } from '../api.js';
 import { hrefs } from '../router.js';
-import { SCOPES, scopeText } from '../util.js';
+import { SCOPES, inheritedNote } from '../util.js';
 import { listingMixin, mix } from './listing.js';
 
 export function register(Alpine) {
@@ -25,15 +25,18 @@ export function register(Alpine) {
         graphHref() {
           return hrefs.graph(this.app.connId, this.app.route.params.ws);
         },
-        /** Workspace é o topo da cadeia: sem explícito, vale o padrão (scoped). */
+        /** Workspace é o topo da cadeia: sem explícito vale o padrão (scoped), nunca herda —
+         * o seletor mostra o efetivo e não tem linha de ajuda. */
         get scopeInfo() {
           const w = this.app.workspace;
-          return w ? scopeText(w.scope, w.scope_explicit, null) : '';
+          return { value: w?.scope || 'scoped', note: inheritedNote(w?.scope_explicit, null) };
         },
-        /** `""` tira o explícito (volta ao padrão); muda o alcance de tudo o que herda. */
+        /** `scoped` grava `""` (tira o explícito: o padrão já é scoped); muda o alcance de tudo
+         * o que herda. */
         async setScope(value) {
           try {
-            await api('PUT', `/workspaces/${this.app.route.params.ws}`, { body: { scope: value } });
+            const scope = value === 'scoped' ? '' : value;
+            await api('PUT', `/workspaces/${this.app.route.params.ws}`, { body: { scope } });
             await this.app.refresh();
             this.loadItems();
             this.app.toast('Scope saved');

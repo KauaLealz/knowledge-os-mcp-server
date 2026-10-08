@@ -367,6 +367,7 @@ export const appStore = {
       id: item.id,
       title: item.title,
       type: item.type,
+      subtype: item.subtype || null,
       conn: this.connId,
       ws: item.workspace_id,
       pj: item.project_id,

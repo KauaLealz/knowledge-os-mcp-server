@@ -100,13 +100,7 @@ export function register(Alpine) {
       return this.health[c.id]?.parse_errors || [];
     },
 
-    // ---- apresentação ----
-    /** Estado da pasta da conexão (vem da API: path_exists / is_git_repo). */
-    folderState(c) {
-      if (!c.path_exists) return { ok: false, label: 'Pasta não encontrada' };
-      if (!c.is_git_repo) return { ok: false, label: 'Pasta sem git' };
-      return { ok: true, label: 'Repositório git' };
-    },
+    // ---- apresentação (os badges vêm de connectionBadges, em util.js) ----
     dotClass(c) {
       if (!c.enabled) return 'off';
       if (!c.last_test) return 'off';
@@ -114,8 +108,12 @@ export function register(Alpine) {
     },
     lastTest(c) {
       const t = c.last_test;
-      if (!t) return 'Nunca testada';
-      return t.status === 'ok' ? `OK · ${t.latency_ms} ms` : 'Falhou no último teste';
+      if (!t) return 'Never tested';
+      return t.status === 'ok' ? `OK · ${t.latency_ms} ms` : 'Failed the last test';
+    },
+    /** How changes are published (`review_mode`): straight to the main branch or by PR. */
+    modeLabel(mode) {
+      return mode === 'pr' ? 'Publishes by pull request' : 'Publishes directly';
     },
 
     // ---- corpo da requisição ----
@@ -149,7 +147,7 @@ export function register(Alpine) {
 
     async save() {
       const saved = await this.persist();
-      if (saved) this.app.toast('Conexão salva');
+      if (saved) this.app.toast('Connection saved');
     },
 
     async saveAndTest() {
@@ -181,7 +179,7 @@ export function register(Alpine) {
       try {
         await api('PUT', `/connections/${encodeURIComponent(this.conn.id)}/default`);
         await this.refreshList();
-        this.app.toast('Conexão definida como padrão');
+        this.app.toast('Default connection set');
       } catch (e) {
         this.error = e.message;
       }
@@ -200,7 +198,7 @@ export function register(Alpine) {
           const next = this.app.connections.find((c) => c.is_default) || this.app.connections[0];
           if (next) await this.app.selectConnection(next.id);
         }
-        this.app.toast('Conexão apagada');
+        this.app.toast('Connection removed');
         go(hrefs.connections());
       } catch (e) {
         this.error = e.message;

@@ -72,8 +72,8 @@ def test_sem_tailwind_e_sem_build_step():
     assert not (STATIC / "package.json").exists()
 
 
-CONN_OPEN = "<!-- Configurações · Conexões"
-CONN_CLOSE = "<!-- /Configurações · Conexões"
+CONN_OPEN = "<!-- Settings · Connections"
+CONN_CLOSE = "<!-- /Settings · Connections"
 
 
 def _static_files():
@@ -117,11 +117,11 @@ def test_view_de_conexoes_tem_as_acoes_pedidas():
     inside = html[html.index(CONN_OPEN) : html.index(CONN_CLOSE)]
     for needle in (
         "connectionsView",
-        "Testar",
-        "Salvar e testar",
-        "Definir como padrão",
-        "Zona de perigo",
-        "Padrão",
+        "'Test'",
+        "Save and test",
+        "Make default",
+        "Danger zone",
+        "$connbadges(",
     ):
         assert needle in inside, needle
     conn = _js("views/connections.js")
@@ -745,9 +745,13 @@ def test_linhas_de_item_nao_usam_icone_de_tipo():
     rows = re.findall(r'<a class="item-row".*?</a>', html, re.S)
     assert rows
     for row in rows:
-        assert "<svg" not in row
-        assert row.count('class="tbadge"') == 1
-    assert "icon:" not in (STATIC / "js" / "util.js").read_text(encoding="utf-8")
+        # os únicos ícones da linha são os do badge (alerta, scope) e o da origem, todos
+        # vindos do gerador: o tipo é bolinha + texto, nunca ícone
+        assert row.count('x-for="b in $badges(it)"') == 1
+        assert "<use href=" not in row
+    util = (STATIC / "js" / "util.js").read_text(encoding="utf-8")
+    type_badge = next(line for line in util.splitlines() if "key: 'type'" in line)
+    assert "dot: true" in type_badge and "icon" not in type_badge
 
 
 def _sidebar() -> str:

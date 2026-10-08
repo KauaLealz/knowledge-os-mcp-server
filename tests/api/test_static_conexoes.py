@@ -7,11 +7,11 @@ Sem nenhuma conexão, a tela inicial e a de conexões explicam como criar uma co
 from pathlib import Path
 
 STATIC = Path(__file__).resolve().parents[2] / "src" / "knowledge_os" / "api" / "static"
-CONN_OPEN = "<!-- Configurações · Conexões"
-CONN_CLOSE = "<!-- /Configurações · Conexões"
-HOME_OPEN = "<!-- Início sem conexão -->"
-HOME_CLOSE = "<!-- /Início sem conexão -->"
-EXEMPLO = 'connection_create(name="pessoal", path="C:\\\\caminho\\\\da\\\\pasta")'
+CONN_OPEN = "<!-- Settings · Connections"
+CONN_CLOSE = "<!-- /Settings · Connections"
+HOME_OPEN = "<!-- Home without a connection -->"
+HOME_CLOSE = "<!-- /Home without a connection -->"
+EXEMPLO = 'connection_create(name="personal", path="C:\\\\path\\\\to\\\\folder")'
 
 
 def _html() -> str:
@@ -45,10 +45,11 @@ def test_ui_nao_cria_conexao():
 
 def test_lista_mostra_caminho_remote_modo_padrao_e_estado():
     section = _conn_section()
-    for needle in ("c.path", "c.remote_url", "c.review_mode", "c.is_default", "folderState(c)"):
+    for needle in ("c.path", "c.remote_url", "c.review_mode", "$connbadges(c"):
         assert needle in section, needle
-    view = _js("views/connections.js")
-    assert "path_exists" in view and "is_git_repo" in view
+    util = _js("util.js")
+    for needle in ("c.is_default", "path_exists", "is_git_repo"):
+        assert needle in util, needle
     store = _js("store.js")
     for campo in ("path:", "path_exists:", "is_git_repo:"):
         assert campo in store.split("function normalizeConnection")[1].split("}")[0], campo
@@ -71,7 +72,7 @@ def test_estado_vazio_ensina_connection_create():
     home = html[html.index(HOME_OPEN) : html.index(HOME_CLOSE)]
     assert "route.name === 'home'" in home and "!$store.app.connections.length" in home
     for bloco in (home, section):
-        assert "Nenhuma conexão" in bloco
-        assert "pelo MCP" in bloco
+        assert "No connections yet" in bloco
+        assert "MCP tool" in bloco
         assert EXEMPLO in bloco
     assert "!$store.app.connections.length" in section

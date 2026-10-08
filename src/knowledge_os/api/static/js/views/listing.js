@@ -232,10 +232,12 @@ export function listingMixin(Alpine) {
       if (this.sort === 'recent') return list.sort((a, b) => byReview(a, b) || time(b) - time(a));
       return list.sort((a, b) => byReview(a, b) || a.title.localeCompare(b.title));
     },
-    /** Where the item lives: search returns `where` ("Workspace/Project"); the listing has the
-     * project id (resolved via the tree). */
+    /** Which project the item lives in (only the workspace page shows it: there the list mixes
+     * projects). The listing row brings `project`; a search result only `where`
+     * ("Workspace/Project") — the workspace part would repeat the page, so it is dropped. */
     where(it) {
-      return it.where || it.project || this.app.tree?.projects?.find((p) => p.id === it.project_id)?.name || '';
+      return it.project || this.app.tree?.projects?.find((p) => p.id === it.project_id)?.name
+        || String(it.where || '').split('/').pop() || '';
     },
   };
 }

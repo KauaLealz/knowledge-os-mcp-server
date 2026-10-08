@@ -189,7 +189,8 @@ export function register(Alpine) {
     goTo(id) {
       const el = document.getElementById(id);
       if (!el) return;
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      el.scrollIntoView({ behavior: still ? 'auto' : 'smooth', block: 'start' });
       this.active = id;
     },
 

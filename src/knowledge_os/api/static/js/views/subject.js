@@ -2,7 +2,7 @@
 // Workspace/Project), e o scope do assunto (herdado do project ou do workspace).
 import { api } from '../api.js';
 import { hrefs } from '../router.js';
-import { SCOPES, scopeText } from '../util.js';
+import { SCOPES, inheritedNote } from '../util.js';
 import { listingMixin, mix } from './listing.js';
 
 export function register(Alpine) {
@@ -32,16 +32,15 @@ export function register(Alpine) {
           const p = this.app.route.params;
           return hrefs.project(this.app.connId, p.ws, p.pj);
         },
-        /** Scope efetivo; sem explícito, de onde vem (project, depois workspace). */
+        /** O seletor: explícito (ou `""` = herda), o efetivo e, só quando herdado, de onde vem
+         * (project, depois workspace). */
         get scopeInfo() {
           const sj = this.app.subject;
-          if (!sj) return '';
+          if (!sj) return { value: '', effective: 'scoped', note: '' };
           let from = null;
-          if (!sj.scope_explicit) {
-            if (this.app.project?.scope_explicit) from = 'project';
-            else if (this.app.workspace?.scope_explicit) from = 'workspace';
-          }
-          return scopeText(sj.scope, sj.scope_explicit, from);
+          if (this.app.project?.scope_explicit) from = 'project';
+          else if (this.app.workspace?.scope_explicit) from = 'workspace';
+          return { value: sj.scope_explicit || '', effective: sj.scope, note: inheritedNote(sj.scope_explicit, from) };
         },
         async setScope(value) {
           const p = this.app.route.params;
