@@ -8,7 +8,7 @@ import sys
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, field_validator, model_validator
 from pydantic import ValidationError as PydanticValidationError
@@ -89,12 +89,28 @@ class ConnectionConfig(BaseModel):
         return Path(self.path) if self.path else REPOS_DIR / self.id
 
 
+# Id do catálogo das versões antigas; só aparece em connections.json antigos.
+LEGACY_CATALOG_ID = "default"
+
+
 class ConnectionsFile(BaseModel):
     """Conteúdo do connections.json do home. Sem conexões, `default` é None."""
 
     version: str = "1.0"
     default: str | None = None
     connections: list[ConnectionConfig] = []
+
+    @model_validator(mode="before")
+    @classmethod
+    def _sem_catalogo_antigo(cls, data: Any) -> Any:
+        """Versões antigas gravavam `default: "default"` (o catálogo, que não existe mais):
+        sem uma conexão com esse id, vira "sem padrão" em vez de recusar o arquivo."""
+        if isinstance(data, dict) and data.get("default") == LEGACY_CATALOG_ID:
+            ids = [c.get("id") if isinstance(c, dict) else getattr(c, "id", None)
+                   for c in data.get("connections") or []]
+            if LEGACY_CATALOG_ID not in ids:
+                data = {**data, "default": None}
+        return data
 
     @model_validator(mode="after")
     def default_exists(self) -> "ConnectionsFile":

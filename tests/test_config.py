@@ -172,3 +172,18 @@ def test_knowledge_os_home_resolve_til_e_relativo(tmp_path):
 
     assert home_for("rel/../meu-home") == (tmp_path / "meu-home").resolve()
     assert home_for("~/kos-teste") == (Path.home() / "kos-teste").resolve()
+
+
+def test_json_de_versao_antiga_com_default_do_catalogo_vira_sem_padrao(_isolated_home):
+    """Instalação antiga: `default: "default"` apontava para o catálogo, que não existe mais.
+    O servidor precisa subir (sem conexão padrão) em vez de recusar o arquivo."""
+    ConfigManager.CONNECTIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    ConfigManager.CONNECTIONS_FILE.write_text(
+        '{"version": "1.0", "default": "default", "connections": []}', encoding="utf-8")
+    config = ConfigManager.load()
+    assert config.default is None and config.connections == []
+
+
+def test_default_desconhecido_que_nao_e_o_antigo_continua_invalido():
+    with pytest.raises(ValueError, match="not found"):
+        ConnectionsFile(default="outra", connections=[])
