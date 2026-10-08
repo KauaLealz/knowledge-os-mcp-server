@@ -36,7 +36,8 @@ from knowledge_os.storage.search import SearchIndex
 
 @dataclass
 class ItemRecord:
-    """Um item como está no arquivo (campos de `parse_item_file`) + `path` relativo à raiz."""
+    """Um item como está no arquivo (campos de `parse_item_file`, formato v2) + `path`
+    relativo à raiz. `scope` é o explícito do item (o efetivo é do `Snapshot`)."""
 
     id: str
     key: str | None
@@ -44,17 +45,19 @@ class ItemRecord:
     project: str | None
     subject: str | None
     type: str
+    subtype: str | None
+    scope: str | None
     title: str
     status: str
-    memory_class: str
     tags: list[str]
-    labels: list[str]
+    links: list[dict[str, str]]
     scope_paths: list[str]
-    confidence: Any
-    importance: Any
-    ttl_days: Any
+    ttl_days: int | None
     keywords: str | None
     source: str | None
+    origin: str
+    verified_at: datetime | None
+    verified_commit: str | None
     created_at: datetime
     updated_at: datetime
     relations: list[dict[str, str]]
@@ -82,7 +85,6 @@ def record_text(record: ItemRecord) -> tuple[str, str]:
         subject_name=record.subject,
         relations=list(record.relations or []),
         tags=list(record.tags or []),
-        labels=list(record.labels or []),
     )
     return rel, text
 

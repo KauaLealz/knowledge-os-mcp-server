@@ -40,9 +40,10 @@ def _frontmatter(key: str | None = "regra/x", id_: str = "id-1", **extra: str) -
 def _rec(**over) -> ItemRecord:
     base = dict(
         id="id-1", key="regra/x", workspace="Polara", project="App", subject=None,
-        type="rule", title="T", status="active", memory_class="longterm", tags=[], labels=[],
-        scope_paths=[], confidence=None, importance=None, ttl_days=None, keywords=None,
-        source=None, created_at=datetime(2026, 1, 1), updated_at=datetime(2026, 1, 1),
+        type="rule", subtype=None, scope=None, title="T", status="active", tags=[], links=[],
+        scope_paths=[], ttl_days=None, keywords=None, source=None, origin="agent",
+        verified_at=None, verified_commit=None,
+        created_at=datetime(2026, 1, 1), updated_at=datetime(2026, 1, 1),
         relations=[], summary="s", content="c\n",
     )
     base.update(over)

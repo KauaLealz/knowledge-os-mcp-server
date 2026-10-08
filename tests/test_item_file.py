@@ -54,69 +54,62 @@ def _minimal_item() -> dict:
     return {
         "id": "8f3e2c0a-0000-0000-0000-000000000001",
         "type": "rule",
-        "memory_class": "longterm",
         "title": "Money em pagamentos",
         "summary": "Valores em Money, nunca double",
         "content": "Nunca use float para dinheiro.",
         "status": "active",
         "key": None,
-        "confidence": None,
-        "importance": None,
+        "subtype": None,
+        "scope": None,
+        "links": [],
         "ttl_days": None,
         "keywords": None,
         "source": None,
+        "origin": "agent",
+        "verified_at": None,
+        "verified_commit": None,
         "scope_paths": [],
         "created_at": datetime(2026, 10, 6, 12, 0, 0),
         "updated_at": datetime(2026, 10, 6, 12, 0, 0),
     }
 
 
+def _serialize(item, subject=None, relations=(), tags=()) -> str:
+    return serialize_item(item, workspace_name="Polara", project_name="app",
+                          subject_name=subject, relations=list(relations), tags=list(tags))
+
+
 def test_round_trip_minimo_sem_campos_opcionais():
     item = _minimal_item()
-    raw = serialize_item(
-        item,
-        workspace_name="Polara",
-        project_name="app",
-        subject_name=None,
-        relations=[],
-        tags=[],
-        labels=[],
-    )
+    raw = _serialize(item)
     parsed = parse_item_file(raw)
 
     assert parsed["id"] == item["id"]
-    assert parsed["type"] == "rule"
+    assert parsed["type"] == "rule" and parsed["subtype"] is None and parsed["scope"] is None
     assert parsed["title"] == "Money em pagamentos"
     assert parsed["summary"] == "Valores em Money, nunca double"
     assert parsed["status"] == "active"
-    assert parsed["memory_class"] == "longterm"
+    assert parsed["origin"] == "agent"
     assert parsed["key"] is None
-    assert parsed["confidence"] is None
-    assert parsed["importance"] is None
     assert parsed["ttl_days"] is None
-    assert parsed["keywords"] is None
-    assert parsed["source"] is None
-    assert parsed["tags"] == []
-    assert parsed["labels"] == []
-    assert parsed["scope_paths"] == []
+    assert parsed["keywords"] is None and parsed["source"] is None
+    assert parsed["verified_at"] is None and parsed["verified_commit"] is None
+    assert parsed["tags"] == [] and parsed["links"] == [] and parsed["scope_paths"] == []
     assert parsed["relations"] == []
     assert parsed["created_at"] == datetime(2026, 10, 6, 12, 0, 0)
     assert parsed["updated_at"] == datetime(2026, 10, 6, 12, 0, 0)
     assert parsed["content"] == "Nunca use float para dinheiro."
 
-    # Campos de telemetria nunca aparecem no arquivo.
-    assert "access_count" not in raw
-    assert "last_accessed" not in raw
-    assert "expires_at" not in raw
+    for absent in ("access_count", "last_accessed", "expires_at", "key:", "subtype:",
+                   "scope:", "ttl_days:", "keywords:", "source:", "subject:", "verified_at:",
+                   "verified_commit:", "memory_class", "labels", "importance", "confidence"):
+        assert absent not in raw
 
-    # Campos opcionais ausentes não viram linhas "campo: null" no arquivo.
-    assert "key:" not in raw
-    assert "confidence:" not in raw
-    assert "importance:" not in raw
-    assert "ttl_days:" not in raw
-    assert "keywords:" not in raw
-    assert "source:" not in raw
-    assert "subject:" not in raw
+
+def test_origin_ausente_no_objeto_sai_agent():
+    item = _minimal_item()
+    del item["origin"]
+    assert parse_item_file(_serialize(item))["origin"] == "agent"
 
 
 # --------------------------------------------------------------------------- round-trip máximo
@@ -124,146 +117,165 @@ def test_round_trip_minimo_sem_campos_opcionais():
 
 def _maximal_item() -> dict:
     return {
+        **_minimal_item(),
         "id": "8f3e2c0a-0000-0000-0000-000000000002",
-        "type": "rule",
-        "memory_class": "ephemeral",
-        "title": "Money em pagamentos",
-        "summary": "Valores em Money, nunca double",
-        "content": "Nunca use float para dinheiro.\n\nUse Money.",
-        "status": "active",
-        "key": "regra/money-em-pagamentos",
-        "confidence": 90,
-        "importance": 7,
+        "key": "rule/money-em-pagamentos",
+        "subtype": "decision",
+        "scope": "workspace",
+        "content": "Nunca use float para dinheiro.\n\n## Por quê\nArredonda.",
+        "links": [{"title": "ADR", "url": "https://x/adr"}],
         "ttl_days": 30,
         "keywords": "dinheiro, valores",
         "source": "PAY-142",
+        "origin": "user",
+        "verified_at": datetime(2026, 10, 7, 9, 0, 0),
+        "verified_commit": "abc123",
         "scope_paths": ["src/payments/**"],
-        "created_at": datetime(2026, 10, 6, 12, 0, 0),
         "updated_at": datetime(2026, 10, 6, 13, 0, 0),
     }
 
 
 def test_round_trip_maximo_com_todos_os_campos_opcionais():
     item = _maximal_item()
-    raw = serialize_item(
-        item,
-        workspace_name="Polara",
-        project_name="app",
-        subject_name="pagamentos",
-        relations=[{"type": "supersedes", "target": "proc/deploy"}],
-        tags=["pix", "dinheiro"],
-        labels=["official"],
-    )
+    raw = _serialize(item, subject="pagamentos",
+                     relations=[{"type": "supersedes", "target": "howto/deploy"}],
+                     tags=["pix", "dinheiro"])
     parsed = parse_item_file(raw)
 
-    assert parsed["key"] == "regra/money-em-pagamentos"
-    assert parsed["memory_class"] == "ephemeral"
-    assert parsed["confidence"] == 90
-    assert isinstance(parsed["confidence"], int)
-    assert parsed["importance"] == 7
-    assert isinstance(parsed["importance"], int)
-    assert parsed["ttl_days"] == 30
-    assert isinstance(parsed["ttl_days"], int)
-    assert parsed["keywords"] == "dinheiro, valores"
-    assert parsed["source"] == "PAY-142"
-    assert parsed["scope_paths"] == ["src/payments/**"]
+    for name in ("key", "subtype", "scope", "links", "ttl_days", "keywords", "source", "origin",
+                 "verified_at", "verified_commit", "scope_paths", "created_at", "updated_at",
+                 "content"):
+        assert parsed[name] == item[name], name
     assert parsed["tags"] == ["pix", "dinheiro"]
-    assert parsed["labels"] == ["official"]
     assert parsed["subject"] == "pagamentos"
-    assert parsed["relations"] == [{"type": "supersedes", "target": "proc/deploy"}]
-    assert parsed["created_at"] == datetime(2026, 10, 6, 12, 0, 0)
-    assert parsed["updated_at"] == datetime(2026, 10, 6, 13, 0, 0)
-    assert parsed["content"] == "Nunca use float para dinheiro.\n\nUse Money."
+    assert parsed["relations"] == [{"type": "supersedes", "target": "howto/deploy"}]
+    assert "expires_at:" not in raw and "access_count" not in raw
 
-    # expires_at nunca é lido do arquivo (nunca persistido) — não deve estar no raw.
-    assert "expires_at:" not in raw
-    assert "access_count" not in raw
-    assert "last_accessed" not in raw
+
+def test_ordem_dos_campos_no_frontmatter():
+    raw = _serialize(_maximal_item(), subject="pagamentos",
+                     relations=[{"type": "references", "target": "x"}], tags=["pix"])
+    head = raw.split("---\n")[1]
+    keys = [ln.split(":")[0] for ln in head.splitlines() if ln and not ln.startswith(" ")]
+    assert keys == ["key", "id", "workspace", "project", "subject", "type", "subtype", "scope",
+                    "title", "status", "tags", "links", "scope_paths", "ttl_days", "keywords",
+                    "source", "origin", "verified_at", "verified_commit", "created_at",
+                    "updated_at", "relations", "summary"]
+
+
+def test_ida_e_volta_sem_perda():
+    raw = _serialize(_maximal_item(), subject="pagamentos", tags=["pix"],
+                     relations=[{"type": "depends_on", "target": "rule/x"}])
+    parsed = parse_item_file(raw)
+    again = serialize_item(parsed, workspace_name=parsed["workspace"],
+                           project_name=parsed["project"], subject_name=parsed["subject"],
+                           relations=parsed["relations"], tags=parsed["tags"])
+    assert again == raw
 
 
 def test_relation_alvo_por_id_quando_alvo_nao_tem_key():
-    item = _minimal_item()
-    raw = serialize_item(
-        item,
-        workspace_name="Polara",
-        project_name="app",
-        subject_name=None,
-        relations=[{"type": "references", "target": "8f3e2c0a-target-sem-key"}],
-        tags=[],
-        labels=[],
-    )
-    parsed = parse_item_file(raw)
-    assert parsed["relations"] == [{"type": "references", "target": "8f3e2c0a-target-sem-key"}]
-
-
-# --------------------------------------------------------------------------- Item ORM
+    raw = _serialize(_minimal_item(),
+                     relations=[{"type": "references", "target": "8f3e2c0a-target-sem-key"}])
+    assert parse_item_file(raw)["relations"] == [
+        {"type": "references", "target": "8f3e2c0a-target-sem-key"}
+    ]
 
 
 def test_serialize_aceita_objeto_com_atributos_alem_de_dict():
     orm_item = SimpleNamespace(
-        id="orm-1",
-        type="pattern",
-        memory_class="longterm",
-        title="Padrão X",
-        summary="Resumo do padrão",
-        content="Conteúdo do padrão.",
-        status="active",
-        key="padrao/x",
-        scope_paths=["src/x/**"],
-        created_at=datetime(2026, 1, 1, 0, 0, 0),
-        updated_at=datetime(2026, 1, 2, 0, 0, 0),
+        id="orm-1", type="rule", subtype="pattern", title="Padrão X", summary="Resumo",
+        content="Arquivo-modelo: x.py", status="active", key="rule/x",
+        scope_paths=["src/x/**"], created_at=datetime(2026, 1, 1),
+        updated_at=datetime(2026, 1, 2),
     )
-    raw = serialize_item(
-        orm_item,
-        workspace_name="Polara",
-        project_name="app",
-        subject_name=None,
-        relations=[],
-        tags=["t1"],
-        labels=[],
-    )
-    parsed = parse_item_file(raw)
-    assert parsed["id"] == "orm-1"
-    assert parsed["key"] == "padrao/x"
-    assert parsed["scope_paths"] == ["src/x/**"]
-    assert parsed["tags"] == ["t1"]
+    parsed = parse_item_file(_serialize(orm_item, tags=["t1"]))
+    assert parsed["id"] == "orm-1" and parsed["key"] == "rule/x"
+    assert parsed["subtype"] == "pattern" and parsed["origin"] == "agent"
+    assert parsed["scope_paths"] == ["src/x/**"] and parsed["tags"] == ["t1"]
 
 
-# --------------------------------------------------------------------------- segredo recusado
+# --------------------------------------------------------------------------- segredo
 
 
 def test_serialize_aceita_item_secret_so_com_metadados():
-    item = _minimal_item()
-    item["type"] = "secret"
-    item["key"] = "segredo/token"
-    raw = serialize_item(
-        item,
-        workspace_name="Polara",
-        project_name="app",
-        subject_name=None,
-        relations=[],
-        tags=[],
-        labels=[],
-    )
-    parsed = parse_item_file(raw)
-    assert parsed["type"] == "secret" and parsed["key"] == "segredo/token"
+    item = {**_minimal_item(), "type": "secret", "key": "secret/token"}
+    parsed = parse_item_file(_serialize(item))
+    assert parsed["type"] == "secret" and parsed["key"] == "secret/token"
 
 
 @pytest.mark.parametrize("campo", ["value", "valor", "secret_value", "ciphertext"])
 def test_serialize_recusa_secret_com_valor(campo):
-    item = _minimal_item()
-    item["type"] = "secret"
-    item[campo] = "s3nh4"
+    item = {**_minimal_item(), "type": "secret", campo: "s3nh4"}
     with pytest.raises(ValidationError, match="secret"):
-        serialize_item(
-            item,
-            workspace_name="Polara",
-            project_name="app",
-            subject_name=None,
-            relations=[],
-            tags=[],
-            labels=[],
-        )
+        _serialize(item)
+
+
+# --------------------------------------------------------------------------- arquivo antigo → v2
+
+
+def _old_file(**over) -> str:
+    fields = {
+        "key": "gotcha/x", "id": "7390762d-0000", "workspace": "Global", "project": "Geral",
+        "type": "rule", "title": "T", "status": "active", "memory_class": "longterm",
+        "tags": "[]", "labels": "[]", "scope_paths": "[]", "keywords": None,
+        "created_at": "'2026-10-05T18:01:54Z'", "updated_at": "'2026-10-05T18:01:54Z'",
+        "relations": "[]", "summary": "S",
+    }
+    fields.update(over)
+    lines = [f"{k}: {v}" for k, v in fields.items() if v is not None]
+    return "---\n" + "\n".join(lines) + "\n---\nCorpo antigo.\n"
+
+
+@pytest.mark.parametrize(
+    ("old_type", "new_type", "subtype"),
+    [("insight", "rule", "decision"), ("procedure", "howto", None),
+     ("knowledge", "howto", "troubleshoot"), ("pattern", "rule", "pattern"),
+     ("task", "spec", None)],
+)
+def test_arquivo_antigo_tipo_traduzido(old_type, new_type, subtype):
+    parsed = parse_item_file(_old_file(type=old_type))
+    assert parsed["type"] == new_type and parsed["subtype"] == subtype
+
+
+def test_arquivo_antigo_knowledge_vira_review():
+    assert parse_item_file(_old_file(type="knowledge"))["status"] == "review"
+
+
+def test_arquivo_antigo_rule_sensivel_vira_security():
+    parsed = parse_item_file(_old_file(keywords="tenant filtro sensivel"))
+    assert parsed["subtype"] == "security" and parsed["keywords"] == "tenant filtro"
+
+
+@pytest.mark.parametrize("status", ["superseded", "deprecated"])
+def test_arquivo_antigo_status_vira_archived(status):
+    assert parse_item_file(_old_file(status=status))["status"] == "archived"
+
+
+def test_arquivo_antigo_labels_viram_tags_e_campos_saem():
+    parsed = parse_item_file(_old_file(tags="[pix]", labels="[official]", importance=5,
+                                       confidence=90))
+    assert parsed["tags"] == ["pix", "official"]
+    for gone in ("labels", "memory_class", "importance", "confidence"):
+        assert gone not in parsed
+
+
+def test_arquivo_antigo_ephemeral_mantem_ttl_e_outro_perde():
+    assert parse_item_file(_old_file(memory_class="ephemeral", ttl_days=7))["ttl_days"] == 7
+    assert parse_item_file(_old_file(memory_class="working", ttl_days=7))["ttl_days"] is None
+
+
+def test_arquivo_antigo_origin_user():
+    assert parse_item_file(_old_file())["origin"] == "user"
+
+
+def test_arquivo_antigo_regravado_sai_v2_e_volta_igual():
+    parsed = parse_item_file(_old_file(type="insight", labels="[official]", status="deprecated"))
+    raw = serialize_item(parsed, workspace_name=parsed["workspace"],
+                         project_name=parsed["project"], subject_name=parsed["subject"],
+                         relations=parsed["relations"], tags=parsed["tags"])
+    assert "memory_class" not in raw and "labels" not in raw
+    again = parse_item_file(raw)
+    assert again == parsed
 
 
 # --------------------------------------------------------------------------- frontmatter malformado
@@ -275,41 +287,21 @@ def test_parse_sem_frontmatter_levanta_validation_error():
 
 
 def test_parse_frontmatter_yaml_invalido_levanta_validation_error():
-    raw = "---\nkey: [sem fechar\n---\nconteudo\n"
     with pytest.raises(ValidationError):
-        parse_item_file(raw)
+        parse_item_file("---\nkey: [sem fechar\n---\nconteudo\n")
 
 
 @pytest.mark.parametrize(
-    "campo",
-    ["id", "type", "title", "summary", "status", "memory_class", "created_at", "updated_at"],
+    "campo", ["id", "type", "title", "summary", "status", "created_at", "updated_at"],
 )
 def test_parse_sem_campo_obrigatorio_levanta_validation_error(campo):
-    item = _minimal_item()
-    raw = serialize_item(
-        item,
-        workspace_name="Polara",
-        project_name="app",
-        subject_name=None,
-        relations=[],
-        tags=[],
-        labels=[],
-    )
-    # Remove a linha do campo obrigatório do frontmatter.
+    raw = _serialize(_minimal_item())
     linhas = [linha for linha in raw.splitlines() if not linha.startswith(f"{campo}:")]
-    raw_quebrado = "\n".join(linhas)
     with pytest.raises(ValidationError, match=campo):
-        parse_item_file(raw_quebrado)
+        parse_item_file("\n".join(linhas))
 
 
 # --------------------------------------------------------------------------- tipos inesperados
-
-
-def _raw_minimo() -> str:
-    return serialize_item(
-        _minimal_item(), workspace_name="Polara", project_name="app", subject_name=None,
-        relations=[], tags=[], labels=[],
-    )
 
 
 def _troca(raw: str, campo: str, valor: str) -> str:
@@ -324,7 +316,12 @@ def _troca(raw: str, campo: str, valor: str) -> str:
         ("title", "2024"),
         ("summary", "[a, b]"),
         ("type", "{x: 1}"),
+        ("type", "note"),
+        ("subtype", "foo"),
+        ("scope", "everywhere"),
+        ("origin", "human"),
         ("status", "true"),
+        ("status", "inventado"),
         ("id", "[a]"),
         ("workspace", "[x]"),
         ("project", "12"),
@@ -332,30 +329,31 @@ def _troca(raw: str, campo: str, valor: str) -> str:
         ("key", "[x]"),
         ("keywords", "[a]"),
         ("source", "{a: 1}"),
+        ("verified_commit", "[a]"),
+        ("verified_at", "ontem"),
         ("tags", "[1, x]"),
         ("tags", "texto"),
-        ("labels", "[{a: b}]"),
+        ("links", "[x]"),
+        ("links", "[{title: a}]"),
         ("scope_paths", "src/x"),
         ("relations", "[x]"),
         ("relations", "[{type: related_to}]"),
         ("relations", "[{type: 1, target: x}]"),
         ("relations", "{type: a, target: b}"),
-        ("confidence", "alto"),
-        ("importance", "[1]"),
         ("ttl_days", "sete"),
         ("created_at", "2024-01-01"),
         ("updated_at", "12"),
     ],
 )
 def test_parse_tipo_inesperado_levanta_validation_error(campo, valor):
-    raw = _troca(_raw_minimo(), campo, valor)
+    raw = _troca(_serialize(_minimal_item()), campo, valor)
     with pytest.raises(ValidationError, match=campo):
         parse_item_file(raw)
 
 
 def test_parse_campos_opcionais_vazios_continuam_validos():
-    raw = _raw_minimo()
-    for campo in ("tags", "labels", "scope_paths", "relations"):
+    raw = _serialize(_minimal_item())
+    for campo in ("tags", "links", "scope_paths", "relations"):
         raw = _troca(raw, campo, "")
     parsed = parse_item_file(raw)
-    assert parsed["tags"] == [] and parsed["relations"] == []
+    assert parsed["tags"] == [] and parsed["links"] == [] and parsed["relations"] == []

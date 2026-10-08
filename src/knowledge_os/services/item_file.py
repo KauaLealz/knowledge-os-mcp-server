@@ -4,8 +4,12 @@ Cada item do segundo cérebro é um arquivo `.md` (frontmatter YAML + corpo) na 
 com os nomes de workspace/project/subject no frontmatter. `serialize_item` faz o arquivo e
 `parse_item_file` faz o caminho inverso.
 
-`serialize_item` aceita um `dict` ou qualquer objeto com os mesmos campos (`scope_paths` como
-lista). `tags`, `labels` e `relations` são sempre parâmetros à parte, e `relations` já chega
+Formato v2 (taxonomia em `knowledge_os.model`): `subtype`, `scope`, `links`, `origin`,
+`verified_at` e `verified_commit`; `memory_class`, `importance`, `confidence` e `labels` saíram.
+Arquivo antigo continua legível: `parse_item_file` traduz na leitura (`model.translate_legacy`).
+
+`serialize_item` aceita um `dict` ou qualquer objeto com os mesmos campos (`scope_paths` e
+`links` como lista). `tags` e `relations` são sempre parâmetros à parte, e `relations` já chega
 resolvido (pela key do alvo quando ele tem uma no mesmo project, senão pelo id) — este módulo
 não decide essa resolução, só serializa o que recebe.
 
@@ -25,6 +29,16 @@ from typing import Any
 import yaml
 
 from knowledge_os.exceptions import ValidationError
+from knowledge_os.model import (
+    DEFAULT_ORIGIN,
+    ORIGINS,
+    SCOPES,
+    SPEC_STATUSES,
+    STATUSES,
+    TYPES,
+    key_problem,  # mora em `model`; segue importável daqui
+    translate_legacy,
+)
 
 _SEM_KEY_DIR = "_sem-key"
 
@@ -39,7 +53,6 @@ _REQUIRED_FIELDS = (
     "title",
     "summary",
     "status",
-    "memory_class",
     "created_at",
     "updated_at",
 )
@@ -78,23 +91,6 @@ def slugify(name: str) -> str:
 
 
 _ID_RE = re.compile(r"[A-Za-z0-9-]{1,100}")
-# Segmento de key: começa por letra ou número (nada de vazio, "." , ".." ou pasta oculta).
-_KEY_SEGMENT_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
-
-
-def key_problem(key: Any) -> str | None:
-    """Motivo pelo qual a key não serve de path dentro do project (None se serve).
-
-    A key vira `<ws>/<pj>/<key>.md`: cada segmento separado por "/" precisa começar por letra
-    ou número e ter só letras, números, ".", "_" e "-". Isso recusa segmento vazio, ".", "..",
-    pasta oculta, barra invertida, ":" e caminho absoluto.
-    """
-    if not isinstance(key, str) or not key or len(key) > 200:
-        return "key deve ser um texto de 1 a 200 caracteres"
-    if not all(_KEY_SEGMENT_RE.fullmatch(seg) for seg in key.split("/")):
-        return (f"key inválida: {key!r} (cada parte entre '/' começa por letra ou número e "
-                "usa só letras, números, '.', '_' e '-')")
-    return None
 
 
 def id_problem(item_id: Any) -> str | None:
@@ -160,10 +156,6 @@ def _field(item: Any, name: str, default: Any = None) -> Any:
     return getattr(item, name, default)
 
 
-def _scope_paths(item: Any) -> list[str]:
-    return list(_field(item, "scope_paths") or [])
-
-
 def _fmt_dt(value: datetime) -> str:
     """Formata um datetime (naive ou aware, assumido UTC) como "YYYY-MM-DDTHH:MM:SSZ"."""
     if value.tzinfo is not None:
@@ -194,15 +186,16 @@ def serialize_item(
     subject_name: str | None,
     relations: list[dict[str, str]],
     tags: list[str],
-    labels: list[str],
 ) -> str:
     """Serializa um item (dict ou objeto com os mesmos campos) em conteúdo de arquivo
-    Markdown com frontmatter YAML.
+    Markdown com frontmatter YAML, na ordem do formato v2.
 
-    Item `type == "secret"` é serializado só com metadados; recusa (`ValidationError`) se ele
-    trouxer algum campo de valor — o valor do segredo nunca vai pro git. Campos de telemetria
-    (`access_count`, `last_accessed`) e `expires_at` (sempre recalculado a partir de
-    `updated_at` + `ttl_days`) nunca são persistidos no arquivo.
+    Opcionais sem valor (`key`, `subject`, `subtype`, `scope`, `ttl_days`, `keywords`,
+    `source`, `verified_at`, `verified_commit`) não viram linha; `origin` ausente sai
+    `agent`. Item `type == "secret"` é serializado só com metadados; recusa
+    (`ValidationError`) se ele trouxer algum campo de valor — o valor do segredo nunca vai pro
+    git. Telemetria (`access_count`, `last_accessed`) e `expires_at` (sempre recalculado a
+    partir de `updated_at` + `ttl_days`) nunca são persistidos no arquivo.
     """
     item_type = _field(item, "type")
     if item_type == "secret":
@@ -213,44 +206,35 @@ def serialize_item(
                 "serializado para arquivo versionável (o valor nunca vai para o git)"
             )
 
-    memory_class = _field(item, "memory_class")
-    key = _field(item, "key")
+    def optional(name: str, value: Any) -> None:
+        if value is not None and value != "":
+            data[name] = value
 
     data: dict[str, Any] = {}
-    if key:
-        data["key"] = key
+    optional("key", _field(item, "key"))
     data["id"] = _field(item, "id")
     data["workspace"] = workspace_name
     data["project"] = project_name
-    if subject_name:
-        data["subject"] = subject_name
+    optional("subject", subject_name)
     data["type"] = item_type
+    optional("subtype", _field(item, "subtype"))
+    optional("scope", _field(item, "scope"))
     data["title"] = _field(item, "title")
     data["status"] = _field(item, "status")
-    data["memory_class"] = memory_class
     data["tags"] = list(tags)
-    data["labels"] = list(labels)
-    data["scope_paths"] = _scope_paths(item)
-
-    confidence = _field(item, "confidence")
-    if confidence is not None:
-        data["confidence"] = confidence
-    importance = _field(item, "importance")
-    if importance is not None:
-        data["importance"] = importance
-    if memory_class == "ephemeral":
-        data["ttl_days"] = _field(item, "ttl_days")
-
-    keywords = _field(item, "keywords")
-    if keywords:
-        data["keywords"] = keywords
-    source = _field(item, "source")
-    if source:
-        data["source"] = source
-
+    data["links"] = [{"title": lk["title"], "url": lk["url"]}
+                     for lk in (_field(item, "links") or [])]
+    data["scope_paths"] = list(_field(item, "scope_paths") or [])
+    optional("ttl_days", _field(item, "ttl_days"))
+    optional("keywords", _field(item, "keywords"))
+    optional("source", _field(item, "source"))
+    data["origin"] = _field(item, "origin") or DEFAULT_ORIGIN
+    verified_at = _field(item, "verified_at")
+    if verified_at is not None:
+        data["verified_at"] = _fmt_dt(verified_at)
+    optional("verified_commit", _field(item, "verified_commit"))
     data["created_at"] = _fmt_dt(_field(item, "created_at"))
     data["updated_at"] = _fmt_dt(_field(item, "updated_at"))
-
     data["relations"] = [{"type": r["type"], "target": r["target"]} for r in relations]
     data["summary"] = _field(item, "summary")
 
@@ -272,9 +256,12 @@ def parse_item_file(raw: str) -> dict[str, Any]:
     """Faz o caminho inverso de `serialize_item`: devolve um dict com os campos do
     frontmatter (tipados) mais `content` (o corpo do arquivo).
 
-    Levanta `ValidationError` se o frontmatter estiver ausente, malformado, ou faltar algum
-    campo obrigatório (`id`, `type`, `title`, `summary`, `status`, `memory_class`,
-    `created_at`, `updated_at`).
+    Arquivo no formato antigo é traduzido na leitura (`model.translate_legacy`): é o único
+    ponto de compatibilidade, e a regravação já sai em v2.
+
+    Levanta `ValidationError` se o frontmatter estiver ausente, malformado, faltar algum
+    campo obrigatório (`id`, `type`, `title`, `summary`, `status`, `created_at`,
+    `updated_at`) ou trouxer valor fora da taxonomia (tipo, subtipo, status, scope, origin).
     """
     match = _FRONTMATTER_RE.match(raw)
     if match is None:
@@ -296,6 +283,11 @@ def parse_item_file(raw: str) -> dict[str, Any]:
         _text(data, name, required=True)
     for name in _TEXT_OPTIONAL:
         _text(data, name, required=False)
+    _str_list(data, "tags")
+    _str_list(data, "labels")
+    data = translate_legacy(data)
+    _check_taxonomy(data)
+
     problem = id_problem(data["id"])
     if not problem and data.get("key") is not None:
         problem = key_problem(data["key"])
@@ -305,6 +297,7 @@ def parse_item_file(raw: str) -> dict[str, Any]:
     if problem:
         raise ValidationError(f"Frontmatter com {problem}")
 
+    verified_at = data.get("verified_at")
     parsed: dict[str, Any] = {
         "id": data["id"],
         "key": data.get("key"),
@@ -312,17 +305,20 @@ def parse_item_file(raw: str) -> dict[str, Any]:
         "project": data.get("project"),
         "subject": data.get("subject"),
         "type": data["type"],
+        "subtype": data.get("subtype"),
+        "scope": data.get("scope"),
         "title": data["title"],
         "status": data["status"],
-        "memory_class": data["memory_class"],
         "tags": _str_list(data, "tags"),
-        "labels": _str_list(data, "labels"),
+        "links": _links(data),
         "scope_paths": _str_list(data, "scope_paths"),
-        "confidence": _int(data, "confidence"),
-        "importance": _int(data, "importance"),
         "ttl_days": _int(data, "ttl_days"),
         "keywords": data.get("keywords"),
         "source": data.get("source"),
+        "origin": data["origin"],
+        "verified_at": (_parse_dt(verified_at, "verified_at")
+                        if verified_at is not None else None),
+        "verified_commit": data.get("verified_commit"),
         "created_at": _parse_dt(data["created_at"], "created_at"),
         "updated_at": _parse_dt(data["updated_at"], "updated_at"),
         "relations": _relations(data),
@@ -334,8 +330,34 @@ def parse_item_file(raw: str) -> dict[str, Any]:
 
 # Campos de texto do frontmatter: um YAML válido com outro tipo (`title: 2024`, `id: [a]`)
 # derrubaria quem lê o item; aqui ele vira erro do arquivo.
-_TEXT_REQUIRED = ("id", "type", "title", "summary", "status", "memory_class")
-_TEXT_OPTIONAL = ("key", "workspace", "project", "subject", "keywords", "source")
+_TEXT_REQUIRED = ("id", "type", "title", "summary", "status")
+_TEXT_OPTIONAL = ("key", "workspace", "project", "subject", "subtype", "scope", "keywords",
+                  "source", "origin", "verified_commit")
+
+
+def _check_taxonomy(data: dict[str, Any]) -> None:
+    """Tipo, subtipo, status, scope e origin dentro da taxonomia (já traduzidos).
+
+    Na leitura o status não é cruzado com o tipo: um arquivo editado à mão com `done` numa
+    regra continua legível (a gravação pelo `item_save` é que recusa).
+    """
+    item_type = data["type"]
+    if item_type not in TYPES:
+        raise ValidationError(f"Frontmatter com 'type' fora da taxonomia: {item_type!r} "
+                              f"(válidos: {', '.join(TYPES)})")
+    subtype = data.get("subtype")
+    if subtype is not None and subtype not in TYPES[item_type]:
+        raise ValidationError(f"Frontmatter com 'subtype' inválido para {item_type}: "
+                              f"{subtype!r} (válidos: {', '.join(TYPES[item_type]) or '—'})")
+    status = data["status"]
+    if status not in STATUSES + SPEC_STATUSES:
+        raise ValidationError(f"Frontmatter com 'status' inválido: {status!r} "
+                              f"(válidos: {', '.join(STATUSES + SPEC_STATUSES)})")
+    for name, valid in (("scope", SCOPES), ("origin", ORIGINS)):
+        value = data.get(name)
+        if value is not None and value not in valid:
+            raise ValidationError(f"Frontmatter com {name!r} inválido: {value!r} "
+                                  f"(válidos: {', '.join(valid)})")
 
 
 def _text(data: dict[str, Any], name: str, *, required: bool) -> None:
@@ -362,6 +384,22 @@ def _int(data: dict[str, Any], name: str) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValidationError(f"Frontmatter com {name!r} que não é número inteiro: {value!r}")
     return value
+
+
+def _links(data: dict[str, Any]) -> list[dict[str, str]]:
+    value = data.get("links")
+    if value is None:
+        return []
+    ok = isinstance(value, list) and all(
+        isinstance(lk, dict) and isinstance(lk.get("title"), str)
+        and isinstance(lk.get("url"), str)
+        for lk in value
+    )
+    if not ok:
+        raise ValidationError(
+            f"Frontmatter com 'links' fora do formato [{{title, url}}]: {value!r}"
+        )
+    return [{"title": lk["title"], "url": lk["url"]} for lk in value]
 
 
 def _relations(data: dict[str, Any]) -> list[dict[str, str]]:
