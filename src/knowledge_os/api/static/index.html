@@ -879,6 +879,23 @@
                       <span>⚠ In review: someone flagged this item as wrong or outdated. Check it, fix it and set the status back to active.</span>
                     </div>
 
+
+                    <div class="chips">
+                      <span class="tbadge lg" :class="$tc(item.type)"><span class="tdot" aria-hidden="true"></span><span x-text="$kind(item.type, item.subtype)"></span></span>
+                      <span class="chip warn" x-show="item.status === 'review'">⚠ Review</span>
+                      <span class="chip outline" x-show="!['active', 'review'].includes(item.status) || item.expired" x-text="item.expired ? 'expired' : item.status"></span>
+                      <span class="chip outline" :class="{ inherited: $inherited(item) }" :title="'Where it is valid: ' + $iscope(item)" x-text="$iscope(item)"></span>
+                      <span class="chip outline" :title="'Origin: ' + item.origin" x-text="$origin(item.origin)"></span>
+                      <template x-for="t in item.tags" :key="'t' + t"><span class="chip outline" x-text="'#' + t"></span></template>
+                      <span class="chip outline" x-show="item.verified_at" :title="'Verified ' + fullDate(item.verified_at) + (item.verified_commit ? ' · ' + item.verified_commit.slice(0, 8) : '')">✓ verified <span x-text="$ago(item.verified_at)"></span></span>
+                      <span class="muted" style="font-size:12.5px" :title="fullDate(item.updated_at)" x-text="'updated ' + $ago(item.updated_at)"></span>
+                      <button class="btn ghost sm" type="button" x-show="item.type !== 'secret' && !$store.app.route.params.edit" @click="markVerified()" x-text="item.verified_at ? 'Verify again' : 'Mark verified'"></button>
+                    </div>
+
+                    <p class="item-meta" x-show="!$store.app.route.params.edit && (item.key || item.subject || item.source || item.ttl_days)">
+                      <code class="mono" x-show="item.key" x-text="item.key"></code>
+                      <span x-text="[item.subject, item.source && ('source: ' + item.source), item.ttl_days && ('expires ' + fullDate(item.expires_at))].filter(Boolean).join(' · ')"></span>
+                    </p>
                     <!-- Segredo · valor -->
                     <template x-if="item.type === 'secret' && !$store.app.route.params.edit">
                       <section class="card secret-box" x-data="secretForm(item, (u) => applyUpdate(u))">
@@ -900,33 +917,13 @@
                     </template>
                     <!-- /Segredo · valor -->
 
-                    <div class="chips">
-                      <span class="tbadge lg" :class="$tc(item.type)"><span class="tdot" aria-hidden="true"></span><span x-text="$kind(item.type, item.subtype)"></span></span>
-                      <span class="chip warn" x-show="item.status === 'review'">⚠ Review</span>
-                      <span class="chip outline" x-show="!['active', 'review'].includes(item.status) || item.expired" x-text="item.expired ? 'expired' : item.status"></span>
-                      <span class="chip outline" :class="{ inherited: $inherited(item) }" :title="'Where it is valid: ' + $iscope(item)" x-text="$iscope(item)"></span>
-                      <span class="chip outline" :title="'Origin: ' + item.origin" x-text="$origin(item.origin)"></span>
-                      <template x-for="t in item.tags" :key="'t' + t"><span class="chip outline" x-text="'#' + t"></span></template>
-                      <span class="muted" style="font-size:12.5px" :title="fullDate(item.updated_at)" x-text="'updated ' + $ago(item.updated_at)"</span>
-                    </div>
-
-                    <dl class="item-facts" x-show="!$store.app.route.params.edit">
-                      <dt>Lives in</dt><dd x-text="item.where + (item.subject ? ' / ' + item.subject : '')"></dd>
-                      <dt>Key</dt><dd class="mono" x-text="item.key || '—'"></dd>
-                      <dt>Scope</dt><dd x-text="$iscope(item)"></dd>
-                      <dt>Origin</dt><dd x-text="$origin(item.origin)"></dd>
-                      <dt>Verified</dt>
-                      <dd>
-                        <span x-text="item.verified_at ? fullDate(item.verified_at) + (item.verified_commit ? ' · ' + item.verified_commit.slice(0, 8) : '') : 'never'"></span>
-                        <button class="btn ghost sm" type="button" @click="markVerified()">Mark verified</button>
-                      </dd>
-                      <template x-if="item.ttl_days">
-                        <div style="display:contents"><dt>Expires</dt><dd x-text="fullDate(item.expires_at) + ' (' + item.ttl_days + ' days)'"></dd></div>
-                      </template>
-                      <template x-if="item.source">
-                        <div style="display:contents"><dt>Source</dt><dd x-text="item.source"></dd></div>
-                      </template>
-                    </dl>
+                    <template x-if="!$store.app.route.params.edit && item.type !== 'secret'">
+                      <div>
+                        <div class="prose" x-show="!showRaw" @click="onProseClick($event)"
+                             x-effect="renderInto($el, item.content)"></div>
+                        <pre class="raw" x-show="showRaw" x-text="item.content"></pre>
+                      </div>
+                    </template>
 
                     <template x-if="item.links.length && !$store.app.route.params.edit">
                       <section>
@@ -937,14 +934,6 @@
                           </template>
                         </ul>
                       </section>
-                    </template>
-
-                    <template x-if="!$store.app.route.params.edit && item.type !== 'secret'">
-                      <div>
-                        <div class="prose" x-show="!showRaw" @click="onProseClick($event)"
-                             x-effect="renderInto($el, item.content)"></div>
-                        <pre class="raw" x-show="showRaw" x-text="item.content"></pre>
-                      </div>
                     </template>
 
                     <template x-if="$store.app.route.params.edit && item && item.id === $store.app.route.params.item">
@@ -1036,7 +1025,7 @@
                     <nav class="pager" aria-label="Itens vizinhos">
                       <template x-if="prev">
                         <a class="pager-a" :href="$store.app.hItem(item.project_id, prev.id)">
-                          <span class="muted">Anterior</span><b x-text="prev.title"></b>
+                          <span class="muted">Previous</span><b x-text="prev.title"></b>
                         </a>
                       </template>
                       <template x-if="next">

@@ -256,9 +256,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
   border-radius: var(--radius); font-size: 14px; line-height: 1.5;
 }
 .banner .ic { margin-top: 3px; }
-.item-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 0 0 var(--sp-5); font-size: 13.5px; color: var(--text-2); }
-.item-facts dt { color: var(--text-3); }
-.item-facts dd { margin: 0; overflow-wrap: anywhere; }
+.item-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; margin: 0 0 var(--sp-5); font-size: 12.5px; color: var(--text-3); overflow-wrap: anywhere; }
+.item-meta code { color: var(--text-2); }
 .links { margin: 0; padding-left: 18px; }
 .tag-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 4px; border-bottom: 1px solid var(--border); }
 .tag-row .grow { flex: 1 1 160px; }
