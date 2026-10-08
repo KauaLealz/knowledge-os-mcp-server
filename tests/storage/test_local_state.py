@@ -64,3 +64,54 @@ def test_usage_corrompido_e_falha_nao_levantam(_isolated_home, monkeypatch):
     monkeypatch.setattr(local_state.os, "replace", falha)
     local_state.track("c1", ["a"])  # best-effort: não levanta
     assert local_state.track("c1", []) is None
+
+
+def _em_paralelo(alvo, n: int = 8) -> None:
+    import threading
+
+    barreira = threading.Barrier(n)
+
+    def corre(i: int) -> None:
+        barreira.wait()
+        alvo(i)
+
+    threads = [threading.Thread(target=corre, args=(i,)) for i in range(n)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+
+def test_track_concorrente_nao_perde_uso(_isolated_home):
+    def usa(_i: int) -> None:
+        for _ in range(15):
+            local_state.track("c1", ["item-1"])
+
+    _em_paralelo(usa)
+    assert local_state.get_usage("c1")["item-1"]["uses"] == 8 * 15
+
+
+def test_set_repo_concorrente_nao_perde_ligacao(_isolated_home):
+    def liga(i: int) -> None:
+        for j in range(5):
+            local_state.set_repo(f"repo-{i}-{j}", connection_id="c", workspace="W", project="P")
+
+    _em_paralelo(liga)
+    assert len(local_state.list_repos()) == 8 * 5
+
+
+def test_escritas_usam_a_trava_entre_processos(_isolated_home, monkeypatch):
+    from contextlib import contextmanager
+
+    usadas: list[str] = []
+
+    @contextmanager
+    def trava(root, *a, **k):
+        usadas.append(str(root))
+        yield
+
+    monkeypatch.setattr(local_state, "folder_lock", trava)
+    local_state.set_repo("r", connection_id="c", workspace="W", project="P")
+    local_state.delete_repo("r")
+    local_state.track("c1", ["x"])
+    assert len(usadas) == 3

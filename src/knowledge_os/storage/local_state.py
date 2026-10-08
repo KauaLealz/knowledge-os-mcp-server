@@ -6,7 +6,8 @@
 
 Nada disso vai para o repositório de dados: é preferência e telemetria local. O home é lido a
 cada chamada (os testes trocam `config.KNOWLEDGE_HOME`). Gravação atômica (temporário +
-`os.replace`); arquivo ausente ou corrompido é lido como vazio e não é apagado — antes de
+`os.replace`) e sob trava (thread e entre processos), para duas escritas simultâneas não
+perderem uma à outra; arquivo ausente ou corrompido é lido como vazio e não é apagado — antes de
 sobrescrever um arquivo corrompido, ele é guardado ao lado com o sufixo `.corrompido`.
 """
 
@@ -16,17 +17,29 @@ import json
 import logging
 import os
 import tempfile
-from collections.abc import Iterable
+import threading
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import knowledge_os.config as config
+from knowledge_os.storage.access import folder_lock
 
 logger = logging.getLogger(__name__)
 
 _REPOS_FILE = "repos.json"
 _USAGE_DIR = "usage"
+_lock = threading.RLock()  # threads deste processo (UI + MCP)
+
+
+@contextmanager
+def _locked() -> Iterator[None]:
+    """Ler-modificar-gravar sem perder escrita: trava da thread e trava entre processos
+    (arquivo em `<home>/locks/`, a mesma `folder_lock` das pastas de dados)."""
+    with _lock, folder_lock(Path(config.KNOWLEDGE_HOME)):
+        yield
 
 
 def _now() -> str:
@@ -93,29 +106,31 @@ def get_repo(repo_key: str) -> dict[str, Any] | None:
 def set_repo(repo_key: str, *, connection_id: str, workspace: str, project: str) -> dict[str, Any]:
     """Cria ou atualiza a ligação do repositório (mantém `created_at` se já existia)."""
     path = _repos_path()
-    data, ok = _read(path)
-    now = _now()
-    previous = data.get(repo_key) if isinstance(data.get(repo_key), dict) else {}
-    entry = {
-        "connection_id": connection_id,
-        "workspace": workspace,
-        "project": project,
-        "created_at": previous.get("created_at") or now,
-        "updated_at": now,
-    }
-    data[repo_key] = entry
-    _write(path, data, was_valid=ok)
+    with _locked():
+        data, ok = _read(path)
+        now = _now()
+        previous = data.get(repo_key) if isinstance(data.get(repo_key), dict) else {}
+        entry = {
+            "connection_id": connection_id,
+            "workspace": workspace,
+            "project": project,
+            "created_at": previous.get("created_at") or now,
+            "updated_at": now,
+        }
+        data[repo_key] = entry
+        _write(path, data, was_valid=ok)
     return entry
 
 
 def delete_repo(repo_key: str) -> bool:
     """Remove a ligação; False se ela não existia."""
     path = _repos_path()
-    data, ok = _read(path)
-    if repo_key not in data:
-        return False
-    del data[repo_key]
-    _write(path, data, was_valid=ok)
+    with _locked():
+        data, ok = _read(path)
+        if repo_key not in data:
+            return False
+        del data[repo_key]
+        _write(path, data, was_valid=ok)
     return True
 
 
@@ -145,12 +160,14 @@ def track(connection_id: str, ids: Iterable[str]) -> None:
         if not ids:
             return
         path = _usage_path(connection_id)
-        data, ok = _read(path)
-        now = _now()
-        for item_id in ids:
-            entry = data.get(item_id)
-            uses = entry.get("uses", 0) if isinstance(entry, dict) else 0
-            data[item_id] = {"uses": (uses if isinstance(uses, int) else 0) + 1, "last_used": now}
-        _write(path, data, was_valid=ok)
+        with _locked():
+            data, ok = _read(path)
+            now = _now()
+            for item_id in ids:
+                entry = data.get(item_id)
+                uses = entry.get("uses", 0) if isinstance(entry, dict) else 0
+                data[item_id] = {"uses": (uses if isinstance(uses, int) else 0) + 1,
+                                 "last_used": now}
+            _write(path, data, was_valid=ok)
     except Exception as exc:  # noqa: BLE001 - contador nunca derruba a operação
         logger.warning("Falha ao registrar uso em %s: %s", connection_id, exc)
