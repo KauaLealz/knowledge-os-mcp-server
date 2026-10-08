@@ -785,7 +785,12 @@ class Brain:
     def views(self, records: Iterable[ItemRecord]) -> list[Item]:
         return [self.view(r) for r in records]
 
-    def track(self, ids: Iterable[str]) -> None:
-        """Conta um uso de cada item (contador local; nunca derruba a operação)."""
-        local_state.track(self.cid, ids)
+    def count(self, ids: Iterable[str], field: str = "opened") -> None:
+        """Soma 1 ao sinal `field` (`local_state.COUNTERS`) de cada item; contador local,
+        nunca derruba a operação."""
+        local_state.count(self.cid, ids, field)
         self._usage = None
+
+    def track(self, ids: Iterable[str]) -> None:
+        """Conta uma abertura (`opened`) de cada item."""
+        self.count(ids, "opened")

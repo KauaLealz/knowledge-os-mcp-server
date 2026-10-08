@@ -1,10 +1,13 @@
-"""Testes da busca textual do ItemService (em memória, sobre os arquivos)."""
+"""Busca do ItemService sobre os arquivos: sem content, filtros, contadores no home, limite e
+leitura do que mudou por fora. O contrato v2 completo está em test_search_service.py."""
 
 import pytest
 
-from knowledge_os.services.brain import Item, Project, Workspace
+from knowledge_os.services.brain import Item
 from knowledge_os.services.item_service import ItemService
-from knowledge_os.services.project_service import ProjectService
+from knowledge_os.storage import local_state
+
+VP = ("w", "p")
 
 
 @pytest.fixture
@@ -12,107 +15,88 @@ def svc(conn) -> ItemService:
     return ItemService()
 
 
-def _mk(svc: ItemService, ws: Workspace, dm: Project, **kw) -> Item:
-    base = dict(
-        workspace_id=ws.id, project_id=dm.id, type="knowledge", memory_class="longterm",
-        title="t", summary="s", content="c",
-    )
+def _mk(svc: ItemService, ws: str = "W", pj: str = "P", **kw) -> Item:
+    base = dict(type="howto", title="t", summary="s", content="c")
     base.update(kw)
-    return svc.create(**base)
+    (row,) = svc.save([base], default_location=(ws, pj))
+    return svc.get(row["id"])
 
 
-def test_search_nao_retorna_content(svc, sample_workspace, sample_project):
-    _mk(svc, sample_workspace, sample_project, title="Spring", summary="beans",
-        content="ConditionalOnProperty detalhado")
-    res = svc.search(sample_workspace.id, None, "ConditionalOnProperty")
-    assert len(res) == 1
-    assert set(res[0]) == {
-        "id", "key", "type", "memory_class", "project", "subject", "title", "summary", "score",
-        "uses", "tags", "labels", "workspace_id", "project_id"}
-    assert "content" not in res[0]
-    assert isinstance(res[0]["score"], float)
+def _ids(out):
+    return [r["id"] for r in out["results"]]
 
 
-def test_search_ordena_por_importance_desc(svc, sample_workspace, sample_project):
-    a = _mk(svc, sample_workspace, sample_project, title="a", content="kafka", importance=2)
-    b = _mk(svc, sample_workspace, sample_project, title="b", content="kafka", importance=9)
-    res = svc.search(sample_workspace.id, None, "kafka")
-    assert [r["id"] for r in res] == [b.id, a.id]
+def test_search_nao_retorna_content(svc):
+    _mk(svc, title="Spring", summary="beans", content="ConditionalOnProperty detalhado")
+    (row,) = svc.search("ConditionalOnProperty", viewpoint=VP)["results"]
+    assert "content" not in row and row["matched_in"] == ["content"]
+    assert isinstance(row["score"], float)
 
 
-def test_search_filtros_types_e_memory_classes(svc, sample_workspace, sample_project):
-    _mk(svc, sample_workspace, sample_project, type="rule", content="redis")
-    k = _mk(svc, sample_workspace, sample_project, type="knowledge",
-            memory_class="canonical", content="redis")
-    res = svc.search(sample_workspace.id, None, "redis", types=["knowledge"],
-                     memory_classes=["canonical"])
-    assert [r["id"] for r in res] == [k.id]
+def test_search_filtra_por_tipo_e_subtipo(svc):
+    _mk(svc, type="rule", content="redis")
+    k = _mk(svc, type="howto", subtype="troubleshoot", content="redis")
+    assert _ids(svc.search("redis", viewpoint=VP, types=["howto"],
+                           subtypes=["troubleshoot"])) == [k.id]
 
 
-def test_search_filtra_por_project_e_workspace(svc, sample_workspace, sample_project):
-    other = ProjectService().create(sample_workspace.id, "Other")
-    _mk(svc, sample_workspace, sample_project, content="helm")
-    o = _mk(svc, sample_workspace, other, content="helm")
-    res = svc.search(sample_workspace.id, other.id, "helm")
-    assert [r["id"] for r in res] == [o.id]
-    assert svc.search("ws_inexistente", None, "helm") == []
+def test_search_filtra_por_workspace(svc):
+    _mk(svc, content="helm")
+    o = _mk(svc, ws="Outro", pj="X", content="helm")
+    assert _ids(svc.search("helm", workspace="Outro")) == [o.id]
 
 
-def test_search_filtra_por_tags_e_labels_em_conjuncao(svc, sample_workspace, sample_project):
-    a = _mk(svc, sample_workspace, sample_project, content="pix", tags=["pagamentos"],
-            labels=["critical"])
-    _mk(svc, sample_workspace, sample_project, content="pix", tags=["pagamentos"])
-    res = svc.search(sample_workspace.id, None, "pix", tags=["pagamentos"], labels=["critical"])
-    assert [r["id"] for r in res] == [a.id]
-    assert res[0]["tags"] == ["pagamentos"] and res[0]["labels"] == ["critical"]
+def test_search_filtra_por_tags_em_conjuncao(svc):
+    a = _mk(svc, content="pix", tags=["pagamentos", "critico"])
+    _mk(svc, content="pix", tags=["pagamentos"])
+    assert _ids(svc.search("pix", viewpoint=VP, tags=["pagamentos", "critico"])) == [a.id]
 
 
-def test_search_conta_uso(svc, sample_workspace, sample_project):
-    it = _mk(svc, sample_workspace, sample_project, content="grafana")
+def test_search_soma_shown_e_get_many_soma_opened(svc):
+    it = _mk(svc, content="grafana")
     assert it.access_count == 0
-    svc.search(sample_workspace.id, None, "grafana")
-    svc.search(sample_workspace.id, None, "grafana")
+    svc.search("grafana", viewpoint=VP)
+    svc.get_many(ids=[it.id])
+    svc.get_many(ids=[it.id])
     got = svc.get(it.id)
-    assert got.access_count == 2
-    assert got.last_accessed is not None
+    assert got.access_count == 2 and got.last_accessed is not None
+    assert local_state.get_usage("teste")[it.id]["shown"] == 1
 
 
-def test_uso_fica_no_home_e_nao_no_arquivo(svc, sample_workspace, sample_project, data_dir,
-                                           _isolated_home):
-    it = _mk(svc, sample_workspace, sample_project, content="grafana")
+def test_uso_fica_no_home_e_nao_no_arquivo(svc, data_dir, _isolated_home):
+    it = _mk(svc, content="grafana")
     before = (data_dir / it.path).read_text(encoding="utf-8")
-    svc.search(sample_workspace.id, None, "grafana")
+    svc.search("grafana", viewpoint=VP)
     assert (data_dir / it.path).read_text(encoding="utf-8") == before
     assert (_isolated_home / "usage" / "teste.json").is_file()
 
 
-def test_search_limit(svc, sample_workspace, sample_project):
-    svc.save([{"workspace": sample_workspace.id, "project": sample_project.id,
-               "type": "knowledge", "title": f"n{i}", "summary": "s", "content": "nginx"}
-              for i in range(5)])
-    assert len(svc.search(sample_workspace.id, None, "nginx", limit=3)) == 3
+def test_search_limit(svc):
+    svc.save([{"type": "howto", "title": f"n{i}", "summary": "s", "content": "nginx"}
+              for i in range(5)], default_location=("W", "P"))
+    assert len(svc.search("nginx", viewpoint=VP, limit=3)["results"]) == 3
 
 
-def test_search_reflete_update(svc, sample_workspace, sample_project):
-    it = _mk(svc, sample_workspace, sample_project, content="antigo")
+def test_search_reflete_update(svc):
+    it = _mk(svc, content="antigo")
     svc.update(it.id, content="novissimo")
-    assert svc.search(sample_workspace.id, None, "antigo") == []
-    assert len(svc.search(sample_workspace.id, None, "novissimo")) == 1
+    assert _ids(svc.search("antigo", viewpoint=VP)) == []
+    assert _ids(svc.search("novissimo", viewpoint=VP)) == [it.id]
 
 
-def test_search_ve_arquivo_editado_por_fora(svc, sample_workspace, sample_project, data_dir):
-    it = _mk(svc, sample_workspace, sample_project, content="antigo")
+def test_search_ve_arquivo_editado_por_fora(svc, data_dir):
+    it = _mk(svc, content="antigo")
     path = data_dir / it.path
     path.write_text(path.read_text(encoding="utf-8").replace("antigo", "externo"),
                     encoding="utf-8")
-    assert [r["id"] for r in svc.search(sample_workspace.id, None, "externo")] == [it.id]
+    assert _ids(svc.search("externo", viewpoint=VP)) == [it.id]
 
 
-def test_search_query_vazia_lista_tudo(svc, sample_workspace, sample_project):
-    _mk(svc, sample_workspace, sample_project)
-    assert len(svc.search(sample_workspace.id, None, "")) == 1
+def test_search_query_vazia_com_filtro_lista_tudo(svc):
+    _mk(svc)
+    assert len(svc.search("", viewpoint=VP, types=["howto"])["results"]) == 1
 
 
-def test_search_aspas_sao_texto_comum(svc, sample_workspace, sample_project):
-    it = _mk(svc, sample_workspace, sample_project, title="aberta")
-    assert [r["id"] for r in svc.search(sample_workspace.id, None, '"aberta')] == [it.id]
+def test_search_aspas_sao_texto_comum(svc):
+    it = _mk(svc, title="aberta")
+    assert _ids(svc.search('"aberta', viewpoint=VP)) == [it.id]

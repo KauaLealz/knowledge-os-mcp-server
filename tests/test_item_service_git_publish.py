@@ -12,11 +12,17 @@ from unittest.mock import patch
 import pytest
 
 from knowledge_os.exceptions import NotFoundError
-from knowledge_os.mcp.tools import repo as repo_tool
 from knowledge_os.services import gh_cli
 from knowledge_os.services.connection_service import ConnectionService
 from knowledge_os.services.item_service import ItemService
 from knowledge_os.services.relation_service import RelationService
+
+
+def repo_tool(**kwargs):
+    """Ferramenta MCP `repo` (importada aqui: o MCP é da fase 6)."""
+    from knowledge_os.mcp.tools import repo
+
+    return repo(**kwargs)
 
 
 def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -153,7 +159,7 @@ class TestItemSavePr:
         # a pasta continua na branch principal: o item só aparece depois do merge + sync
         with pytest.raises(NotFoundError):
             svc.get_by_key("polara", "app", "regra/money")
-        assert svc.search(None, None, "", include_inactive=True) == []
+        assert svc.search(everywhere=True, status=["active", "archived", "review"])["results"] == []
 
         # a branch foi criada e empurrada de verdade no bare, com o arquivo
         branches = subprocess.run(
@@ -218,8 +224,8 @@ class TestRepoSync:
         _git(other, "push", "-q", "origin", "main")
 
         assert repo_tool(action="sync", connection_id=conn.id) == {"synced": True}
-        found = ItemService(connection_id=conn.id).search(None, None, "merge")
-        assert [r["id"] for r in found] == ["id-x"]
+        found = ItemService(connection_id=conn.id).search("merge", everywhere=True)
+        assert [r["id"] for r in found["results"]] == ["id-x"]
 
     def test_puxa_mudanca_do_remote_da_connection(self, bare_repo, tmp_path):
         from knowledge_os.config import ConfigManager
@@ -260,9 +266,9 @@ class TestItemDeletePublished:
         svc = ItemService(connection_id=conn.id)
         item_id = svc.save([dict(ENTRY)])[0]["id"]
 
-        result = svc.delete_published(item_id)
+        result = svc.delete(ids=[item_id], confirm=True)
 
-        assert result == {"status": "deleted", "id": item_id}
+        assert result == {"status": "deleted", "ids": [item_id]}
         with pytest.raises(NotFoundError):
             svc.get(item_id)
         check = tmp_path / "check"
@@ -293,9 +299,9 @@ class TestItemDeletePublished:
                 gh_cli, "pr_create", return_value="https://example.invalid/pr/2"
             ) as mocked_pr,
         ):
-            result = svc.delete_published(item_id)
+            result = svc.delete(ids=[item_id], confirm=True)
 
-        assert result["status"] == "pending_review"
+        assert result["status"] == "pending_review" and result["ids"] == [item_id]
         assert result["pr_url"] == "https://example.invalid/pr/2"
         mocked_pr.assert_called_once()
         # continua na pasta: só sai depois do PR mergeado + sync
@@ -312,21 +318,13 @@ class TestRelationDeletePublished:
             test=False,
         )
         svc = ItemService(connection_id=conn.id)
-        saved = svc.save(
-            [
-                dict(ENTRY),
-                {
-                    **ENTRY,
-                    "key": "regra/outra",
-                    "title": "Outra",
-                    "content": "Outra regra.",
-                    "relations": [{"type": "related_to", "target": "regra/money"}],
-                },
-            ]
-        )
-        rel_id = RelationService(connection_id=conn.id).list(saved[1]["id"])[0].id
+        svc.save([dict(ENTRY), {**ENTRY, "key": "regra/outra", "title": "Outra",
+                                "content": "Outra regra."}])
+        rel = [{"source": "regra/outra", "type": "related_to", "target": "regra/money"}]
+        relations = RelationService(connection_id=conn.id)
+        relations.create(rel, viewpoint=("polara", "app"))
 
-        RelationService(connection_id=conn.id).delete_published(rel_id)
+        assert relations.delete(rel, viewpoint=("polara", "app"))[0]["action"] == "deleted"
 
         check = tmp_path / "check"
         _git(tmp_path, "clone", "-q", str(bare_repo), str(check))

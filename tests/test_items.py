@@ -1,4 +1,4 @@
-"""Testes da validação de tipos de item."""
+"""Tipos de item no `create` fino (a API usa): os 5 do v2 valem, os antigos não."""
 
 import pytest
 
@@ -6,34 +6,20 @@ from knowledge_os.exceptions import ValidationError
 from knowledge_os.services.item_service import ItemService
 
 
-def _kw(ws, dm, **over):
-    base = dict(
-        workspace_id=ws.id, project_id=dm.id, type="context", memory_class="working",
-        title="Titulo", summary="Resumo", content="Conteudo",
-    )
+def _kw(**over):
+    base = dict(workspace_id="W", project_id="P", type="context", title="Titulo",
+                summary="Resumo", content="Conteudo")
     base.update(over)
     return base
 
 
-def test_item_create_valid_type(sample_workspace, sample_project):
-    item = ItemService().create(**_kw(sample_workspace, sample_project))
-    assert item.type == "context"
-    assert item.memory_class in ("working", "longterm")
+@pytest.mark.parametrize("item_type", ["rule", "howto", "context", "spec"])
+def test_item_create_tipos_v2(conn, item_type):
+    item = ItemService().create(**_kw(type=item_type))
+    assert item.type == item_type and item.origin == "agent"
 
 
-def test_item_type_invalid(sample_workspace, sample_project):
-    """Tipo inválido é rejeitado."""
-    with pytest.raises(ValidationError):
-        ItemService().create(**_kw(sample_workspace, sample_project, type="invalid_type"))
-
-
-def test_item_type_task_nao_existe_mais(sample_workspace, sample_project):
-    """`task` foi removido do conjunto de tipos válidos."""
-    with pytest.raises(ValidationError):
-        ItemService().create(**_kw(sample_workspace, sample_project, type="task"))
-
-
-def test_item_type_spec_e_valido(sample_workspace, sample_project):
-    """`spec` é o novo tipo para especificações/planos de mudança."""
-    item = ItemService().create(**_kw(sample_workspace, sample_project, type="spec"))
-    assert item.type == "spec"
+@pytest.mark.parametrize("item_type", ["invalid_type", "task", "insight", "knowledge"])
+def test_item_tipo_fora_do_v2_e_recusado(conn, item_type):
+    with pytest.raises(ValidationError, match="Válidos: rule, howto, context, spec, secret"):
+        ItemService().create(**_kw(type=item_type))

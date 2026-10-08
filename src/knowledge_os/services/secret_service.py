@@ -12,9 +12,8 @@ from urllib.parse import quote
 
 from knowledge_os.config import UI_DEFAULT_PORT
 from knowledge_os.exceptions import NotFoundError, StorageError, ValidationError
-from knowledge_os.services import vault
+from knowledge_os.services import scope, vault
 from knowledge_os.services.brain import SECRETS_DIRNAME, Brain, Item
-from knowledge_os.services.item_file import slugify
 from knowledge_os.services.secret_run import MIN_REDACT
 from knowledge_os.storage.access import git_for
 
@@ -92,23 +91,22 @@ class SecretService:
         return out
 
     def resolve(self, repo: str, key: str) -> tuple[Item, str]:
-        """(item, valor) do segredo `key` no repo → `Geral` do workspace → `Global`.
+        """(item, valor) do segredo `key` (ou id) no alcance do repo: o project ligado
+        primeiro, depois os de scope workspace/global (`services.scope`).
 
         Conta o uso. Sem item ou sem valor: erro que diz o que fazer, sem rodar nada.
         """
-        from knowledge_os.services.context_service import ContextService
         from knowledge_os.services.repo_service import RepoService
 
         brain = Brain(self._connection_id)
         link = RepoService(brain.cid).require(repo)
-        chain = ContextService.project_chain(link)
-        found: dict[tuple[str, str], Item] = {}
-        for record in brain.snapshot.records.values():
-            place = (slugify(record.workspace or ""), slugify(record.project or ""))
-            if (place in chain and record.type == "secret" and record.status == "active"
-                    and key in (record.key, record.id)):
-                found.setdefault(place, brain.view(record))
-        item = next((found[p] for p in chain if p in found), None)
+        viewpoint = (link["workspace_id"], link["project_id"])
+        item = next(
+            (brain.view(record) for record, _weight in scope.reach(brain.snapshot, viewpoint)
+             if record.type == "secret" and record.status == "active"
+             and key in (record.key, record.id)),
+            None,
+        )
         if item is None:
             raise NotFoundError(
                 f"Segredo não encontrado: {key}. O agente cria o item (type secret, sem "
