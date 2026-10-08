@@ -1,9 +1,9 @@
 import json
+import shutil
 import subprocess
 
-import pytest
-
 from knowledge_os.config import ConfigManager
+from knowledge_os.services.connection_service import ConnectionService
 
 
 def _bare_repo(tmp_path, name="remote.git"):
@@ -17,11 +17,11 @@ _counter = iter(range(10_000))
 
 
 def _create(client, tmp_path, name="extra", **over):
+    """Cria pela camada de serviço (como a ferramenta MCP): a API não cria conexão."""
     path = tmp_path / f"repo-{next(_counter)}"
     path.mkdir()
-    body = {"name": name, "path": str(path)}
-    body.update(over)
-    return client.post("/api/connections", json=body)
+    conn = ConnectionService().create(name, str(path), **over)
+    return client.get(f"/api/connections/{conn.id}")
 
 
 def test_list_mostra_a_padrao(client, tmp_path):
@@ -32,50 +32,28 @@ def test_list_mostra_a_padrao(client, tmp_path):
     assert c["remote_url"] is None and c["last_test"] is None
 
 
-def test_create_get_list(client, tmp_path):
-    r = _create(client, tmp_path)
-    assert r.status_code == 201
-    c = r.json()
-    assert c["name"] == "extra" and c["enabled"] is True
-    assert c["remote_url"] is None and c["is_default"] is False
-    assert client.get(f"/api/connections/{c['id']}").json()["name"] == "extra"
-    assert [x["id"] for x in client.get("/api/connections").json()] == ["teste", c["id"]]
+def test_api_nao_cria_conexao(client, tmp_path):
+    """A criação é só pelo MCP (connection_create): POST /api/connections não existe."""
+    path = tmp_path / "nova"
+    path.mkdir()
+    r = client.post("/api/connections", json={"name": "nova", "path": str(path)})
+    assert r.status_code == 405
+    assert [c["id"] for c in client.get("/api/connections").json()] == ["teste"]
 
 
-def test_create_duplicate_is_422(client, tmp_path):
-    _create(client, tmp_path)
-    assert _create(client, tmp_path).status_code == 422
+def test_list_mostra_path_e_estado_da_pasta(client, tmp_path):
+    c = _create(client, tmp_path).json()
+    rows = {x["id"]: x for x in client.get("/api/connections").json()}
+    row = rows[c["id"]]
+    assert row["path"] and row["path"] == c["path"]
+    assert row["path_exists"] is True and row["is_git_repo"] is True
 
 
-def test_create_com_remote_url_e_review_mode(client, tmp_path):
-    remote = _bare_repo(tmp_path)
-    r = _create(client, tmp_path, name="gh", remote_url=remote, review_mode="pr")
-    assert r.status_code == 201, r.text
-    c = r.json()
-    assert c["remote_url"] == remote and c["review_mode"] == "pr"
-
-
-@pytest.mark.parametrize("extra", [
-    {"tipo": "x"},
-    {"url": "https://u:pw@h/x"},
-    {"qualquer": 1},
-])
-def test_create_forbids_legacy_and_unknown_fields(client, extra, tmp_path):
-    r = _create(client, tmp_path, **extra)
-    assert r.status_code == 422
-
-
-@pytest.mark.parametrize("body", [
-    {"name": "x", "review_mode": "oracle"},
-    {"name": "sem-path"},  # path é obrigatório
-])
-def test_create_invalid_is_422(client, body, tmp_path):
-    assert client.post("/api/connections", json=body).status_code == 422
-
-
-def test_create_com_remote_inalcancavel_e_422(client, tmp_path):
-    r = _create(client, tmp_path, name="down", remote_url="https://127.0.0.1:1/nope.git")
-    assert r.status_code == 422
+def test_list_marca_pasta_que_sumiu(client, tmp_path):
+    c = _create(client, tmp_path).json()
+    shutil.rmtree(c["path"], ignore_errors=True)
+    row = client.get(f"/api/connections/{c['id']}").json()
+    assert row["path_exists"] is False and row["is_git_repo"] is False
 
 
 def test_get_missing_is_404(client, tmp_path):
@@ -85,7 +63,7 @@ def test_get_missing_is_404(client, tmp_path):
 def test_remote_url_fica_no_json(client, tmp_path):
     remote = _bare_repo(tmp_path)
     r = _create(client, tmp_path, name="gh", remote_url=remote)
-    assert r.status_code == 201
+    assert r.status_code == 200
     c = r.json()
     stored = json.loads(ConfigManager.CONNECTIONS_FILE.read_text(encoding="utf-8"))
     (saved,) = [x for x in stored["connections"] if x["id"] == c["id"]]

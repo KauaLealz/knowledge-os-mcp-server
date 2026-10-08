@@ -1,12 +1,13 @@
-// Configurações · Conexões: lista, detalhe com formulário, teste, default e exclusão.
+// Configurações · Conexões: lista, detalhe com edição, teste, padrão e exclusão.
 // Cada conexão é um repositório git numa pasta local. `review_mode` decide como as
-// mudanças são publicadas: direto na branch principal, ou por PR.
+// mudanças são publicadas: direto na branch principal, ou por PR. A UI não cria
+// conexão: a criação é pelo MCP (`connection_create`).
 import { api } from '../api.js';
 import { go, hrefs } from '../router.js';
 
 const blankForm = () => ({
   name: '',
-  path: '',
+  remote_url: '',
   review_mode: 'direct',
   enabled: true,
 });
@@ -22,7 +23,6 @@ export function register(Alpine) {
     notFound: false,
     alert: null, // { kind: 'ok' | 'error', message, latency }
     confirmName: '',
-    browse: { open: false, path: '', parent: null, isGitRepo: false, entries: [], loading: false, error: null },
 
     get app() {
       return Alpine.store('app');
@@ -30,20 +30,11 @@ export function register(Alpine) {
     get sub() {
       return this.app.route.params.sub;
     },
-    get isNew() {
-      return this.sub === 'new';
-    },
     get conn() {
-      return this.sub && !this.isNew ? this.app.connections.find((c) => c.id === this.sub) || null : null;
-    },
-    get editable() {
-      return !this.conn?.is_catalog;
-    },
-    get canDelete() {
-      return !!this.conn && !this.conn.is_catalog;
+      return this.sub ? this.app.connections.find((c) => c.id === this.sub) || null : null;
     },
     get dangerReady() {
-      return this.canDelete && this.confirmName === this.conn.name;
+      return !!this.conn && this.confirmName === this.conn.name;
     },
     async init() {
       await this.load();
@@ -63,9 +54,9 @@ export function register(Alpine) {
       } finally {
         this.loading = false;
       }
-      if (this.isNew) {
+      if (!this.sub) {
         this.form = blankForm();
-      } else if (this.sub) {
+      } else {
         if (this.app.connError) return;
         const c = this.conn;
         if (!c) {
@@ -79,38 +70,10 @@ export function register(Alpine) {
     fill(c) {
       this.form = {
         name: c.name,
-        path: c.path || '',
+        remote_url: c.remote_url || '',
         review_mode: c.review_mode || 'direct',
         enabled: c.enabled,
       };
-    },
-
-    // ---- seletor de pasta (GET /fs/browse — o server só escuta em 127.0.0.1) ----
-    async openBrowse() {
-      this.browse.open = true;
-      await this.browseTo(this.form.path || null);
-    },
-    closeBrowse() {
-      this.browse.open = false;
-    },
-    async browseTo(path) {
-      this.browse.loading = true;
-      this.browse.error = null;
-      try {
-        const r = await api('GET', '/fs/browse', { query: path ? { path } : {} });
-        this.browse.path = r.path;
-        this.browse.parent = r.parent;
-        this.browse.isGitRepo = r.is_git_repo;
-        this.browse.entries = r.entries;
-      } catch (e) {
-        this.browse.error = e.message;
-      } finally {
-        this.browse.loading = false;
-      }
-    },
-    pickFolder() {
-      this.form.path = this.browse.path;
-      this.closeBrowse();
     },
 
     /** Recarrega a lista sem mexer no formulário (último teste, default, enabled). */
@@ -123,8 +86,11 @@ export function register(Alpine) {
     },
 
     // ---- apresentação ----
-    target(c) {
-      return c.remote_url || 'Local-only repository (no remote)';
+    /** Estado da pasta da conexão (vem da API: path_exists / is_git_repo). */
+    folderState(c) {
+      if (!c.path_exists) return { ok: false, label: 'Pasta não encontrada' };
+      if (!c.is_git_repo) return { ok: false, label: 'Pasta sem git' };
+      return { ok: true, label: 'Repositório git' };
     },
     dotClass(c) {
       if (!c.enabled) return 'off';
@@ -133,36 +99,30 @@ export function register(Alpine) {
     },
     lastTest(c) {
       const t = c.last_test;
-      if (!t) return 'Never tested';
-      return t.status === 'ok' ? `OK · ${t.latency_ms} ms` : 'Failed on last test';
+      if (!t) return 'Nunca testada';
+      return t.status === 'ok' ? `OK · ${t.latency_ms} ms` : 'Falhou no último teste';
     },
 
     // ---- corpo da requisição ----
     buildBody() {
       const f = this.form;
-      const body = {
+      return {
         name: f.name.trim(),
-        remote_url: f.remote_url.trim() || null,
+        remote_url: (f.remote_url || '').trim() || null,
         review_mode: f.review_mode,
         enabled: !!f.enabled,
       };
-      if (this.isNew) body.path = f.path.trim();
-      return body;
     },
 
-    /** Grava (POST ou PATCH) e devolve a conexão salva. */
+    /** Grava a edição (PATCH) e devolve a conexão salva. */
     async persist() {
-      const creating = this.isNew;
       this.error = null;
       this.saving = true;
       try {
         const body = this.buildBody();
-        const saved = creating
-          ? await api('POST', '/connections', { body })
-          : await api('PATCH', `/connections/${encodeURIComponent(this.sub)}`, { body });
+        const saved = await api('PATCH', `/connections/${encodeURIComponent(this.sub)}`, { body });
         await this.app.loadConnections();
-        if (creating) go(hrefs.connections(saved.id));
-        else this.fill(this.conn || saved);
+        this.fill(this.conn || saved);
         return saved;
       } catch (e) {
         this.error = e.message;
@@ -173,9 +133,8 @@ export function register(Alpine) {
     },
 
     async save() {
-      const creating = this.isNew;
       const saved = await this.persist();
-      if (saved) this.app.toast(creating ? 'Connection created' : 'Connection saved');
+      if (saved) this.app.toast('Conexão salva');
     },
 
     async saveAndTest() {
@@ -207,7 +166,7 @@ export function register(Alpine) {
       try {
         await api('PUT', `/connections/${encodeURIComponent(this.conn.id)}/default`);
         await this.refreshList();
-        this.app.toast('Connection set as default');
+        this.app.toast('Conexão definida como padrão');
       } catch (e) {
         this.error = e.message;
       }
@@ -226,7 +185,7 @@ export function register(Alpine) {
           const next = this.app.connections.find((c) => c.is_default) || this.app.connections[0];
           if (next) await this.app.selectConnection(next.id);
         }
-        this.app.toast('Connection deleted');
+        this.app.toast('Conexão apagada');
         go(hrefs.connections());
       } catch (e) {
         this.error = e.message;

@@ -1,6 +1,8 @@
-"""Rotas de connections sobre o connections.json. A senha é só de escrita: nunca volta."""
+"""Rotas de connections sobre o connections.json: listar, ver, editar, testar, definir a
+padrão e apagar. Criar conexão é só pelo MCP (`connection_create`), nunca pela API."""
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Request, Response, status
@@ -8,7 +10,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 
-from knowledge_os.api.schemas.requests import ConnectionCreate, ConnectionUpdate
+from knowledge_os.api.schemas.requests import ConnectionUpdate
 from knowledge_os.api.schemas.responses import ConnectionResponse, ConnectionTestResponse
 from knowledge_os.exceptions import NotFoundError
 from knowledge_os.services.connection_service import Connection, ConnectionService
@@ -36,12 +38,25 @@ class _SafeRoute(APIRoute):
 router = APIRouter(route_class=_SafeRoute)
 
 
+def _folder_state(path: str | None) -> tuple[bool, bool]:
+    """(a pasta existe, é repositório git) — só para a UI mostrar o estado da conexão."""
+    if not path:
+        return False, False
+    folder = Path(path)
+    exists = folder.is_dir()
+    return exists, exists and (folder / ".git").exists()
+
+
 def _view(conn: Connection) -> dict[str, Any]:
-    """Serializa a conexão para a API: a pasta (repositório git) e o remote."""
+    """Serializa a conexão para a API: a pasta (repositório git), o estado dela e o remote."""
+    path = getattr(conn, "path", None)
+    path_exists, is_git_repo = _folder_state(path)
     return {
         "id": conn.id,
         "name": conn.name,
-        "path": getattr(conn, "path", None),
+        "path": path,
+        "path_exists": path_exists,
+        "is_git_repo": is_git_repo,
         "remote_url": getattr(conn, "remote_url", None),
         "review_mode": getattr(conn, "review_mode", "direct"),
         "enabled": bool(conn.is_active),
@@ -54,18 +69,6 @@ def _view(conn: Connection) -> dict[str, Any]:
 @router.get("/connections", response_model=list[ConnectionResponse])
 def list_connections():
     return [_view(c) for c in ConnectionService().list()]
-
-
-@router.post("/connections", status_code=status.HTTP_201_CREATED, response_model=ConnectionResponse)
-def create_connection(req: ConnectionCreate):
-    conn = ConnectionService().create(
-        req.name,
-        req.path,
-        remote_url=req.remote_url,
-        review_mode=req.review_mode,
-        enabled=req.enabled,
-    )
-    return _view(conn)
 
 
 @router.get("/connections/{id}", response_model=ConnectionResponse)

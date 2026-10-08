@@ -1,5 +1,5 @@
 // Router por hash: #/c/:conn/w/:ws/p/:pj/i/:item[/edit], #/c/:conn/w/:ws/p/:pj/s/:subj,
-// #/c/:conn/w/:ws[/p/:pj[/s/:subj]]/graph e #/settings/connections[/:id|/new].
+// #/c/:conn/w/:ws[/p/:pj[/s/:subj]]/graph e #/settings/connections[/:id].
 
 const enc = encodeURIComponent;
 

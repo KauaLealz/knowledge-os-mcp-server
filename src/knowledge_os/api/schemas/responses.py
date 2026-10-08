@@ -126,6 +126,8 @@ class ConnectionResponse(BaseModel):
     id: str
     name: str
     path: str | None
+    path_exists: bool = False
+    is_git_repo: bool = False
     remote_url: str | None
     review_mode: str
     enabled: bool

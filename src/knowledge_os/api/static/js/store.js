@@ -23,11 +23,13 @@ function normalizeConnection(c) {
   return {
     id: c.id,
     name: c.name || c.id,
+    path: c.path ?? null,
+    path_exists: !!c.path_exists,
+    is_git_repo: !!c.is_git_repo,
     remote_url: c.remote_url ?? null,
     review_mode: c.review_mode || 'direct',
     enabled: c.enabled ?? c.is_active ?? true,
     is_default: !!c.is_default,
-    is_catalog: !!c.is_catalog,
     last_test: c.last_test || null,
   };
 }
@@ -120,7 +122,7 @@ export const appStore = {
       this.connError = e.message;
       return;
     }
-    // Sem conexão cadastrada a lista fica vazia: nada é inventado (cria-se em Connections).
+    // Sem conexão cadastrada a lista fica vazia: nada é inventado (cria-se pelo MCP, connection_create).
     if (list.length && !list.some((c) => c.is_default)) list[0].is_default = true;
     this.connections = list;
   },
@@ -131,7 +133,7 @@ export const appStore = {
     this.route = r;
     this.drawer = false;
     if (r.name === 'home') {
-      if (!this.connections.length) return; // sem lista de conexões (erro já exibido)
+      if (!this.connections.length) return; // sem conexão: a tela inicial explica como criar
       const saved = lsGet('kos.conn');
       const conn =
         this.connections.find((c) => c.id === saved && c.enabled) ||

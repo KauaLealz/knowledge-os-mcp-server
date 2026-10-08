@@ -14,7 +14,6 @@ from knowledge_os.schemas.workspace_schemas import WorkspaceCreate
 
 __all__ = [
     "ConfidenceUpdate",
-    "ConnectionCreate",
     "ConnectionUpdate",
     "ImportanceUpdate",
     "ItemCreate",
@@ -61,19 +60,6 @@ class ItemTagAdd(BaseModel):
 
 class ItemLabelAdd(BaseModel):
     label_id: str = Field(min_length=1)
-
-
-class ConnectionCreate(BaseModel):
-    """Corpo de criação: nome, a pasta local do repositório e, opcionalmente, o remote git
-    (sem remote = repo só local, nessa pasta)."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    name: str = Field(min_length=1, max_length=255)
-    path: str = Field(min_length=1)
-    remote_url: str | None = None
-    review_mode: Literal["direct", "pr"] = "direct"
-    enabled: bool = True
 
 
 class ConnectionUpdate(BaseModel):

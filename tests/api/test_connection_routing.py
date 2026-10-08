@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from knowledge_os.api.main import app
 from knowledge_os.config import NO_CONNECTION_MESSAGE, ConfigManager
+from knowledge_os.services.connection_service import ConnectionService
 
 
 @pytest.fixture
@@ -16,9 +17,8 @@ def api():
 def _conn(api, name, tmp_path):
     repo_path = tmp_path / f"repo-{name}"
     repo_path.mkdir()
-    r = api.post("/api/connections", json={"name": name, "path": str(repo_path)})
-    assert r.status_code == 201, r.text
-    return r.json()["id"]
+    # Criar conexão é só pelo MCP/serviço: a API não tem POST /api/connections.
+    return ConnectionService().create(name, str(repo_path)).id
 
 
 def _hdr(cid):
