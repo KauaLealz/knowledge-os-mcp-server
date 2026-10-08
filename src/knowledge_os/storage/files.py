@@ -251,6 +251,18 @@ class FileStore:
             rel for rel, (_m, _s, r) in self._cache.items() if r is not None and r.id == item_id
         ]
 
+    def duplicates(self) -> dict[str, list[str]]:
+        """id -> paths dos arquivos que perderam para o vigente (mesmo id em mais de um
+        arquivo). Apagar ou regravar o item precisa levar esses junto, senão ele "volta"."""
+        out: dict[str, list[str]] = {}
+        for rel, (_m, _s, record) in self._cache.items():
+            if record is None:
+                continue
+            current = self._by_id.get(record.id)
+            if current is not None and current.path != rel:
+                out.setdefault(record.id, []).append(rel)
+        return out
+
     def write(self, record: ItemRecord) -> str:
         """Grava o item no seu path e devolve o path relativo.
 

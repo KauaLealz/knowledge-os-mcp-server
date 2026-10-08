@@ -266,9 +266,12 @@ def _names_from_meta(node: _Node, data: dict[str, Any]) -> None:
 class Snapshot:
     """Itens e `.knowledge.yaml` de uma conexão num momento, com as consultas do domínio."""
 
-    def __init__(self, records: dict[str, ItemRecord], metas: dict[str, dict[str, Any]]) -> None:
+    def __init__(self, records: dict[str, ItemRecord], metas: dict[str, dict[str, Any]],
+                 duplicates: dict[str, list[str]] | None = None) -> None:
         self.records = records
         self.metas = metas
+        # id -> outros arquivos com o mesmo id (perderam para o vigente; ver FileStore)
+        self.duplicates = duplicates or {}
         self._tree: dict[str, _Node] | None = None
         self._keys: dict[tuple[str, str, str], ItemRecord] | None = None
 
@@ -518,7 +521,8 @@ class Draft(Snapshot):
     """Mudanças em memória sobre um `Snapshot`; `files()` diz o que gravar e o que remover."""
 
     def __init__(self, base: Snapshot) -> None:
-        super().__init__(dict(base.records), {k: dict(v) for k, v in base.metas.items()})
+        super().__init__(dict(base.records), {k: dict(v) for k, v in base.metas.items()},
+                         base.duplicates)
         self._base = base
         self._links: dict[str, list[_Link]] = {
             r.id: self._links_of(base, r) for r in base.records.values()
@@ -619,6 +623,8 @@ class Draft(Snapshot):
         for record_id, old in base.items():
             if record_id not in self.records:
                 out[old.path] = None
+                for dup in self.duplicates.get(record_id, []):
+                    out[dup] = None  # senão o item "volta" pelo arquivo duplicado
         occupied = {
             r.path: r.id for r in self.records.values()
             if base.get(r.id) is r and r.path
@@ -637,6 +643,9 @@ class Draft(Snapshot):
             written[path] = text
             if old is not None and old.path and old.path != path:
                 out.setdefault(old.path, None)
+            for dup in self.duplicates.get(record_id, []):
+                if dup != path:
+                    out.setdefault(dup, None)  # regravado: sobra um arquivo só por id
         out.update(written)
         return out
 
@@ -660,7 +669,7 @@ class Brain:
         with self.lock:
             store = store_for(self.conn)
             self.snapshot = Snapshot(
-                {r.id: r for r in store.items()}, read_metas(self.root)
+                {r.id: r for r in store.items()}, read_metas(self.root), store.duplicates()
             )
             self.store = store
         return self.snapshot

@@ -189,3 +189,35 @@ def test_cada_lote_e_um_commit(svc, data_dir):
     log = subprocess.run(["git", "log", "--oneline"], cwd=data_dir, capture_output=True,
                          text=True, check=True).stdout.splitlines()
     assert len(log) == 1 and "2 item(ns)" in log[0]
+
+
+def _duplica(data_dir, item_id: str, svc: ItemService, delta_ns: int = 2_000_000_000):
+    """Cópia do arquivo do item (mesmo id) em outro caminho; mais recente, vira a vencedora."""
+    import os
+
+    original = data_dir / svc.get(item_id).path
+    copia = original.parent / "copia.md"
+    copia.write_text(original.read_text(encoding="utf-8"), encoding="utf-8")
+    st = original.stat()
+    os.utime(copia, ns=(st.st_atime_ns, st.st_mtime_ns + delta_ns))
+    return original, copia
+
+
+def test_apagar_item_duplicado_remove_todos_os_arquivos_do_id(svc, sample_item, data_dir):
+    original, copia = _duplica(data_dir, sample_item.id, svc)
+    assert svc.get(sample_item.id).path.endswith("copia.md")
+    svc.delete(sample_item.id)
+    assert not original.exists() and not copia.exists()
+    from knowledge_os.exceptions import NotFoundError
+
+    with pytest.raises(NotFoundError):
+        svc.get(sample_item.id)  # não "volta" pelo outro arquivo
+
+
+@pytest.mark.parametrize("delta_ns", [2_000_000_000, -2_000_000_000])
+def test_regravar_item_duplicado_deixa_um_arquivo_so(svc, sample_item, data_dir, delta_ns):
+    original, copia = _duplica(data_dir, sample_item.id, svc, delta_ns)
+    svc.update(sample_item.id, title="Titulo novo")
+    sobrou = [p for p in (original, copia) if p.exists()]
+    assert len(sobrou) == 1
+    assert svc.get(sample_item.id).title == "Titulo novo"
