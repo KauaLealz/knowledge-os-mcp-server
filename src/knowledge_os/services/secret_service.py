@@ -2,12 +2,11 @@
 
 O item `secret` é um arquivo como os outros, só com metadados. O valor entra só pela UI
 (PUT /api/items/{id}/secret), cifrado em `<pasta da conexão>/.secrets/<item_id>.enc` (pasta
-coberta pelo `.gitignore`: nunca vai para o git), e sai só por `resolve`, que o
+no `.git/info/exclude` da cópia: nunca vai para o git), e sai só por `resolve`, que o
 `knowledge-mcp run` usa para entregar ao processo filho. `has_value` = esse arquivo existe.
 Nada aqui devolve o valor a uma ferramenta MCP ou rota.
 """
 
-from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
@@ -17,9 +16,10 @@ from knowledge_os.services import vault
 from knowledge_os.services.brain import SECRETS_DIRNAME, Brain, Item
 from knowledge_os.services.item_file import slugify
 from knowledge_os.services.secret_run import MIN_REDACT
+from knowledge_os.storage.access import git_for
 
 MAX_VALUE_CHARS = 32768
-GITIGNORE_LINE = f"{SECRETS_DIRNAME}/"
+EXCLUDE_LINE = f"{SECRETS_DIRNAME}/"
 
 
 def fill_url(item: Any, connection_id: str) -> str:
@@ -27,20 +27,6 @@ def fill_url(item: Any, connection_id: str) -> str:
     conn = quote(connection_id, safe="")
     return (f"http://127.0.0.1:{UI_DEFAULT_PORT}/ui/#/c/{conn}/w/{item.workspace_id}"
             f"/p/{item.project_id}/i/{item.id}")
-
-
-def _ensure_secrets_gitignore(root: Path) -> None:
-    """Garante a linha `.secrets/` no `.gitignore` da pasta; não duplica se já estiver lá."""
-    gitignore = root / ".gitignore"
-    root.mkdir(parents=True, exist_ok=True)
-    existing = gitignore.read_text(encoding="utf-8") if gitignore.exists() else ""
-    if GITIGNORE_LINE in existing.splitlines():
-        return
-    new_content = existing
-    if new_content and not new_content.endswith("\n"):
-        new_content += "\n"
-    new_content += GITIGNORE_LINE + "\n"
-    gitignore.write_text(new_content, encoding="utf-8", newline="\n")
 
 
 class SecretService:
@@ -77,7 +63,9 @@ class SecretService:
         first = not any(secrets_dir.glob("*.enc")) if secrets_dir.is_dir() else True
         token = vault.encrypt(value, bound_to=item_id, create=first)
         try:
-            _ensure_secrets_gitignore(brain.root)
+            # `info/exclude` e não `.gitignore`: um `.gitignore` mudado e não commitado seria
+            # desfeito por reset/checkout do publish e travaria o pull.
+            git_for(brain.conn).ensure_excluded(EXCLUDE_LINE)
             path = brain.secret_path(item_id)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(token, encoding="utf-8")

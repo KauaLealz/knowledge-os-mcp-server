@@ -222,6 +222,19 @@ class GitRepoService:
         self._run(["config", "user.name", "knowledge-os"], check=False)
         return self.clone_path
 
+    def ensure_excluded(self, pattern: str) -> None:
+        """Põe `pattern` no `info/exclude` do repositório (ignorado só nesta cópia, sem mexer em
+        arquivo versionado). Não duplica a linha."""
+        rel = self._run(["rev-parse", "--git-path", "info/exclude"]).stdout.strip()
+        exclude = Path(rel) if Path(rel).is_absolute() else self.clone_path / rel
+        existing = exclude.read_text(encoding="utf-8") if exclude.is_file() else ""
+        if pattern in existing.splitlines():
+            return
+        if existing and not existing.endswith("\n"):
+            existing += "\n"
+        exclude.parent.mkdir(parents=True, exist_ok=True)
+        exclude.write_text(existing + pattern + "\n", encoding="utf-8", newline="\n")
+
     def pull(self) -> None:
         """`git pull` na branch principal; no-op se não há remote configurado."""
         if not self._has_remote():
