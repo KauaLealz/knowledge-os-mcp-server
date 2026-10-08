@@ -14,3 +14,11 @@ def test_mcp_has_instructions():
 def test_instructions_nao_pedem_senha_e_apontam_ui_para_conexoes():
     assert "knowledge-mcp ui" in mcp.instructions
     assert "Senhas nunca passam pela conversa" in mcp.instructions
+
+
+def test_instructions_descrevem_o_modelo_atual():
+    """Conexão = pasta criada por connection_create; sem as ferramentas que saíram."""
+    text = mcp.instructions
+    assert "connection_create" in text and "Sem conexão" in text and "arquivos" in text
+    for gone in ("vocabulary(", "backup(", "artifact("):
+        assert gone not in text, gone

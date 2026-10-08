@@ -1,17 +1,16 @@
-.PHONY: help install dev test lint format bootstrap check-db run clean
+.PHONY: help install dev test test-cov lint format typecheck run ui clean
 
 help:
 	@echo "MCP Knowledge OS - Targets disponíveis:"
 	@echo "  make install      - Instala dependências"
 	@echo "  make dev          - Instala com extras de dev (pytest, etc)"
-	@echo "  make bootstrap    - Cria banco de dados e labels padrão"
-	@echo "  make check-db     - Verifica conexão com banco"
 	@echo "  make test         - Roda testes pytest"
 	@echo "  make test-cov     - Testes com cobertura"
 	@echo "  make lint         - Lint com ruff"
 	@echo "  make format       - Formata código com black"
 	@echo "  make typecheck    - Verifica tipos com mypy"
-	@echo "  make run          - Inicia servidor MCP"
+	@echo "  make run          - Inicia servidor MCP (stdio)"
+	@echo "  make ui           - Sobe a UI web local (127.0.0.1)"
 	@echo "  make clean        - Remove artifacts, cache, etc"
 
 install:
@@ -20,14 +19,11 @@ install:
 dev:
 	pip install -e ".[dev]"
 
-bootstrap:
-	python src/knowledge_os/main.py --bootstrap
-
-check-db:
-	python src/knowledge_os/main.py --check-db
-
 run:
-	python src/knowledge_os/main.py
+	knowledge-mcp
+
+ui:
+	knowledge-mcp ui
 
 test:
 	pytest -v

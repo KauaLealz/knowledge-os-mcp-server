@@ -47,19 +47,8 @@ htmlcov/
 *.cover
 .hypothesis/
 
-# Database
-database/
-*.db
-*.sqlite
-*.sqlite3
-
 # Dados locais (o home de dados fica em ~/.knowledge-os)
 .knowledge/
-
-# Artefatos
-artifacts/
-exports/
-backups/
 
 # Env
 .env

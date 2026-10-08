@@ -5,8 +5,10 @@ Workspace = contexto (empresa, cliente, Pessoal); project = repositório; `Geral
 o que vale pros repos dele; `Global` = o que vale em qualquer lugar. Subject = assunto opcional
 dentro de um project.
 
-`workspace`/`project`/`subject`/`repo` recebem `action=` (list, create, rename, merge, delete;
-em `repo`: link, list, unlink) em vez de uma função por ação.
+**Conexão:** os dados ficam em arquivos numa pasta (repositório git) — a conexão. Sem conexão
+nada funciona: crie com `connection_create(name, path[, remote_url])`; `connection_list` e
+`connection_delete` (não apaga a pasta). Gerenciar na UI: `knowledge-mcp ui`.
+Senhas nunca passam pela conversa.
 
 **Ler:** o contexto vem injetado no início. Ao mexer numa área, `context_get(repo=".",
 paths=[arquivos], query=tema)`. Dúvida: `item_search(query)`, `item_get(keys=[...])`.
@@ -30,19 +32,12 @@ paths=[arquivos], query=tema)`. Dúvida: `item_search(query)`, `item_get(keys=[.
 e guarde em `~/.knowledge-os/pending.jsonl`.
 
 **Organização**
-- `workspace`: list, create, rename, merge (move projects de `source` pra `target` —
-  homônimos mesclados — e apaga `source`), delete (preview sem `confirm`, `confirm=True`
-  apaga).
-- `project(workspace, ...)` e `subject(workspace, project, ...)`: idem, um nível abaixo;
-  subject delete só desvincula, nunca apaga item.
+- `workspace_*`, `project_*`, `subject_*`: list, create, rename, merge (move o conteúdo de
+  `source` pra `target` e apaga `source`), delete (preview sem `confirm`, `confirm=True`
+  apaga). Subject delete só desvincula, nunca apaga item.
 - `repo(action, repo, workspace, project, confirm_new)`: link cria workspace/project se não
-  existirem — a menos que o nome pareça com um já existente mas grafado diferente
-  (`candidate_match`; repita com `confirm_new=True`). list audita vínculos; unlink desfaz um.
-- Destrutivos só com pedido explícito. Prefira `backup(action="export")` antes e
-  `status=deprecated` se o histórico importar.
-
-**Vocabulário, backup e anexos**
-- `vocabulary(kind, action, name, id)`: tags/labels.
-- `backup(action, workspace, project, file_path)`: export/import via ZIP.
-- `artifact(action, item_id, file_path, artifact_id)`: attach liga arquivo; get lê base64.
-- Conexões: `connection_create` ou `knowledge-mcp ui`. Senhas nunca passam pela conversa.
+  existirem — a menos que o nome pareça com um já existente (`candidate_match`; repita com
+  `confirm_new=True`). list audita vínculos; unlink desfaz um; sync puxa o remote.
+- `tag_*`, `label_*` (list, create, delete); `relation_create`/`relation_delete`.
+- Destrutivos só com pedido explícito; prefira `status=deprecated` se o histórico importar.
+  Tudo é commit no repositório da conexão: dá pra voltar pelo git.
