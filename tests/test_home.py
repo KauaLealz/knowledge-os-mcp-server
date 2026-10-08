@@ -75,7 +75,9 @@ def test_sem_arquivo_nao_ha_conexao_nem_padrao(_isolated_home):
 def test_default_precisa_ser_uma_conexao_cadastrada():
     assert ConnectionsFile(default=None, connections=[]).default is None
     with pytest.raises(ValueError):
-        ConnectionsFile(default="default", connections=[])
+        ConnectionsFile(default="outra", connections=[])
+    # "default" é o id do catálogo das versões antigas: vira "sem padrão" (ver test_config).
+    assert ConnectionsFile(default="default", connections=[]).default is None
     conn = ConnectionConfig(id="a", name="A")
     assert ConnectionsFile(default="a", connections=[conn]).default == "a"
 
