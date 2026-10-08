@@ -8,17 +8,14 @@ nome/assinatura evita uma quebra de compatibilidade ampla demais para esta rodad
 from typing import Any
 
 from fastmcp import FastMCP
-from sqlalchemy import func, select
 
-from knowledge_os.config import CATALOG_ID, ConfigManager
-from knowledge_os.db.models import DEFAULT_CONNECTION_ID, Item, Project, Workspace
-from knowledge_os.db.session import connection_id_of, default_connection_id, get_engine, get_session
 from knowledge_os.exceptions import NotFoundError, ValidationError
 from knowledge_os.schemas.item_schemas import ItemResponse, ItemSearchRequest, ItemSearchResult
 from knowledge_os.schemas.relation_schemas import RelationListResponse
+from knowledge_os.services.brain import Brain
 from knowledge_os.services.connection_service import ConnectionService
 from knowledge_os.services.context_service import ContextService
-from knowledge_os.services.git_repo_service import GitRepoService
+from knowledge_os.services.item_file import slugify
 from knowledge_os.services.item_service import ItemService
 from knowledge_os.services.label_service import LabelService
 from knowledge_os.services.project_service import ProjectService
@@ -28,6 +25,7 @@ from knowledge_os.services.secret_service import SecretService
 from knowledge_os.services.subject_service import SubjectService
 from knowledge_os.services.tag_service import TagService
 from knowledge_os.services.workspace_service import WorkspaceService
+from knowledge_os.storage.access import resolve_connection, sync_connection
 
 MAX_GET = 20
 
@@ -39,37 +37,28 @@ MAX_GET = 20
 
 def _location_tree(workspace: str | None, connection_id: str | None) -> list[dict[str, Any]]:
     """Árvore workspaces → projects com a contagem de itens (base de workspace/project list)."""
-    engine = get_engine(connection_id) if connection_id else get_engine()
-    cid = connection_id or connection_id_of(engine) or "default"
-    session = get_session(engine)
-    try:
-        query = select(Workspace).where(Workspace.connection_id == cid).order_by(Workspace.name)
-        if workspace:
-            query = query.where((Workspace.name == workspace) | (Workspace.id == workspace))
-        workspaces = list(session.scalars(query))
-        counts = dict(
-            session.execute(select(Item.project_id, func.count()).group_by(Item.project_id)).all()
-        )
-        out = []
-        for ws in workspaces:
-            projects = list(
-                session.scalars(
-                    select(Project).where(Project.workspace_id == ws.id).order_by(Project.name)
-                )
-            )
-            rows = [{"name": d.name, "items": counts.get(d.id, 0)} for d in projects]
-            out.append(
-                {
-                    "workspace": ws.name,
-                    "description": ws.description,
-                    "items": sum(r["items"] for r in rows),
-                    "projects": rows,
-                }
-            )
-    finally:
-        session.close()
-    if workspace and not out:
-        raise NotFoundError(f"Workspace não encontrado: {workspace}")
+    snap = Brain(connection_id).snapshot
+    counts: dict[tuple[str, str], int] = {}
+    for record in snap.records.values():
+        place = (slugify(record.workspace or ""), slugify(record.project or ""))
+        counts[place] = counts.get(place, 0) + 1
+    if workspace:
+        found = snap.find_workspace(workspace)
+        if found is None:
+            raise NotFoundError(f"Workspace não encontrado: {workspace}")
+        workspaces = [found]
+    else:
+        workspaces = snap.workspaces()
+    out = []
+    for ws in workspaces:
+        rows = [{"name": p.name, "items": counts.get((ws.id, p.id), 0)}
+                for p in snap.projects(ws.id)]
+        out.append({
+            "workspace": ws.name,
+            "description": ws.description,
+            "items": sum(r["items"] for r in rows),
+            "projects": rows,
+        })
     return out
 
 
@@ -232,21 +221,9 @@ def subject_list(workspace: str, project: str, connection_id: str | None = None)
     **Retorna:** [{name, items}].
     **Exemplo:** subject_list(workspace="Polara", project="app")
     """
-    ws_id = WorkspaceService(connection_id=connection_id).get(workspace).id
-    pj_id = ProjectService(connection_id=connection_id).get(ws_id, project).id
     svc = SubjectService(connection_id=connection_id)
-    session = get_session(get_engine(connection_id) if connection_id else get_engine())
-    try:
-        counts = dict(
-            session.execute(
-                select(Item.subject_id, func.count())
-                .where(Item.project_id == pj_id)
-                .group_by(Item.subject_id)
-            ).all()
-        )
-    finally:
-        session.close()
-    return [{"name": s.name, "items": counts.get(s.id, 0)} for s in svc.list(pj_id)]
+    counts = svc.count_items(workspace, project)
+    return [{"name": s.name, "items": counts.get(s.id, 0)} for s in svc.list(workspace, project)]
 
 
 def subject_create(
@@ -262,9 +239,7 @@ def subject_create(
     **Retorna:** {id, name, description}.
     **Exemplo:** subject_create(workspace="Polara", project="app", name="pagamentos")
     """
-    ws_id = WorkspaceService(connection_id=connection_id).get(workspace).id
-    pj_id = ProjectService(connection_id=connection_id).get(ws_id, project).id
-    row = SubjectService(connection_id=connection_id).create(pj_id, name, description)
+    row = SubjectService(connection_id=connection_id).create(workspace, project, name, description)
     return {"id": row.id, "name": row.name, "description": row.description}
 
 
@@ -278,9 +253,7 @@ def subject_rename(
     **Exemplo:** subject_rename(workspace="Polara", project="app", name="pagamentos",
         new_name="Pagamentos")
     """
-    ws_id = WorkspaceService(connection_id=connection_id).get(workspace).id
-    pj_id = ProjectService(connection_id=connection_id).get(ws_id, project).id
-    row = SubjectService(connection_id=connection_id).rename(pj_id, name, new_name)
+    row = SubjectService(connection_id=connection_id).rename(workspace, project, name, new_name)
     return {"id": row.id, "name": row.name}
 
 
@@ -295,9 +268,7 @@ def subject_merge(
     **Exemplo:** subject_merge(workspace="Polara", project="app", source="pagto",
         target="pagamentos")
     """
-    ws_id = WorkspaceService(connection_id=connection_id).get(workspace).id
-    pj_id = ProjectService(connection_id=connection_id).get(ws_id, project).id
-    return SubjectService(connection_id=connection_id).merge(pj_id, source, target)
+    return SubjectService(connection_id=connection_id).merge(workspace, project, source, target)
 
 
 def subject_delete(
@@ -317,23 +288,15 @@ def subject_delete(
     """
     if not name:
         raise ValidationError("delete exige name")
-    ws_id = WorkspaceService(connection_id=connection_id).get(workspace).id
-    pj_id = ProjectService(connection_id=connection_id).get(ws_id, project).id
     svc = SubjectService(connection_id=connection_id)
-    sj = svc.get(pj_id, name)
-    session = get_session(get_engine(connection_id) if connection_id else get_engine())
-    try:
-        orphaned = session.scalar(
-            select(func.count()).select_from(Item).where(Item.subject_id == sj.id)
-        )
-    finally:
-        session.close()
+    sj = svc.get(workspace, project, name)
+    orphaned = svc.count_items(workspace, project).get(sj.id, 0)
     if not confirm:
         return {
             "status": "preview",
             "would_delete": {"subject": name, "items_sem_assunto": orphaned},
         }
-    svc.delete(pj_id, name)
+    svc.delete(workspace, project, name)
     return {"status": "deleted", "subject": name, "items_sem_assunto": orphaned}
 
 
@@ -370,8 +333,8 @@ def repo(
         existente). Workspace e project seguem: sem workspace, o de outro repo do mesmo dono
         já ligado (senão o nome do dono no remote; sem remote, `Pessoal`); sem project, o
         nome do repositório. Religar move o vínculo. `sync` é por connection (não por
-        repo/workspace/project): no catálogo (sem connection configurada) sempre devolve
-        {synced: false}, não há o que sincronizar.
+        repo/workspace/project): puxa o que mudou no remote da pasta da conexão (sem remote,
+        {synced: false}).
     """
     if action == "link":
         if not repo:
@@ -389,13 +352,7 @@ def repo(
         svc.unlink(repo)
         return {"status": "deleted", "repo_key": key.get("repo_key", repo)}
     if action == "sync":
-        cid = connection_id or default_connection_id()
-        if cid == CATALOG_ID:
-            return {"synced": False}
-        conn = ConfigManager.load_or_create().get_connection(cid)
-        git = GitRepoService(conn.clone_path(), conn.remote_url, conn.review_mode)
-        git.ensure_clone()
-        return {"synced": git.sync()}
+        return {"synced": sync_connection(resolve_connection(connection_id))}
     raise ValidationError("action deve ser link, list, unlink ou sync")
 
 
@@ -468,9 +425,9 @@ def item_search(
             raise ValidationError("project exige repo ou workspace")
         project_id = svc.resolve_project_id(workspace_id, project)
     if subject:
-        if project_id is None:
+        if project_id is None or workspace_id is None:
             raise ValidationError("subject exige project")
-        subject_id = svc.resolve_subject_id(project_id, subject)
+        subject_id = svc.resolve_subject_id(workspace_id, project_id, subject)
     req = ItemSearchRequest(
         workspace_id=workspace_id,
         project_id=project_id,
@@ -489,6 +446,8 @@ def item_search(
         req.memory_classes,
         req.limit,
         include_inactive=include_inactive,
+        tags=tags,
+        labels=labels,
     )
     return [ItemSearchResult(**r).model_dump() for r in rows]
 
@@ -525,22 +484,27 @@ def item_get(
     items = [fetch(lambda i=i: svc.get(i), {"id": i}) for i in ids]
     if keys:
         if repo:
-            project_id = RepoService(connection_id=connection_id).require(repo)["project_id"]
+            link = RepoService(connection_id=connection_id).require(repo)
+            workspace_id, project_id = link["workspace_id"], link["project_id"]
         elif workspace and project:
-            project_id = svc.resolve_project_id(svc.resolve_workspace_id(workspace), project)
+            workspace_id = svc.resolve_workspace_id(workspace)
+            project_id = svc.resolve_project_id(workspace_id, project)
         else:
             raise ValidationError("keys exigem repo ou workspace e project")
-        items += [fetch(lambda k=k: svc.get_by_key(project_id, k), {"key": k}) for k in keys]
+        items += [fetch(lambda k=k: svc.get_by_key(workspace_id, project_id, k), {"key": k})
+                  for k in keys]
     svc.track_use([i.id for i in items if not isinstance(i, dict)])
     out: list[dict[str, Any]] = []
-    relations = RelationService(connection_id=connection_id)
+    snap = Brain(connection_id).snapshot
+    all_relations = snap.relations()
     for item in items:
         if isinstance(item, dict):
             out.append(item)
             continue
         data = ItemResponse.from_item(item).model_dump(mode="json")
+        mine = [r for r in all_relations if item.id in (r.source_item_id, r.target_item_id)]
         data["relations"] = RelationListResponse.model_validate(
-            relations.list(item.id), from_attributes=True
+            mine, from_attributes=True
         ).model_dump(mode="json")
         out.append(data)
     return out
@@ -581,21 +545,22 @@ def item_save(
         passe ao usuário para ele preencher na UI local. Usar: `knowledge-mcp run --env
         NPM_TOKEN=segredo/npm-token -- <comando>`.
     **Notas:** Um erro desfaz o lote e aponta a entrada. Conteúdo com cara de segredo é recusado.
-        Numa connection com repositório git (não o catálogo), todo item não secreto também é
-        publicado nesse repositório. Em `review_mode="direct"` (padrão), publica e atualiza o
-        índice na mesma chamada — o retorno é o de sempre. Em `review_mode="pr"`, abre (ou
-        atualiza) um Pull Request com o lote inteiro e devolve, por entrada,
-        `{status: "pending_review", pr_url}` (ou `{status: "issue_opened", issue_url}` sem
-        permissão de push) em vez de `{action, id, ...}` — o índice só reflete a mudança
-        depois que o PR for mergeado e `repo(action="sync")` (ou o hook de sessão) sincronizar.
+        Cada item é um arquivo na pasta (repositório git) da connection, e o lote vira uma
+        publicação só. Em `review_mode="direct"` (padrão), grava e publica na mesma chamada — o
+        retorno é o de sempre. Em `review_mode="pr"`, abre (ou atualiza) um Pull Request com o
+        lote inteiro e devolve, por entrada, `{status: "pending_review", pr_url}` (ou
+        `{status: "issue_opened", issue_url}` sem permissão de push) em vez de
+        `{action, id, ...}` — a mudança só aparece depois que o PR for mergeado e
+        `repo(action="sync")` (ou o hook de sessão) sincronizar.
     """
     default = None
     if repo:
         link = RepoService(connection_id=connection_id).require(repo)
-        default = (link["workspace_id"], link["project_id"])
+        default = (link["workspace"], link["project"])
     results = ItemService(connection_id=connection_id).save(items, default_location=default)
-    secrets = SecretService(connection_id=connection_id).describe([r["id"] for r in results])
-    return [{**r, **secrets.get(r["id"], {})} for r in results]
+    ids = [r["id"] for r in results if "id" in r]
+    secrets = SecretService(connection_id=connection_id).describe(ids)
+    return [{**r, **secrets.get(r.get("id"), {})} for r in results]
 
 
 # --------------------------------------------------------------------------------------
@@ -609,7 +574,7 @@ def item_delete(item_id: str, connection_id: str | None = None) -> dict[str, str
     **Use quando:** O item está errado e não há histórico a preservar.
     **Retorna:** {status: deleted, id} ou, se a connection usa modo `pr`, {status:
         pending_review, pr_url, id} (ou {status: issue_opened, issue_url, id}) — a
-        remoção fica pendente de revisão e só sai do índice depois do PR mergeado e
+        remoção fica pendente de revisão e só acontece depois do PR mergeado e
         um `repo(action="sync")`.
     **Exemplo:** item_delete(item_id="...")
     **Notas:** Para aposentar mantendo o histórico, prefira item_save com status=deprecated ou
@@ -632,8 +597,8 @@ def relation_create(
         relation_type="depends_on")
     **Notas:** relation_type: related_to, depends_on, implements, references, supersedes,
         derived_from. `supersedes` marca o alvo como substituído (sai da busca e do contexto,
-        sem perder o histórico). Se a connection tem repositório git em modo `direct`, o item
-        de origem é republicado com a relação nova.
+        sem perder o histórico). A relação fica no arquivo do item de origem, que é
+        republicado com ela.
     """
     if relation_type not in RELATION_TYPES:
         raise ValidationError(
@@ -656,10 +621,8 @@ def relation_delete(relation_id: str, connection_id: str | None = None) -> dict[
     **Use quando:** Uma relação foi criada por engano.
     **Retorna:** {status: deleted, id}.
     **Exemplo:** relation_delete(relation_id="...")
-    **Notas:** Remover um supersedes não reativa o alvo: ajuste o status com item_save. Se a
-        connection tem repositório git em modo `direct`, o item de origem é republicado sem
-        essa relação; em modo `pr` a relação some do índice, mas a republicação pendente de
-        revisão fica para uma versão futura.
+    **Notas:** Remover um supersedes não reativa o alvo: ajuste o status com item_save. O
+        item de origem é republicado sem essa relação.
     """
     RelationService(connection_id=connection_id).delete_published(relation_id)
     return {"status": "deleted", "id": relation_id}
@@ -748,7 +711,6 @@ def _connection_view(conn: Any) -> dict[str, Any]:
         "review_mode": getattr(conn, "review_mode", "direct"),
         "enabled": bool(conn.is_active),
         "is_default": bool(getattr(conn, "is_default", False)),
-        "is_catalog": conn.id == DEFAULT_CONNECTION_ID,
     }
 
 
@@ -762,28 +724,28 @@ def connection_create(
         repositório próprio, com ou sem GitHub).
     **Retorna:** {id, name, path, remote_url, review_mode, enabled}.
     **Exemplo:** connection_create(name="Polara", path="/home/user/polara-knowledge")
-    **Notas:** `path` precisa ser uma pasta existente, absoluta, fora da home de dados do
-        Knowledge OS. Se já for um repositório git, é usado como está; senão, vira um
-        (`git init`, preservando o que já tiver dentro). Com `remote_url`, `path` é o destino
-        do clone.
+    **Notas:** `path` precisa ser uma pasta absoluta, fora da home de dados do Knowledge OS.
+        Se já for um repositório git, é usado como está; senão, vira um (`git init`,
+        preservando o que já tiver dentro). Com `remote_url`, `path` é o destino do clone. A
+        primeira connection criada vira a padrão (a usada sem `connection_id`).
     """
     conn = ConnectionService().create(name, path, remote_url=remote_url, review_mode=review_mode)
     return _connection_view(conn)
 
 
 def connection_list() -> Any:
-    """Lista as connections (a `default`, catálogo, primeiro).
+    """Lista as connections cadastradas (a padrão marcada com `is_default`).
 
     **Use quando:** Ver as connections já cadastradas.
-    **Retorna:** [{id, name, path, remote_url, review_mode, enabled, is_default, is_catalog}].
+    **Retorna:** [{id, name, path, remote_url, review_mode, enabled, is_default}].
     **Exemplo:** connection_list()
     """
     return [_connection_view(c) for c in ConnectionService().list()]
 
 
 def connection_delete(id: str) -> dict[str, Any]:
-    """Remove uma connection do cadastro. Não apaga a pasta nem o índice: são dados do
-    usuário, e removê-los sem confirmação explícita é destrutivo demais pra fazer aqui.
+    """Remove uma connection do cadastro. Não apaga a pasta: são dados do usuário, e
+    removê-los sem confirmação explícita é destrutivo demais pra fazer aqui.
 
     **Use quando:** Parar de usar uma connection sem apagar os dados dela.
     **Retorna:** {status: deleted|not_found, id}.

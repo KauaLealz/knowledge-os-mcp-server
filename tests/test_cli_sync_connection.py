@@ -32,13 +32,13 @@ def bare_repo(tmp_path):
 
 
 def _set_default(connection_id: str) -> None:
-    config = ConfigManager.load_or_create()
+    config = ConfigManager.load()
     config.default = connection_id
     ConfigManager.save(config)
 
 
 def test_sem_connection_nao_faz_nada(tmp_path):
-    cli._sync_connection()  # catálogo: no-op, não levanta
+    cli._sync_connection()  # sem conexão: no-op, não levanta
 
 
 def test_puxa_mudanca_da_connection_default(bare_repo, tmp_path):
@@ -47,7 +47,7 @@ def test_puxa_mudanca_da_connection_default(bare_repo, tmp_path):
         "Sync", str(dest), remote_url=str(bare_repo), review_mode="direct", test=False
     )
     _set_default(conn.id)
-    clone_path = ConfigManager.load_or_create().get_connection(conn.id).clone_path()
+    clone_path = ConfigManager.load().get_connection(conn.id).clone_path()
 
     other = tmp_path / "other"
     _git(tmp_path, "clone", "-q", str(bare_repo), str(other))
@@ -79,7 +79,7 @@ def test_falha_de_rede_nao_quebra_o_hook(bare_repo, tmp_path, monkeypatch):
     _set_default(conn.id)
 
     # remote passa a apontar para algo inalcançável (rede caiu depois do clone inicial)
-    config = ConfigManager.load_or_create()
+    config = ConfigManager.load()
     config.get_connection(conn.id).remote_url = "https://example.invalid/nao-existe.git"
     ConfigManager.save(config)
 

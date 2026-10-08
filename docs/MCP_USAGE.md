@@ -3,6 +3,22 @@
 Guia por tarefa. As instruções que o servidor envia ao agente são o resumo disto; aqui ficam
 os exemplos completos.
 
+## Primeiro: uma conexão
+
+Os dados ficam numa pasta (repositório git) — a conexão. Sem nenhuma, toda ferramenta responde
+"Nenhuma conexão configurada. Crie uma com connection_create(name, path[, remote_url])." Crie
+pelo MCP (a UI e a API não criam):
+
+```python
+connection_create(name="pessoal", path="C:\\caminho\\da\\pasta")   # pasta comum vira repo git
+connection_create(name="empresa", path="/home/eu/empresa-knowledge",
+                  remote_url="git@github.com:org/knowledge.git", review_mode="pr")
+connection_list()
+connection_delete(id="...")       # tira do cadastro; a pasta e os arquivos ficam
+```
+
+A primeira conexão vira a padrão (a usada sem `connection_id`); troque a padrão pela UI.
+
 ## Começar num projeto
 
 O hook de início de sessão do Plumb injeta o pacote de contexto. Sem hook:
@@ -45,7 +61,7 @@ item_get(ids=["9b2c..."])
 
 ## Gravar
 
-Uma ferramenta, em lote e numa transação. O modo vem de cada entrada:
+Uma ferramenta, em lote e numa publicação só (um commit). O modo vem de cada entrada:
 
 | Entrada traz | Faz |
 |---|---|
@@ -75,8 +91,8 @@ Uma entrada com `id` e também `workspace`+`project` move o item para esse works
 (criados se não existirem); o `subject`, se vier junto, é resolvido ou criado no project novo —
 sem `subject`, o item fica sem assunto. Uma entrada com `id` e só `subject` (sem
 workspace/project) move o item para esse subject dentro do project atual, sem trocar de
-workspace/project. Em qualquer caso, `id`, `created_at`, `access_count`, tags, labels, relations
-e artifacts do item não mudam — só as FKs de localização.
+workspace/project. Em qualquer caso, `id`, `created_at`, tags, labels e relations do item não
+mudam — só a localização (e o caminho do arquivo).
 
 ```python
 item_save(items=[{"id": "9b2c...", "workspace": "Polara", "project": "projpro",
@@ -103,22 +119,21 @@ O alvo vira `superseded` e sai da busca e do contexto. Tipos de relação: `rela
 `depends_on`, `implements`, `references`, `supersedes`, `derived_from`. `target` é id ou key
 do mesmo project, inclusive de um item criado no mesmo lote.
 
-### Publicação (connection com repositório git)
+### Publicação (repositório git da conexão)
 
-Numa connection com repositório git (toda, menos o catálogo), todo item não secreto também vira
-um arquivo Markdown e é publicado nesse repositório, conforme o `review_mode` da connection:
+Todo item não secreto é um arquivo Markdown na pasta da conexão e cada gravação é publicada
+nesse repositório, conforme o `review_mode` da conexão:
 
 - `direct` (padrão): `item_save` escreve, comita (e empurra, se há `remote_url`) na mesma
   chamada — o retorno é o de sempre, `{index, id, key, action, ...}`.
 - `pr`: a mesma gravação vai para uma branch nova e abre um Pull Request (ou uma Issue, se o
   token não tem permissão de push); cada entrada do lote devolve `{status: "pending_review",
-  pr_url}` (ou `{status: "issue_opened", issue_url}`) em vez do resultado de sempre. O índice só
-  reflete a mudança depois que o PR for mergeado e alguém rodar `repo(action="sync")` (ou o hook
-  de início de sessão sincronizar).
+  pr_url}` (ou `{status: "issue_opened", issue_url}`) em vez do resultado de sempre. A mudança
+  só aparece depois que o PR for mergeado e alguém rodar `repo(action="sync")` (ou o hook de
+  início de sessão sincronizar).
 
-`item_delete` e `relation_delete` seguem a mesma regra: em modo `pr`, a remoção também fica
-pendente de revisão (`item_delete` devolve `pending_review`/`issue_opened`; `relation_delete`
-tira a relação do índice na hora, mas a republicação do item sem ela entra como trabalho futuro).
+`item_delete`, `relation_create` e `relation_delete` seguem a mesma regra: em modo `pr`, a
+mudança também fica pendente de revisão.
 
 ### Erros
 
@@ -130,7 +145,7 @@ tira a relação do índice na hora, mas a republicação do item sem ela entra 
 ```python
 item_save(repo=".", items=[{"key": "segredo/npm-token", "type": "secret",
   "title": "Token do npm", "summary": "Publicar pacotes no npm"}])
-# → [{..., "has_value": false, "fill_url": "http://127.0.0.1:8765/ui/#/c/default/w/.../i/..."}]
+# → [{..., "has_value": false, "fill_url": "http://127.0.0.1:8765/ui/#/c/<conexão>/w/.../i/..."}]
 ```
 
 Passe o `fill_url` ao usuário: ele preenche o valor na UI local. Nunca peça o valor no chat
@@ -147,56 +162,47 @@ Sem valor, o `run` não roda o comando e devolve o link para preencher.
 ## Organizar e administrar
 
 ```python
-workspace(action="list")                                  # árvore de workspaces com contagens
-workspace(action="rename", name="polara", new_name="Polara")
-workspace(action="merge", source="Polara Antiga", target="Polara")
-workspace(action="delete", name="Teste", confirm=True)     # sem confirm, só preview
+workspace_list()                                          # workspaces com contagens
+workspace_create(name="Polara")
+workspace_rename(name="polara", new_name="Polara")
+workspace_merge(source="Polara Antiga", target="Polara")
+workspace_delete(name="Teste", confirm=True)               # sem confirm, só preview
 
-project(action="list", workspace="Polara")
-project(action="create", workspace="Polara", name="projpro")
-project(action="rename", workspace="Polara", name="projpro-old", new_name="projpro")
-project(action="merge", workspace="Polara", source="projpro-old", target="projpro")
+project_list(workspace="Polara")
+project_create(workspace="Polara", name="projpro")
+project_rename(workspace="Polara", name="projpro-old", new_name="projpro")
+project_merge(workspace="Polara", source="projpro-old", target="projpro")
 
-subject(action="list", workspace="Polara", project="projpro")
-subject(action="create", workspace="Polara", project="projpro", name="pagamentos")
+subject_list(workspace="Polara", project="projpro")
+subject_create(workspace="Polara", project="projpro", name="pagamentos")
 
 repo(action="list", workspace="Polara")                    # auditar o que está ligado
 repo(action="unlink", repo="github.com/org/antigo")
-repo(action="sync")                       # puxa manualmente o que mudou no repo da connection
+repo(action="sync")                       # puxa o que mudou no remote da conexão
 
 item_delete(item_id="...")                          # prefira status=deprecated
+relation_create(source_item_id="...", target_item_id="...", relation_type="depends_on")
 relation_delete(relation_id="...")                  # id vem em item_get → relations
-vocabulary(kind="tags")                             # reaproveite antes de criar variações
-vocabulary(kind="labels", action="create", name="lgpd")
-
-backup(action="export", workspace="Polara")                # ZIP em <home>/exports
-backup(action="export", workspace="Polara", project="projpro")  # só um project
-backup(action="import", file_path="...zip")                # workspace novo, ids novos
-
-artifact(action="attach", item_id="...", file_path="C:/docs/arquitetura.png")
-artifact(action="get", artifact_id="...")                   # base64; confira file_size antes
+tag_list()                                          # reaproveite antes de criar variações
+label_create(name="lgpd")
 ```
 
-`workspace`, `project`, `subject` e `repo` usam `action=` para agrupar list/create/rename/merge
-(ou link/list/unlink) numa ferramenta só, em vez de uma função por operação — igual `vocabulary`
-já fazia com tags e labels.
+Toda ferramenta do cérebro e de administração aceita `connection_id` opcional (sem ele, a
+conexão padrão). Tudo o que muda vira commit no repositório da conexão: para voltar atrás ou
+levar para outra máquina, use o git (histórico, push, clone).
 
 ## Conexões (repositórios git)
 
-Pela UI (`knowledge-mcp ui`): cadastrar uma connection (nome, `remote_url` opcional,
-`review_mode` `direct` ou `pr`), testar o remote (`git ls-remote`, sem clonar) e sincronizar o
-índice SQLite derivado do repositório. As conexões ficam em `<home>/connections.json`; as
-ferramentas do cérebro e de administração aceitam `connection_id` opcional (sem ele, o catálogo
-`default`); só `health_check` não aceita e verifica sempre o catálogo `default`.
+Criar é só pelo MCP (`connection_create`, acima). A UI (`knowledge-mcp ui`) lista as conexões
+com o caminho da pasta, o remote, o modo e o estado (pasta existe / é repositório git), e edita
+nome, `remote_url`, `review_mode` (`direct` ou `pr`) e se está ativa; testa o remote
+(`git ls-remote`, sem clonar), define a padrão e apaga (só do cadastro). As conexões ficam em
+`<home>/connections.json`; `health_check` verifica a conexão padrão.
 
-Sem `remote_url`, a connection é um repositório git só local (sem GitHub) — útil para manter
-conhecimento fora de qualquer remote. Com `remote_url`, o primeiro uso clona; dali em diante,
+Sem `remote_url`, a conexão é um repositório git só local (sem GitHub) — útil para manter
+conhecimento fora de qualquer remote. Com `remote_url`, a criação clona; dali em diante,
 `item_save`/`item_delete`/`relation_delete` publicam conforme o `review_mode`, e
 `repo(action="sync")` (ou o hook de início de sessão) puxa o que mudou de fora.
-
-Banco com o schema de antes da renomeação Project/Repo? `knowledge-mcp
---migrate-v2` migra as tabelas e colunas do índice SQLite de uma vez (one-shot, nunca
-automática), com backup antes de mexer.
 
 ## Problemas comuns
 
@@ -207,5 +213,6 @@ automática), com backup antes de mexer.
 | `Entrada N (...)` | corrija a entrada N; nada do lote foi gravado |
 | "parece conter um segredo" | tire o valor; crie um item `secret` sem valor e passe o `fill_url` ao usuário |
 | Servidor fora do ar | o Plumb segue com aviso e guarda em `~/.knowledge-os/pending.jsonl` (uma entrada de `item_save` por linha, com `repo`); o hook da próxima sessão grava, ou `knowledge-mcp pending` |
-| Remote git inacessível | `health_check`; a UI testa a connection (`git ls-remote`) |
-| PR aberto não aparece na busca | normal em `review_mode="pr"`: o índice só reflete a mudança depois do PR mergeado e `repo(action="sync")` |
+| "Nenhuma conexão configurada" | crie uma com `connection_create(name, path)` |
+| Remote git inacessível | `health_check`; a UI testa a conexão (`git ls-remote`) |
+| PR aberto não aparece na busca | normal em `review_mode="pr"`: a mudança só aparece depois do PR mergeado e `repo(action="sync")` |

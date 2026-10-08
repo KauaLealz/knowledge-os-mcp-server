@@ -1,5 +1,6 @@
 """Subcomando `knowledge-mcp ui`: bind local, sem login, URL limpa."""
 
+import json
 import os
 import re
 import socket
@@ -31,7 +32,7 @@ def fake_uvicorn(monkeypatch):
 
     monkeypatch.setattr(uvicorn.Server, "run", fake_run)
     monkeypatch.setattr(main_mod, "ensure_home", lambda: None)
-    monkeypatch.setattr(main_mod, "validate_and_init_config", lambda: None)
+    monkeypatch.setattr(main_mod, "validate_config", lambda: None)
     return calls
 
 
@@ -85,7 +86,11 @@ def test_ui_de_verdade_responde_sem_token_e_recusa_escrita_de_outra_origem(tmp_p
     port = _free_port()
     env = {**os.environ, "KNOWLEDGE_OS_HOME": str(tmp_path / "home"),
            "PYTHONPATH": str(ROOT / "src")}
-    env.pop("MCP_DB_PATH", None)
+    (tmp_path / "home").mkdir()
+    (tmp_path / "home" / "connections.json").write_text(json.dumps({
+        "version": "1.0", "default": "d",
+        "connections": [{"id": "d", "name": "Dados", "path": str(tmp_path / "dados")}],
+    }), encoding="utf-8")
     proc = subprocess.Popen(
         [sys.executable, "-m", "knowledge_os.main", "ui", "--port", str(port), "--no-browser"],
         cwd=tmp_path, env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,

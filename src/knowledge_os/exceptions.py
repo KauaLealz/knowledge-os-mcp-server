@@ -5,8 +5,8 @@ class ConfigError(Exception):
     """Configuração inválida ou incompleta."""
 
 
-class DatabaseError(Exception):
-    """Falha ao inicializar, consultar ou validar o banco de dados."""
+class StorageError(Exception):
+    """Falha ao ler ou gravar os arquivos de uma conexão."""
 
 
 class NotFoundError(Exception):
@@ -15,6 +15,10 @@ class NotFoundError(Exception):
 
 class ValidationError(Exception):
     """Entrada inválida ou conflitante (ex.: nome duplicado)."""
+
+
+class NoConnectionError(ValidationError):
+    """Nenhuma conexão configurada (ou nenhuma marcada como padrão)."""
 
 
 class GitError(Exception):

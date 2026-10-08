@@ -1,53 +1,13 @@
-"""Dependências FastAPI: conexão, engine e sessão."""
+"""Dependências FastAPI: a conexão do request."""
 
-from collections.abc import Iterator
+from fastapi import Header
 
-from fastapi import Depends, Header
-from sqlalchemy import Engine
-from sqlalchemy.orm import Session
-
-from knowledge_os.db.models import DEFAULT_CONNECTION_ID
-from knowledge_os.db.session import (
-    check_connection,
-    default_connection_id,
-    get_engine,
-    get_session,
-)
+from knowledge_os.storage.access import resolve_connection
 
 
 def get_connection_id(x_connection_id: str | None = Header(default=None)) -> str:
-    """Conexão dos dados: o header X-Connection-Id ou, sem ele, o default do connections.json.
+    """Conexão dos dados: o header X-Connection-Id ou, sem ele, a padrão do connections.json.
 
-    NotFoundError (404) se não existe; ValidationError (422) se está desabilitada.
+    422 se não há conexão configurada ou se ela está desabilitada; 404 se não existe.
     """
-    cid = (x_connection_id or "").strip() or default_connection_id()
-    check_connection(cid)
-    return cid
-
-
-def get_engine_dep(connection_id: str = Depends(get_connection_id)) -> Engine:
-    """Engine da conexão do request."""
-    return get_engine(connection_id)
-
-
-def get_catalog_engine_dep() -> Engine:
-    """Engine do catálogo: as rotas de conexões não seguem o X-Connection-Id."""
-    return get_engine(DEFAULT_CONNECTION_ID)
-
-
-def get_session_dep(engine: Engine = Depends(get_engine_dep)) -> Iterator[Session]:
-    """Sessão por request, sempre fechada ao final."""
-    session = get_session(engine)
-    try:
-        yield session
-    finally:
-        session.close()
-
-
-def get_catalog_session_dep(engine: Engine = Depends(get_catalog_engine_dep)) -> Iterator[Session]:
-    """Sessão do catálogo por request (rotas de conexões)."""
-    session = get_session(engine)
-    try:
-        yield session
-    finally:
-        session.close()
+    return resolve_connection(x_connection_id).id

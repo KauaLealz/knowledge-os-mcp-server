@@ -9,7 +9,6 @@ def test_connection_config_valid():
     conn = ConnectionConfig(id="local", name="Local")
     assert conn.remote_url is None
     assert conn.review_mode == "direct"
-    assert conn.index_url().startswith("sqlite:///")
 
 
 def test_connection_config_id_invalid():
@@ -51,20 +50,20 @@ def test_erro_do_ls_remote_nao_ecoa_credencial_embutida_na_url():
 
 def test_create_default_config():
     config = ConfigManager.create_default_config()
-    assert config.default == "default"
+    assert config.default is None
     assert config.connections == []
 
 
-def test_load_or_create_creates_default(_isolated_home):
-    config = ConfigManager.load_or_create()
-    assert (_isolated_home / "connections.json").exists()
-    assert config.default == "default"
+def test_load_sem_arquivo_nao_cria_nada(_isolated_home):
+    config = ConfigManager.load()
+    assert not (_isolated_home / "connections.json").exists()
+    assert config.default is None and config.connections == []
 
 
 def test_load_existing_config():
     config = ConfigManager.create_default_config()
     ConfigManager.save(config)
-    loaded = ConfigManager.load_or_create()
+    loaded = ConfigManager.load()
     assert loaded.default == config.default
     assert len(loaded.connections) == len(config.connections)
 
@@ -86,11 +85,11 @@ def test_json_a_mao_sem_campos_novos_assume_o_padrao():
 
     ConfigManager.CONNECTIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
     ConfigManager.CONNECTIONS_FILE.write_text(
-        json.dumps({"version": "1.0", "default": "default",
+        json.dumps({"version": "1.0", "default": "gh",
                     "connections": [{"id": "gh", "name": "GH"}]}),
         encoding="utf-8",
     )
-    config = ConfigManager.load_or_create()
+    config = ConfigManager.load()
     conn = config.get_connection("gh")
     assert conn.remote_url is None and conn.review_mode == "direct"
 
@@ -103,11 +102,11 @@ def test_json_com_review_mode_invalido_aponta_conexao_sem_vazar_dado():
 
     ConfigManager.CONNECTIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
     ConfigManager.CONNECTIONS_FILE.write_text(
-        json.dumps({"version": "1.0", "default": "default",
+        json.dumps({"version": "1.0", "default": "gh",
                     "connections": [{"id": "gh", "name": "GH", "review_mode": "sync"}]}),
         encoding="utf-8",
     )
-    for call in (ConfigManager.load_or_create, ConnectionService().list):
+    for call in (ConfigManager.load, ConnectionService().list):
         with pytest.raises(ConfigError) as err:
             call()
         msg = str(err.value)
@@ -115,8 +114,8 @@ def test_json_com_review_mode_invalido_aponta_conexao_sem_vazar_dado():
         assert msg.count("connections.json inválido") == 1
 
 
-def test_sqlite_exige_nada_de_path():
-    # path/db_type não existem mais: uma connection sem remote_url é válida (repo local).
+def test_conexao_sem_remote_e_valida():
+    # uma connection sem remote_url é válida (repositório só local).
     ConnectionConfig(id="s", name="S")
 
 
@@ -152,7 +151,7 @@ def test_save_fallback_quando_replace_falha(monkeypatch):
 
     monkeypatch.setattr(os, "replace", boom)
     ConfigManager.save(ConfigManager.create_default_config())
-    assert ConfigManager.load_or_create().default == "default"
+    assert ConfigManager.load().default is None
     assert not list(ConfigManager.CONNECTIONS_FILE.parent.glob("*.tmp"))
 
 
@@ -167,10 +166,24 @@ def test_knowledge_os_home_resolve_til_e_relativo(tmp_path):
 
     def home_for(value):
         env = {**os.environ, "KNOWLEDGE_OS_HOME": value, "PYTHONPATH": str(root / "src")}
-        env.pop("MCP_DB_PATH", None)
         out = subprocess.run([sys.executable, "-c", code], cwd=tmp_path, env=env,
                              capture_output=True, text=True, check=True)
         return Path(out.stdout.strip())
 
     assert home_for("rel/../meu-home") == (tmp_path / "meu-home").resolve()
     assert home_for("~/kos-teste") == (Path.home() / "kos-teste").resolve()
+
+
+def test_json_de_versao_antiga_com_default_do_catalogo_vira_sem_padrao(_isolated_home):
+    """Instalação antiga: `default: "default"` apontava para o catálogo, que não existe mais.
+    O servidor precisa subir (sem conexão padrão) em vez de recusar o arquivo."""
+    ConfigManager.CONNECTIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    ConfigManager.CONNECTIONS_FILE.write_text(
+        '{"version": "1.0", "default": "default", "connections": []}', encoding="utf-8")
+    config = ConfigManager.load()
+    assert config.default is None and config.connections == []
+
+
+def test_default_desconhecido_que_nao_e_o_antigo_continua_invalido():
+    with pytest.raises(ValueError, match="not found"):
+        ConnectionsFile(default="outra", connections=[])

@@ -10,16 +10,12 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Engine, func, or_, select, update
-
-from knowledge_os.db.models import Item, Project, Workspace
-from knowledge_os.db.search_query import strip_accents
-from knowledge_os.db.session import get_engine, get_session, run_with_retry
-from knowledge_os.db.timeutil import utcnow
-from knowledge_os.schemas.item_schemas import decode_paths
-from knowledge_os.services.item_service import ItemService
+from knowledge_os.services.brain import Brain, Item, is_expired, utcnow
+from knowledge_os.services.item_file import slugify
+from knowledge_os.services.item_service import run_search
 from knowledge_os.services.repo_service import RepoService, repo_key
 from knowledge_os.services.secret_service import fill_url
+from knowledge_os.storage.search import strip_accents
 
 logger = logging.getLogger(__name__)
 
@@ -78,83 +74,31 @@ def _secret_line(item: Item, url: str) -> str:
 
 
 class ContextService:
-    def __init__(self, engine: Engine | None = None, connection_id: str | None = None) -> None:
-        self._engine = engine
+    def __init__(self, connection_id: str | None = None) -> None:
         self._connection_id = connection_id
 
-    def _get_engine(self) -> Engine:
-        return self._engine if self._engine is not None else get_engine(self._connection_id)
+    @staticmethod
+    def project_chain(link: dict[str, str]) -> list[tuple[str, str]]:
+        """(workspace, project) do projeto + `Geral` do workspace + `Global/Geral`."""
+        chain = [
+            (link["workspace_id"], link["project_id"]),
+            (link["workspace_id"], slugify(COMMON_PROJECT)),
+            (slugify(GLOBAL_WORKSPACE), slugify(COMMON_PROJECT)),
+        ]
+        return list(dict.fromkeys(chain))
 
-    def project_chain(self, link: dict[str, str]) -> list[str]:
-        """Project do projeto + `Geral` do workspace + `Global/Geral`, quando existirem."""
-        session = get_session(self._get_engine())
-        try:
-            rows = session.execute(
-                select(Project.id)
-                .join(Workspace, Workspace.id == Project.workspace_id)
-                .where(
-                    or_(
-                        Project.id == link["project_id"],
-                        (Project.workspace_id == link["workspace_id"])
-                        & (Project.name == COMMON_PROJECT),
-                        (Workspace.name == GLOBAL_WORKSPACE) & (Project.name == COMMON_PROJECT),
-                    )
-                )
-            ).scalars().all()
-        finally:
-            session.close()
-        return list(dict.fromkeys([link["project_id"], *rows]))
-
-    def _items(self, project_ids: list[str]) -> list[Item]:
+    @staticmethod
+    def _items(brain: Brain, chain: list[tuple[str, str]]) -> list[Item]:
+        wanted = set(chain)
         now = utcnow()
-        session = get_session(self._get_engine())
-        try:
-            return list(
-                session.scalars(
-                    select(Item).where(
-                        Item.project_id.in_(project_ids),
-                        Item.status == "active",
-                        Item.memory_class != "ephemeral",
-                        (Item.expires_at.is_(None)) | (Item.expires_at > now),
-                    )
-                )
-            )
-        finally:
-            session.close()
-
-
-    def _by_ids(self, ids: list[str]) -> list[Item]:
-        session = get_session(self._get_engine())
-        try:
-            return list(session.scalars(select(Item).where(Item.id.in_(ids))))
-        finally:
-            session.close()
-
-    def _track(self, ids: set[str]) -> None:
-        """Conta o uso dos itens que chegaram ao agente (a retro mostra os nunca usados)."""
-        if not ids:
-            return
-        try:
-            run_with_retry(lambda: self._count(ids))
-        except Exception as exc:  # contar uso nunca derruba a leitura do contexto
-            logger.debug("Contagem de uso ignorada: %s", exc)
-
-    def _count(self, ids: set[str]) -> None:
-        session = get_session(self._get_engine())
-        try:
-            session.execute(
-                update(Item)
-                .where(Item.id.in_(ids))
-                .values(
-                    access_count=func.coalesce(Item.access_count, 0) + 1,
-                    last_accessed=utcnow(),
-                    updated_at=Item.updated_at,
-                )
-                .execution_options(synchronize_session=False)
-            )
-            session.commit()
-        finally:
-            session.close()
+        records = [
+            r for r in brain.snapshot.records.values()
+            if (slugify(r.workspace or ""), slugify(r.project or "")) in wanted
+            and r.status == "active" and r.memory_class != "ephemeral"
+            and not is_expired(r, now)
+        ]
+        records.sort(key=lambda r: (r.created_at, r.path))
+        return brain.views(records)
 
     def build(
         self,
@@ -168,7 +112,8 @@ class ContextService:
         Retorna {linked, repo_key, workspace, project, markdown, included, omitted, sensitive}.
         Projeto não ligado → linked=False e um markdown curto dizendo como ligar.
         """
-        link = RepoService(self._engine, self._connection_id).resolve(repo)
+        brain = Brain(self._connection_id)
+        link = RepoService(brain.cid).resolve(repo)
         if link is None:
             key = repo_key(repo)
             return {
@@ -180,7 +125,7 @@ class ContextService:
                 ),
             }
         paths = paths or []
-        items = self._items(self.project_chain(link))
+        items = self._items(brain, self.project_chain(link))
         budget = max(budget_tokens, 200) * CHARS_PER_TOKEN
         out = [f"# Segundo cérebro — {link['workspace']} / {link['project']}"]
         used = len(out[0])
@@ -202,20 +147,17 @@ class ContextService:
         focus: list[tuple[Item, list[str]]] = []
         sensitive = False
         for item in items:
-            scope = decode_paths(item.scope_paths)
+            scope = item.scope_paths
             if scope and paths and _matches(scope, paths):
                 focus.append((item, scope))
                 sensitive = sensitive or _is_sensitive(item)
         if query:
-            found = ItemService(self._engine, self._connection_id).search(
-                link["workspace_id"], None, query, limit=5, track=False
-            )
+            found = run_search(brain, link["workspace_id"], None, query, limit=5)
             known = {i.id for i, _ in focus}
-            wanted = [r["id"] for r in found if r["id"] not in known]
-            if wanted:
-                by_id = {i.id: i for i in self._by_ids(wanted)}
-                focus += [(by_id[i], decode_paths(by_id[i].scope_paths)) for i in wanted
-                          if i in by_id]
+            for record, _score in found:
+                if record.id not in known:
+                    item = brain.view(record)
+                    focus.append((item, item.scope_paths))
         focus_ids = {i.id for i, _ in focus}
         listed: set[str] = set()
         if focus:
@@ -234,7 +176,7 @@ class ContextService:
             for item in items:
                 if item.type not in types or item.id in focus_ids:
                     continue
-                scope = decode_paths(item.scope_paths)
+                scope = item.scope_paths
                 if scope and not _matches(scope, paths):
                     if item.type == "rule":
                         scoped_hidden.append(item)
@@ -255,7 +197,7 @@ class ContextService:
             out.append(header)
             used += len(header)
             for item, scope in chosen[:limit]:
-                line = (_secret_line(item, fill_url(item, self._connection_id))
+                line = (_secret_line(item, fill_url(item, brain.cid))
                         if item.type == "secret" else _line(item, scope))
                 if add(line):
                     listed.add(item.id)
@@ -267,9 +209,10 @@ class ContextService:
                 out.append(header)
                 used += len(header)
                 for item in scoped_hidden[:15]:
-                    add(f"- {item.title} — {', '.join(decode_paths(item.scope_paths))}")
+                    add(f"- {item.title} — {', '.join(item.scope_paths)}")
 
-        self._track(focus_ids | listed)
+        if focus_ids | listed:
+            brain.track(focus_ids | listed)
         if omitted:
             out.append(f"\n_{omitted} item(ns) fora do orçamento: use item_search._")
         out.append('\n_Detalhe de um item: item_get(keys=[...], repo=".")._')

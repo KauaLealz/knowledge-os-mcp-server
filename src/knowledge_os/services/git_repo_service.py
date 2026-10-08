@@ -10,8 +10,10 @@ Só este módulo e `gh_cli.py` chamam `git`/`gh`: sempre via lista de argumentos
 interpolação de string em comando.
 """
 
+import os
 import re
 import subprocess
+import tempfile
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -20,6 +22,7 @@ from typing import Literal
 
 from knowledge_os.exceptions import GitError
 from knowledge_os.services import gh_cli
+from knowledge_os.services.item_file import safe_join
 
 _PUSH_RETRY_BUDGET_S = 10.0
 _PUSH_RETRY_FIRST_WAIT_S = 0.05
@@ -105,6 +108,19 @@ jobs:
       - name: Valida itens (sem segredo, sem key duplicada)
         run: python {_VALIDATE_SCRIPT_PATH} ${{{{ steps.diff.outputs.files }}}}
 """
+
+
+def _atomic_write(target: Path, content: str) -> None:
+    """Grava via temporário na mesma pasta + `os.replace` (quem lê nunca vê meio arquivo)."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(content)
+        os.replace(tmp, target)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 @dataclass(frozen=True)
@@ -206,6 +222,19 @@ class GitRepoService:
         self._run(["config", "user.name", "knowledge-os"], check=False)
         return self.clone_path
 
+    def ensure_excluded(self, pattern: str) -> None:
+        """Põe `pattern` no `info/exclude` do repositório (ignorado só nesta cópia, sem mexer em
+        arquivo versionado). Não duplica a linha."""
+        rel = self._run(["rev-parse", "--git-path", "info/exclude"]).stdout.strip()
+        exclude = Path(rel) if Path(rel).is_absolute() else self.clone_path / rel
+        existing = exclude.read_text(encoding="utf-8") if exclude.is_file() else ""
+        if pattern in existing.splitlines():
+            return
+        if existing and not existing.endswith("\n"):
+            existing += "\n"
+        exclude.parent.mkdir(parents=True, exist_ok=True)
+        exclude.write_text(existing + pattern + "\n", encoding="utf-8", newline="\n")
+
     def pull(self) -> None:
         """`git pull` na branch principal; no-op se não há remote configurado."""
         if not self._has_remote():
@@ -232,21 +261,45 @@ class GitRepoService:
         return result.stdout.split()[0]
 
     def _write_files(self, files: dict[str, str | None]) -> None:
+        """Grava/remove os arquivos e prepara tudo para o commit (um `git add` e um `git rm`).
+
+        Fim de linha sempre LF (no Windows o `write_text` padrão gravaria CRLF). Pasta que
+        fica vazia depois de uma remoção também sai (o git não versiona pasta).
+        """
+        written: list[str] = []
+        removed: list[str] = []
+        # Confere tudo antes de tocar o disco: um path que escapa da pasta (key com "..",
+        # absoluto, symlink para fora) recusa a publicação inteira.
+        targets = {rel: safe_join(self.clone_path, rel) for rel in files}
         for rel_path, content in files.items():
-            full = self.clone_path / rel_path
+            full = targets[rel_path]
             if content is None:
-                if full.exists():
-                    self._run(["rm", "-f", rel_path])
+                full.unlink(missing_ok=True)
+                self._prune_empty(full.parent)
+                removed.append(rel_path)
                 continue
-            full.parent.mkdir(parents=True, exist_ok=True)
-            full.write_text(content, encoding="utf-8")
-            self._run(["add", rel_path])
+            _atomic_write(full, content)
+            written.append(rel_path)
+        if removed:
+            self._run(["rm", "-q", "--cached", "--ignore-unmatch", "--", *removed])
+        if written:
+            self._run(["add", "--", *written])
+
+    def _prune_empty(self, folder: Path) -> None:
+        root = self.clone_path.resolve()
+        current = folder
+        while current.resolve() != root and root in current.resolve().parents:
+            try:
+                current.rmdir()
+            except OSError:
+                return  # não está vazia (ou sumiu): para aqui
+            current = current.parent
 
     def _commit(self, message: str) -> str | None:
-        status = self._run(["status", "--porcelain"]).stdout
-        if not status.strip():
+        # Só o que foi preparado conta: arquivo solto do usuário na pasta não entra no commit.
+        if self._run(["diff", "--cached", "--quiet"], check=False).returncode == 0:
             return self._run(["rev-parse", "HEAD"], check=False).stdout.strip() or None
-        self._run(["commit", "-m", message])
+        self._run(["commit", "-q", "-m", message])
         return self._run(["rev-parse", "HEAD"]).stdout.strip()
 
     def _push_with_retry(self, branch: str, rewrite: Callable[[], str | None]) -> str | None:
@@ -290,19 +343,19 @@ class GitRepoService:
         concorrente). `pr`: branch nova + commit + push + PR (ou Issue, se não há
         permissão de push).
         """
+        for rel in files:
+            safe_join(self.clone_path, rel)  # recusa antes de criar branch ou commit
         if self.review_mode == "direct":
             return self._publish_direct(files, message)
         return self._publish_pr(files, message, branch_hint)
 
     def _publish_direct(self, files: dict[str, str | None], message: str) -> PublishResult:
-        branch = self._main_branch()
-
         def rewrite() -> str | None:
             self._write_files(files)
             return self._commit(message)
 
         if self._has_remote():
-            sha = self._push_with_retry(branch, rewrite)
+            sha = self._push_with_retry(self._main_branch(), rewrite)
         else:
             sha = rewrite()
         return PublishResult(status="published", commit_sha=sha)
@@ -326,10 +379,15 @@ class GitRepoService:
             self._write_files(files)
             return self._commit(message)
 
-        self._push_with_retry(branch, rewrite)
-        pr_url = gh_cli.pr_create(
-            self.clone_path, message, self._issue_body(files, message), base=base_branch
-        )
+        try:
+            self._push_with_retry(branch, rewrite)
+            pr_url = gh_cli.pr_create(
+                self.clone_path, message, self._issue_body(files, message), base=base_branch
+            )
+        finally:
+            # A pasta é a fonte de leitura: volta para a branch principal, para o que está em
+            # revisão só aparecer depois do merge (e de um sync).
+            self._run(["checkout", "-f", base_branch], check=False)
         return PublishResult(status="pending_review", pr_url=pr_url)
 
     @staticmethod

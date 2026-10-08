@@ -17,7 +17,6 @@ dependencies = [
     # Faixas fechadas: o fastmcp 4 quebrou a API dos testes sem aviso (get_tools, call_tool).
     "mcp>=2,<3",
     "fastmcp>=4,<5",
-    "sqlalchemy>=2.0,<3",
     "pydantic>=2.0,<3",
     "python-dotenv>=1.0.0",
     "fastapi>=0.110.0",
@@ -26,7 +25,7 @@ dependencies = [
     # Segredos: cifra Fernet e chave mestra no keyring do sistema.
     "cryptography>=42",
     "keyring>=24",
-    # Serialização item<->arquivo (storage Git): frontmatter YAML.
+    # Itens como arquivos Markdown com frontmatter YAML na pasta (git) de cada conexão.
     "pyyaml>=6.0,<7",
 ]
 
@@ -35,8 +34,6 @@ Homepage = "https://github.com/KauaLealz/knowledge-os-mcp-server"
 Issues = "https://github.com/KauaLealz/knowledge-os-mcp-server/issues"
 
 [project.optional-dependencies]
-# Só para MCP_DB_KEY (SQLCipher). Sem wheel para Windows/cp312, por isso é opcional.
-crypto = ["sqlcipher3-binary>=0.5.0; sys_platform == 'linux'"]
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21.0",

@@ -1,34 +1,29 @@
 """Testes do CRUD de Connection (service + modelo). O cadastro é o connections.json."""
 
 import itertools
+import json
 import os
 import subprocess
 from pathlib import Path
 
 import pytest
 
-from knowledge_os.config import ConfigManager
-from knowledge_os.db.models import DEFAULT_CONNECTION_ID, Connection, Workspace
-from knowledge_os.db.session import ensure_connection_row, get_engine
-from knowledge_os.exceptions import NotFoundError, ValidationError
-from knowledge_os.services._common import connection_to_dict, session_scope
+from knowledge_os.config import NO_CONNECTION_MESSAGE, ConfigManager
+from knowledge_os.exceptions import NoConnectionError, NotFoundError, ValidationError
 from knowledge_os.services.connection_service import ConnectionService
 from knowledge_os.services.workspace_service import WorkspaceService
-from tests.helpers_multidb import catalog  # noqa: F401
 
 
 @pytest.fixture(autouse=True)
 def workdir(tmp_path, monkeypatch):
-    """O .knowledge/connections.json (caminho relativo) fica isolado em tmp_path."""
+    """Caminhos relativos ficam isolados em tmp_path."""
     monkeypatch.chdir(tmp_path)
     return tmp_path
 
 
 @pytest.fixture
-def svc(catalog, tmp_path):  # noqa: F811
-    """`create()` sem `path` ganha uma pasta nova em tmp_path — os testes deste arquivo
-    exercitam name/remote_url/review_mode, não o path em si (ver test_connection_service_path.py).
-    """
+def svc(tmp_path):
+    """`create()` sem `path` ganha uma pasta nova em tmp_path."""
     real = ConnectionService()
     counter = itertools.count()
 
@@ -52,6 +47,14 @@ def _bare_repo(tmp_path, name="remote.git"):
     return str(path)
 
 
+def test_sem_conexao_a_lista_e_vazia_e_nada_e_criado(svc, _isolated_home):
+    assert svc.list() == []
+    assert not (_isolated_home / "connections.json").exists()
+    with pytest.raises(NoConnectionError) as exc:
+        WorkspaceService().list()
+    assert str(exc.value) == NO_CONNECTION_MESSAGE
+
+
 def test_connection_create_local_sem_remote(svc):
     conn = svc.create("Local")
     assert conn.id and conn.name == "Local"
@@ -59,19 +62,18 @@ def test_connection_create_local_sem_remote(svc):
     assert conn.test_result == "Repositório local (sem remote)" and conn.last_tested is not None
 
 
+def test_primeira_conexao_vira_a_padrao(svc):
+    a = svc.create("A", test=False)
+    b = svc.create("B", test=False)
+    assert a.is_default is True and b.is_default is False
+    assert ConfigManager.load().default == a.id
+
+
 def test_connection_create_grava_no_json_e_prepara_o_repo(svc):
     conn = svc.create("Local")
-    saved = ConfigManager.load_or_create().get_connection(conn.id)
+    saved = ConfigManager.load().get_connection(conn.id)
     assert saved.name == "Local" and saved.enabled is True and saved.remote_url is None
     assert (saved.clone_path() / ".git").is_dir()
-    import sqlite3
-
-    from knowledge_os.config import INDEXES_DIR
-
-    index_path = INDEXES_DIR / f"{saved.id}.db"
-    with sqlite3.connect(index_path) as db:
-        tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    assert {"workspaces", "items", "connections"} <= tables
 
 
 def test_connection_create_sem_teste(svc):
@@ -88,8 +90,6 @@ def test_connection_create_com_review_mode_pr(svc):
 def test_connection_create_validacoes(svc):
     with pytest.raises(ValidationError):
         svc.create("")
-    with pytest.raises(ValidationError):
-        svc.create("default")  # nome reservado
     svc.create("Ok")
     with pytest.raises(ValidationError):
         svc.create("Ok")  # nome duplicado
@@ -104,8 +104,8 @@ def test_connection_test_sem_remote(svc):
 def test_connection_create_com_remote_inalcancavel_falha(svc):
     with pytest.raises(ValidationError):
         svc.create("Down", remote_url="https://127.0.0.1:1/nope.git", test=True)
-    assert [c.id for c in svc.list()] == [DEFAULT_CONNECTION_ID]
-    assert ConfigManager.load_or_create().connections == []
+    assert svc.list() == []
+    assert ConfigManager.load().connections == []
 
 
 def test_connection_test_com_remote_inalcancavel_nao_levanta(svc, tmp_path):
@@ -123,9 +123,7 @@ def test_connection_get_e_list(svc):
     b = svc.create("B")
     assert svc.get(a.id).name == "A"
     assert svc.get("A").id == a.id  # por nome
-    assert [c.name for c in svc.list()][-2:] == ["A", "B"]
-    assert svc.list()[0].id == DEFAULT_CONNECTION_ID
-    assert svc.get(DEFAULT_CONNECTION_ID).id == DEFAULT_CONNECTION_ID
+    assert [c.name for c in svc.list()] == ["A", "B"]
     with pytest.raises(NotFoundError):
         svc.get("nao-existe")
     assert b.id != a.id
@@ -133,17 +131,17 @@ def test_connection_get_e_list(svc):
 
 def test_connection_update(svc):
     a = svc.create("A")
-    svc.create("B")
-    upd = svc.update(a.id, name="A2", is_active=False)
-    assert upd.name == "A2" and upd.is_active is False
-    saved = ConfigManager.load_or_create().get_connection(a.id)
-    assert saved.name == "A2" and saved.enabled is False
+    b = svc.create("B")
+    upd = svc.update(b.id, name="B2", is_active=False)
+    assert upd.name == "B2" and upd.is_active is False
+    saved = ConfigManager.load().get_connection(b.id)
+    assert saved.name == "B2" and saved.enabled is False
     with pytest.raises(ValidationError):
-        svc.update(a.id, name="B")
+        svc.update(b.id, name="A")
     with pytest.raises(ValidationError):
-        svc.update(a.id, review_mode="sync")
+        svc.update(b.id, review_mode="sync")
     with pytest.raises(ValidationError):
-        svc.update(DEFAULT_CONNECTION_ID, is_active=False)
+        svc.update(a.id, is_active=False)  # a padrão não pode ser desativada
     with pytest.raises(NotFoundError):
         svc.update("nao-existe", name="Z")
 
@@ -156,75 +154,61 @@ def test_connection_update_remote_url(svc):
     assert upd.remote_url is None
 
 
-def test_connection_delete_cascade(svc):
+def test_connection_delete(svc):
     conn = svc.create("A")
-    ensure_connection_row(get_engine(), conn.id, "A")  # espelho da FK no catálogo
-    # workspaces do catálogo vinculados à connection somem em cascata
-    with session_scope(None) as s:
-        s.add(Workspace(id="w-cascade", connection_id=conn.id, name="W"))
-        s.commit()
     assert svc.delete(conn.id) is True
-    with session_scope(None) as s:
-        assert s.get(Workspace, "w-cascade") is None
-        assert s.get(Connection, conn.id) is None
     assert svc.delete(conn.id) is False
-    assert conn.id not in [c.id for c in ConfigManager.load_or_create().connections]
+    assert conn.id not in [c.id for c in ConfigManager.load().connections]
 
 
-def test_connection_delete_nao_apaga_clone_nem_indice(svc):
+def test_connection_delete_nao_apaga_a_pasta(svc):
     conn = svc.create("A")
-    from knowledge_os.config import ConfigManager as CM
-
-    config = CM.load_or_create()
-    clone_path = config.get_connection(conn.id).clone_path()
+    clone_path = ConfigManager.load().get_connection(conn.id).clone_path()
     assert clone_path.exists()
     svc.delete(conn.id)
     assert clone_path.exists()  # dado do usuário: não é apagado automaticamente
-
-
-def test_connection_delete_catalogo_proibido(svc):
-    """Só o catálogo (id reservado) é intocável — ele sempre precisa existir."""
-    with pytest.raises(ValidationError):
-        svc.delete(DEFAULT_CONNECTION_ID)
 
 
 def test_connection_delete_da_default_passa_o_posto_para_outra(svc):
     a, b = svc.create("A"), svc.create("B")
     svc.set_default(a.id)
     assert svc.delete(a.id) is True
-    assert ConfigManager.load_or_create().default == b.id
+    assert ConfigManager.load().default == b.id
     assert svc.get(b.id).is_default is True
 
 
-def test_connection_delete_da_unica_default_volta_pro_catalogo(svc):
+def test_connection_delete_da_unica_deixa_sem_padrao(svc):
     only = svc.create("Only")
-    svc.set_default(only.id)
     assert svc.delete(only.id) is True
-    assert ConfigManager.load_or_create().default == DEFAULT_CONNECTION_ID
+    assert ConfigManager.load().default is None
+    with pytest.raises(NoConnectionError):
+        WorkspaceService().list()
 
 
-def test_workspace_with_connection(svc):
-    conn = svc.create("A")
-    ws = WorkspaceService(connection_id=conn.id).create("W")
-    assert ws.connection_id == conn.id
-    assert WorkspaceService().list() == []  # o default não enxerga
+def test_set_default_desabilitada_falha(svc):
+    svc.create("A")
+    b = svc.create("B", enabled=False)
+    with pytest.raises(ValidationError):
+        svc.set_default(b.id)
+    with pytest.raises(NotFoundError):
+        svc.set_default("nao-existe")
 
 
-def test_serializacao_mostra_remote_url_e_review_mode(svc, tmp_path):
-    remote = _bare_repo(tmp_path)
-    conn = svc.create("A", remote_url=remote, test=False)
-    data = connection_to_dict(svc.get(conn.id))
-    assert data["remote_url"] == remote
-    assert data["review_mode"] == "direct"
-    local = svc.create("L", test=False)
-    assert connection_to_dict(svc.get(local.id))["remote_url"] is None
-    assert connection_to_dict(svc.get(DEFAULT_CONNECTION_ID))["remote_url"] is None
+def test_workspace_fica_na_pasta_da_sua_conexao(svc):
+    a = svc.create("A")
+    b = svc.create("B")
+    ws = WorkspaceService(connection_id=b.id).create("W")
+    assert ws.id == "w"
+    assert WorkspaceService().list() == []  # a padrão (A) não enxerga
+    assert (Path(svc.get(b.id).path) / "w" / ".knowledge.yaml").is_file()
+    assert a.is_default
 
 
 def test_conexoes_ficam_no_json_com_o_remote_url(svc, tmp_path):
     remote = _bare_repo(tmp_path)
     svc.create("A", remote_url=remote, test=False)
     path = ConfigManager.CONNECTIONS_FILE
-    assert f'"remote_url": "{remote}"' in path.read_text(encoding="utf-8")
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["connections"][0]["remote_url"] == remote
     if os.name == "posix":
         assert path.stat().st_mode & 0o777 == 0o600

@@ -97,18 +97,14 @@ def test_tree_missing_is_404(client):
     assert client.get("/api/workspaces/nope/tree").status_code == 404
 
 
-def test_tree_agrupa_items_por_subject(client, mk, engine):
-    from sqlalchemy.orm import Session
-
+def test_tree_agrupa_items_por_subject(client, mk):
     from knowledge_os.services.subject_service import SubjectService
 
     ws = mk.ws("ComAssunto")
     p = mk.project(ws["id"], "P")
-    with Session(engine) as s:
-        subjects = SubjectService(s)
-        bug = subjects.create(p["id"], "Bugs")
-        subjects.create(p["id"], "Vazio")
-        bug_id = bug.id
+    subjects = SubjectService()
+    bug_id = subjects.create(ws["id"], p["id"], "Bugs").id
+    subjects.create(ws["id"], p["id"], "Vazio")
     mk.item(ws["id"], p["id"], "Com assunto", subject_id=bug_id)
     mk.item(ws["id"], p["id"], "Sem assunto")
 
@@ -169,17 +165,13 @@ def test_graph_missing_is_404(client):
     assert client.get("/api/workspaces/nope/graph").status_code == 404
 
 
-def test_graph_filtra_por_project_e_subject(client, mk, engine):
-    from sqlalchemy.orm import Session
-
+def test_graph_filtra_por_project_e_subject(client, mk):
     from knowledge_os.services.subject_service import SubjectService
 
     ws = mk.ws("Escopos")
     p1 = mk.project(ws["id"], "P1")
     p2 = mk.project(ws["id"], "P2")
-    with Session(engine) as s:
-        subj = SubjectService(s).create(p1["id"], "Assunto")
-        subj_id = subj.id
+    subj_id = SubjectService().create(ws["id"], p1["id"], "Assunto").id
     a = mk.item(ws["id"], p1["id"], "A", subject_id=subj_id)
     b = mk.item(ws["id"], p1["id"], "B", subject_id=subj_id)
     c = mk.item(ws["id"], p1["id"], "C")  # mesmo project, sem subject

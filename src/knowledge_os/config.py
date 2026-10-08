@@ -8,8 +8,7 @@ import sys
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
-from urllib.parse import quote
+from typing import Any, Literal
 
 from pydantic import BaseModel, field_validator, model_validator
 from pydantic import ValidationError as PydanticValidationError
@@ -22,83 +21,34 @@ from knowledge_os.exceptions import ConfigError  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
-MIN_DB_KEY_LENGTH = 16
-
-# Home de dados: connections.json, banco catálogo e backups de schema.
+# Home de dados: connections.json, repos.json, contadores de uso e a fila offline.
 # As constantes são lidas no import; o diretório só é criado em ensure_home().
 KNOWLEDGE_HOME: Path = (
     Path(os.getenv("KNOWLEDGE_OS_HOME") or Path.home() / ".knowledge-os").expanduser().resolve()
 )
-BACKUPS_DIR: Path = KNOWLEDGE_HOME / "backups"
-# Clones git e índices SQLite, um por connection (inclusive o catálogo "default").
+# Clones git das conexões antigas, gravadas antes de a pasta ser escolhida pelo usuário.
 REPOS_DIR: Path = KNOWLEDGE_HOME / "repos"
-INDEXES_DIR: Path = KNOWLEDGE_HOME / "indexes"
 
-# Id reservado do catálogo (banco padrão, virtual: não consta da lista de conexões).
-CATALOG_ID = "default"
+# Mensagem de toda operação que precisa de uma conexão quando não há nenhuma.
+NO_CONNECTION_MESSAGE = (
+    "Nenhuma conexão configurada. Crie uma com connection_create(name, path[, remote_url])."
+)
 
 
 def ensure_home() -> None:
-    """Cria o home de dados e seus subdiretórios (chamado pelos pontos de entrada)."""
-    for d in (KNOWLEDGE_HOME, BACKUPS_DIR, REPOS_DIR, INDEXES_DIR):
-        d.mkdir(parents=True, exist_ok=True)
+    """Cria o home de dados (chamado pelos pontos de entrada)."""
+    KNOWLEDGE_HOME.mkdir(parents=True, exist_ok=True)
 
-
-def _env_flag(name: str) -> bool:
-    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
-
-
-# Database: índice SQLite da connection "default" (catálogo). SQLCipher (DB_KEY) só se
-# aplica a ela — as demais connections não passam por criptografia nesta versão.
-DB_PATH: str = os.getenv("MCP_DB_PATH", str(KNOWLEDGE_HOME / "indexes" / "default.db"))
-DB_KEY: str | None = os.getenv("MCP_DB_KEY") or None
-# SQLCipher é usado quando há chave, ou quando solicitado via MCP_USE_SQLCIPHER.
-SQLCIPHER_REQUESTED: bool = _env_flag("MCP_USE_SQLCIPHER")
-USE_SQLCIPHER: bool = DB_KEY is not None
 
 # Logging
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper()
 UI_DEFAULT_PORT = 8765  # UI local (127.0.0.1); o link para preencher segredos aponta para ela
 
-if SQLCIPHER_REQUESTED and DB_KEY is None:
-    logger.warning(
-        "SQLCipher solicitado (MCP_USE_SQLCIPHER) mas MCP_DB_KEY não está definido; "
-        "usando SQLite sem criptografia"
-    )
-
-
-def _build_db_url() -> str:
-    """Monta a URL SQLAlchemy conforme SQLCipher esteja ou não em uso."""
-    if USE_SQLCIPHER and DB_KEY is not None:
-        # SQLCipher com criptografia AES-256 (PRAGMA key via senha da URL)
-        return f"sqlite+pysqlcipher://:{quote(DB_KEY, safe='')}@/{DB_PATH}"
-    return f"sqlite:///{DB_PATH}"
-
-
-# SQLAlchemy URL
-DB_URL: str = _build_db_url()
-
 
 def validate_config() -> None:
-    """Valida configuração na inicialização. Levanta ConfigError se inválida."""
-    # A chave só é validada quando SQLCipher está em uso; SQLite simples a ignora.
-    if USE_SQLCIPHER and DB_KEY is not None and len(DB_KEY) < MIN_DB_KEY_LENGTH:
-        raise ConfigError(f"MCP_DB_KEY deve ter no mínimo {MIN_DB_KEY_LENGTH} caracteres")
-
+    """Valida a configuração na inicialização. Levanta ConfigError se inválida."""
     if not KNOWLEDGE_HOME.exists():
         raise ConfigError(f"Home de dados não existe: {KNOWLEDGE_HOME}")
-
-    if not Path(DB_PATH).parent.exists():
-        raise ConfigError(f"Diretório do banco não existe: {Path(DB_PATH).parent}")
-
-
-def validate_and_init_config() -> None:
-    """Valida a configuração e executa o bootstrap do banco de dados."""
-    validate_config()
-    # Import tardio: knowledge_os.db.session importa este módulo.
-    from knowledge_os.db.migrations import bootstrap
-
-    bootstrap()
 
 
 def config_error(exc: Exception) -> ConfigError:
@@ -111,8 +61,8 @@ class ConnectionConfig(BaseModel):
 
     `path` é a pasta local do repositório, indicada pelo usuário na criação — já um
     repositório git (usado como está) ou uma pasta comum (`git init` nela). Sem
-    `remote_url`, a connection é só esse repositório local (sem GitHub). O índice de
-    busca (SQLite) vive no home de dados, derivado do `id` (`index_url`).
+    `remote_url`, a connection é só esse repositório local (sem GitHub). Os itens são os
+    arquivos dessa pasta: não há outra cópia deles.
 
     `path` é opcional só por compatibilidade com connections.json gravados antes dessa
     pasta ser escolhida pelo usuário — nelas o clone cai no home de dados, derivado do
@@ -134,32 +84,37 @@ class ConnectionConfig(BaseModel):
             raise ValueError("ID must be lowercase alphanumeric with hyphens/underscores")
         return v
 
-    @field_validator("id")
-    @classmethod
-    def id_not_reserved(cls, v: str) -> str:
-        if v == CATALOG_ID:
-            raise ValueError(f"ID '{CATALOG_ID}' is reserved")
-        return v
-
     def clone_path(self) -> Path:
         """Diretório do repositório git desta connection."""
         return Path(self.path) if self.path else REPOS_DIR / self.id
 
-    def index_url(self) -> str:
-        """URL SQLAlchemy do índice de busca (SQLite) desta connection."""
-        return f"sqlite:///{(INDEXES_DIR / f'{self.id}.db').as_posix()}"
+
+# Id do catálogo das versões antigas; só aparece em connections.json antigos.
+LEGACY_CATALOG_ID = "default"
 
 
 class ConnectionsFile(BaseModel):
-    """Conteúdo do connections.json do home."""
+    """Conteúdo do connections.json do home. Sem conexões, `default` é None."""
 
     version: str = "1.0"
-    default: str
-    connections: list[ConnectionConfig]
+    default: str | None = None
+    connections: list[ConnectionConfig] = []
+
+    @model_validator(mode="before")
+    @classmethod
+    def _sem_catalogo_antigo(cls, data: Any) -> Any:
+        """Versões antigas gravavam `default: "default"` (o catálogo, que não existe mais):
+        sem uma conexão com esse id, vira "sem padrão" em vez de recusar o arquivo."""
+        if isinstance(data, dict) and data.get("default") == LEGACY_CATALOG_ID:
+            ids = [c.get("id") if isinstance(c, dict) else getattr(c, "id", None)
+                   for c in data.get("connections") or []]
+            if LEGACY_CATALOG_ID not in ids:
+                data = {**data, "default": None}
+        return data
 
     @model_validator(mode="after")
     def default_exists(self) -> "ConnectionsFile":
-        if self.default != CATALOG_ID and self.default not in [c.id for c in self.connections]:
+        if self.default is not None and self.default not in [c.id for c in self.connections]:
             raise ValueError(f"Default connection '{self.default}' not found")
         return self
 
@@ -169,8 +124,8 @@ class ConnectionsFile(BaseModel):
                 return conn
         raise ValueError(f"Connection '{connection_id}' not found")
 
-    def get_default_connection(self) -> ConnectionConfig:
-        return self.get_connection(self.default)
+    def get_default_connection(self) -> ConnectionConfig | None:
+        return self.get_connection(self.default) if self.default else None
 
 
 class ConfigManager:
@@ -180,8 +135,8 @@ class ConfigManager:
 
     @staticmethod
     def create_default_config() -> ConnectionsFile:
-        """Config inicial: só o catálogo (`default`, <home>/knowledge.db), sem conexões extras."""
-        return ConnectionsFile(default=CATALOG_ID, connections=[])
+        """Config inicial: nenhuma conexão e nenhuma padrão."""
+        return ConnectionsFile(default=None, connections=[])
 
     @staticmethod
     def _parse(path: Path) -> ConnectionsFile:
@@ -206,14 +161,12 @@ class ConfigManager:
             raise ConfigError("connections.json inválido: JSON malformado ou ilegível") from None
 
     @staticmethod
-    def load_or_create() -> ConnectionsFile:
-        """Carrega o arquivo, ou grava e devolve o default se ele não existe."""
+    def load() -> ConnectionsFile:
+        """Carrega o arquivo; sem ele, a config vazia (nada é gravado só por ler)."""
         path = ConfigManager.CONNECTIONS_FILE
         if path.exists():
             return ConfigManager._parse(path)
-        config = ConfigManager.create_default_config()
-        ConfigManager.save(config)
-        return config
+        return ConfigManager.create_default_config()
 
     @staticmethod
     def save(config: ConnectionsFile) -> None:
@@ -265,8 +218,7 @@ class ConfigManager:
 
 
 if __name__ == "__main__":
-    from knowledge_os.config import validate_and_init_config as _run
-
     logging.basicConfig(level=LOG_LEVEL)
-    _run()
+    ensure_home()
+    validate_config()
     print("config: OK")

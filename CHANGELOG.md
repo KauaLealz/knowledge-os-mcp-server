@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+### Alterado (quebra de compatibilidade) — sem banco de nenhum tipo
+
+- **Armazenamento só em arquivos.** O servidor lê e grava apenas nos arquivos da pasta de cada
+  conexão (um repositório git): itens em Markdown com frontmatter YAML, `.knowledge.yaml` para
+  workspaces/projects/tags/labels e segredos cifrados em `.secrets/`. Saíram o SQLite (catálogo
+  e índices por conexão), o FTS5, o SQLAlchemy e o SQLCipher; a busca é em memória sobre os
+  arquivos. Cada escrita é um commit; o histórico e o backup são os do git.
+- **Sem conexão automática.** Não existe mais o catálogo `default`: `connections.json` começa
+  vazio (`default: null`) e, sem conexão, toda operação responde "Nenhuma conexão configurada.
+  Crie uma com connection_create(name, path[, remote_url])."; a tela inicial da UI explica o
+  mesmo.
+- **Criação de conexão só pelo MCP** (`connection_create`). A UI lista (com o caminho da pasta,
+  o remote, o modo, a padrão e o estado da pasta), edita, testa, define a padrão e apaga, mas não
+  cria. `GET /api/connections` ganhou `path_exists` e `is_git_repo`.
+- `~/.knowledge-os` guarda só estado da máquina: `connections.json`, `repos.json`, `usage/`,
+  `locks/` e `pending.jsonl`.
+
+### Removido
+
+- Rota `POST /api/connections` (criação pela API) e o seletor de pasta da UI de conexões.
+- Rota `POST /api/connections/{id}/schema-sync` e o `schema_sync`.
+- Ferramentas `backup` (export/import em ZIP), `artifact` e `vocabulary` (substituída por
+  `tag_*`/`label_*`).
+- Flags `--check-db`, `--bootstrap` e `--migrate-v2` do `knowledge-mcp`, e os alvos
+  `make bootstrap`/`make check-db`.
+- Variáveis `MCP_DB_PATH` e `MCP_DB_KEY` e o extra `crypto`.
+
+
 ### Corrigido
 
 - Push rejeitado (non-fast-forward) no mesmo arquivo, em publish concorrente de `direct`,

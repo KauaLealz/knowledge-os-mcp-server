@@ -1,10 +1,10 @@
 """Testes do serializador item <-> arquivo Markdown (services/item_file.py)."""
 
 from datetime import datetime
+from types import SimpleNamespace
 
 import pytest
 
-from knowledge_os.db.models import Item
 from knowledge_os.exceptions import ValidationError
 from knowledge_os.services.item_file import (
     item_path,
@@ -199,11 +199,9 @@ def test_relation_alvo_por_id_quando_alvo_nao_tem_key():
 # --------------------------------------------------------------------------- Item ORM
 
 
-def test_serialize_aceita_item_sqlalchemy_alem_de_dict():
-    orm_item = Item(
+def test_serialize_aceita_objeto_com_atributos_alem_de_dict():
+    orm_item = SimpleNamespace(
         id="orm-1",
-        workspace_id="ws-1",
-        project_id="dm-1",
         type="pattern",
         memory_class="longterm",
         title="Padrão X",
@@ -211,7 +209,7 @@ def test_serialize_aceita_item_sqlalchemy_alem_de_dict():
         content="Conteúdo do padrão.",
         status="active",
         key="padrao/x",
-        scope_paths='["src/x/**"]',
+        scope_paths=["src/x/**"],
         created_at=datetime(2026, 1, 1, 0, 0, 0),
         updated_at=datetime(2026, 1, 2, 0, 0, 0),
     )
@@ -234,9 +232,28 @@ def test_serialize_aceita_item_sqlalchemy_alem_de_dict():
 # --------------------------------------------------------------------------- segredo recusado
 
 
-def test_serialize_recusa_item_secret():
+def test_serialize_aceita_item_secret_so_com_metadados():
     item = _minimal_item()
     item["type"] = "secret"
+    item["key"] = "segredo/token"
+    raw = serialize_item(
+        item,
+        workspace_name="Polara",
+        project_name="app",
+        subject_name=None,
+        relations=[],
+        tags=[],
+        labels=[],
+    )
+    parsed = parse_item_file(raw)
+    assert parsed["type"] == "secret" and parsed["key"] == "segredo/token"
+
+
+@pytest.mark.parametrize("campo", ["value", "valor", "secret_value", "ciphertext"])
+def test_serialize_recusa_secret_com_valor(campo):
+    item = _minimal_item()
+    item["type"] = "secret"
+    item[campo] = "s3nh4"
     with pytest.raises(ValidationError, match="secret"):
         serialize_item(
             item,
@@ -283,3 +300,62 @@ def test_parse_sem_campo_obrigatorio_levanta_validation_error(campo):
     raw_quebrado = "\n".join(linhas)
     with pytest.raises(ValidationError, match=campo):
         parse_item_file(raw_quebrado)
+
+
+# --------------------------------------------------------------------------- tipos inesperados
+
+
+def _raw_minimo() -> str:
+    return serialize_item(
+        _minimal_item(), workspace_name="Polara", project_name="app", subject_name=None,
+        relations=[], tags=[], labels=[],
+    )
+
+
+def _troca(raw: str, campo: str, valor: str) -> str:
+    linhas = [ln for ln in raw.splitlines() if not ln.startswith(f"{campo}:")]
+    linhas.insert(1, f"{campo}: {valor}")
+    return "\n".join(linhas) + "\n"
+
+
+@pytest.mark.parametrize(
+    ("campo", "valor"),
+    [
+        ("title", "2024"),
+        ("summary", "[a, b]"),
+        ("type", "{x: 1}"),
+        ("status", "true"),
+        ("id", "[a]"),
+        ("workspace", "[x]"),
+        ("project", "12"),
+        ("subject", "{a: b}"),
+        ("key", "[x]"),
+        ("keywords", "[a]"),
+        ("source", "{a: 1}"),
+        ("tags", "[1, x]"),
+        ("tags", "texto"),
+        ("labels", "[{a: b}]"),
+        ("scope_paths", "src/x"),
+        ("relations", "[x]"),
+        ("relations", "[{type: related_to}]"),
+        ("relations", "[{type: 1, target: x}]"),
+        ("relations", "{type: a, target: b}"),
+        ("confidence", "alto"),
+        ("importance", "[1]"),
+        ("ttl_days", "sete"),
+        ("created_at", "2024-01-01"),
+        ("updated_at", "12"),
+    ],
+)
+def test_parse_tipo_inesperado_levanta_validation_error(campo, valor):
+    raw = _troca(_raw_minimo(), campo, valor)
+    with pytest.raises(ValidationError, match=campo):
+        parse_item_file(raw)
+
+
+def test_parse_campos_opcionais_vazios_continuam_validos():
+    raw = _raw_minimo()
+    for campo in ("tags", "labels", "scope_paths", "relations"):
+        raw = _troca(raw, campo, "")
+    parsed = parse_item_file(raw)
+    assert parsed["tags"] == [] and parsed["relations"] == []

@@ -3,18 +3,15 @@
 from datetime import timedelta
 
 import pytest
-from sqlalchemy import DateTime, Engine, bindparam, text
 
-from knowledge_os.db.dialects.sqlite import SQLiteDialect
-from knowledge_os.db.models import Item, Project, Workspace
-from knowledge_os.db.search_query import match_expressions, stem, terms
-from knowledge_os.db.timeutil import utcnow
+from knowledge_os.services.brain import utcnow
 from knowledge_os.services.item_service import ItemService
+from knowledge_os.storage.search import query_terms, stem, terms
 
 
 @pytest.fixture
-def svc(test_engine: Engine) -> ItemService:
-    return ItemService(test_engine)
+def svc(conn) -> ItemService:
+    return ItemService()
 
 
 def _mk(svc, ws, dm, **over):
@@ -37,11 +34,11 @@ def test_radical_ptbr_junta_singular_plural_e_verbo():
     assert stem("cliente") == "cliente"  # radical curto demais: não corta
 
 
-def test_consulta_vira_prefixos_and_e_or():
-    assert match_expressions("migração banco") == ['"migr"* "banco"*', '"migr"* OR "banco"*']
-    assert match_expressions("Flyway OR Liquibase") == ["Flyway OR Liquibase"]  # sintaxe FTS5
-    assert match_expressions("") == [] and match_expressions("!!") == []
-    assert match_expressions("UI")[0] == '"ui"*'  # termo curto não some
+def test_consulta_vira_prefixos_sem_sintaxe():
+    assert query_terms("migração dados") == ["migr", "dado"]
+    assert query_terms("Flyway OR Liquibase") == ["flyway", "or", "liquibase"]
+    assert query_terms("") == [] and query_terms("!!") == []
+    assert query_terms("UI") == ["ui"]  # termo curto não some
 
 
 # ------------------------------------------------------------------ busca
@@ -72,17 +69,15 @@ def test_keywords_entram_na_busca(svc, sample_workspace, sample_project):
     assert svc.search(sample_workspace.id, None, "centavos")[0]["id"] == it.id
 
 
-def test_sem_workspace_busca_em_todos(svc, test_session, sample_workspace, sample_project):
-    outro = Workspace(id="w2", name="Outro")
-    test_session.add(outro)
-    test_session.flush()
-    dm2 = Project(id="d2", workspace_id="w2", name="D2")
-    test_session.add(dm2)
-    test_session.commit()
-    a = _mk(svc, sample_workspace, sample_project, title="Gotcha do Hibernate")
-    b = _mk(svc, outro, dm2, title="Hibernate no projeto novo")
+def test_sem_workspace_busca_em_todos(svc):
+    out = svc.save([
+        {"workspace": "W1", "project": "D1", "type": "knowledge", "title": "Gotcha do Hibernate",
+         "summary": "s", "content": "c"},
+        {"workspace": "Outro", "project": "D2", "type": "knowledge",
+         "title": "Hibernate no projeto novo", "summary": "s", "content": "c"},
+    ])
     found = {r["id"] for r in svc.search(None, None, "hibernate")}
-    assert found == {a.id, b.id}
+    assert found == {out[0]["id"], out[1]["id"]}
 
 
 def test_resultado_traz_key_tipo_e_project(svc, sample_workspace, sample_project):
@@ -91,56 +86,22 @@ def test_resultado_traz_key_tipo_e_project(svc, sample_workspace, sample_project
     assert (r["key"], r["type"], r["project"]) == ("regra/x", "rule", sample_project.name)
 
 
-def test_omite_substituidos_e_ephemeral_vencidos(
-    svc, test_engine, sample_workspace, sample_project
-):
+def test_omite_substituidos_e_ephemeral_vencidos(svc, sample_workspace, sample_project,
+                                                 data_dir):
     velho = _mk(svc, sample_workspace, sample_project, title="Deploy manual", status="superseded")
     eph = _mk(svc, sample_workspace, sample_project, title="Deploy rascunho",
               memory_class="ephemeral", ttl_days=1)
-    with test_engine.begin() as conn:
-        conn.execute(text("UPDATE items SET expires_at = :p WHERE id = :i").bindparams(
-                         bindparam("p", type_=DateTime)),
-                     {"p": utcnow() - timedelta(days=1), "i": eph.id})
+    path = data_dir / eph.path
+    stamp = (utcnow() - timedelta(days=2)).isoformat() + "Z"
+    text = path.read_text(encoding="utf-8")
+    path.write_text(text.replace(eph.updated_at.isoformat() + "Z", stamp), encoding="utf-8")
     assert svc.search(sample_workspace.id, None, "deploy") == []
     todos = {r["id"] for r in svc.search(sample_workspace.id, None, "deploy",
                                           include_inactive=True)}
     assert todos == {velho.id, eph.id}
 
 
-def test_ephemeral_ganha_expires_at(svc, sample_workspace, sample_project):
+def test_ephemeral_vence_em_updated_at_mais_ttl(svc, sample_workspace, sample_project):
     eph = _mk(svc, sample_workspace, sample_project, memory_class="ephemeral", ttl_days=7)
-    assert eph.expires_at is not None
+    assert eph.expires_at == eph.updated_at + timedelta(days=7)
     assert timedelta(days=6) < eph.expires_at - utcnow() <= timedelta(days=7)
-
-
-# ------------------------------------------------------------------ migração do índice
-
-
-def test_indice_antigo_e_recriado_sem_perder_itens(test_engine):
-    with test_engine.begin() as conn:
-        for trig in ("items_fts_ai", "items_fts_ad", "items_fts_au"):
-            conn.execute(text(f"DROP TRIGGER IF EXISTS {trig}"))
-        conn.execute(text("DROP TABLE items_fts"))
-        conn.execute(text("CREATE VIRTUAL TABLE items_fts USING fts5(title, summary, content, "
-                          "content='items', content_rowid='rowid')"))
-        conn.execute(text("INSERT INTO workspaces (id, name, connection_id) "
-                          "VALUES ('w', 'W', 'default')"))
-        conn.execute(text("INSERT INTO projects (id, workspace_id, name) VALUES ('d', 'w', 'D')"))
-        conn.execute(text(
-            "INSERT INTO items (id, workspace_id, project_id, type, memory_class, title, summary, "
-            "content, status, access_count) VALUES ('i1', 'w', 'd', 'knowledge', 'longterm', "
-            "'Configuração do Redis', 's', 'c', 'active', 0)"))
-    SQLiteDialect.create_fts_table(test_engine)
-    with test_engine.connect() as conn:
-        ddl = conn.execute(text("SELECT sql FROM sqlite_master WHERE name='items_fts'")).scalar()
-    assert "keywords" in ddl and "remove_diacritics" in ddl
-    assert [r["id"] for r in ItemService(test_engine).search("w", None, "configuracao")] == ["i1"]
-
-
-def test_create_fts_table_idempotente(test_engine):
-    SQLiteDialect.create_fts_table(test_engine)
-    SQLiteDialect.create_fts_table(test_engine)
-    with test_engine.connect() as conn:
-        n = conn.execute(text("SELECT count(*) FROM sqlite_master WHERE name='items_fts'")).scalar()
-    assert n == 1
-    assert Item.__table__.c.item_key is not None

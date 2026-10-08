@@ -1,18 +1,17 @@
 """Serializador item <-> arquivo Markdown com frontmatter YAML.
 
-Peça base da migração de storage (SQLite -> Git): transforma um `Item` (+ metadados de
-workspace/project/subject) num arquivo `.md` com frontmatter YAML, e faz o caminho inverso.
+Cada item do segundo cérebro é um arquivo `.md` (frontmatter YAML + corpo) na pasta da conexão,
+com os nomes de workspace/project/subject no frontmatter. `serialize_item` faz o arquivo e
+`parse_item_file` faz o caminho inverso.
 
-Decisão de design: `serialize_item` aceita tanto um `Item` do SQLAlchemy quanto um `dict` com
-os mesmos campos (chaves iguais aos atributos do modelo; `scope_paths` já decodificado como
-lista em ambos os casos — ver `_field`/`_scope_paths`). Isso deixa o módulo testável sem sessão
-de banco e sem acoplar quem só tem os dados em dict (ex.: payload vindo do Git) a uma instância
-ORM. `tags`, `labels` e `relations` são sempre parâmetros à parte: no ORM eles são relações
-carregadas separadamente, e `relations` já chega resolvido (pela key do alvo quando ele tem
-uma, senão pelo id) — este módulo não decide essa resolução, só serializa o que recebe.
+`serialize_item` aceita um `dict` ou qualquer objeto com os mesmos campos (`scope_paths` como
+lista). `tags`, `labels` e `relations` são sempre parâmetros à parte, e `relations` já chega
+resolvido (pela key do alvo quando ele tem uma no mesmo project, senão pelo id) — este módulo
+não decide essa resolução, só serializa o que recebe.
 
-Segredos (`type == "secret"`) nunca são serializados para arquivo versionável: `serialize_item`
-recusa com `ValidationError`. O valor do segredo vive à parte (fora do git), noutro lote.
+Segredos (`type == "secret"`) entram no arquivo só com metadados (título, resumo, key...): o
+valor vive à parte, fora do git. `serialize_item` recusa com `ValidationError` um item secret que
+traga algum campo de valor (`_SECRET_VALUE_FIELDS`).
 """
 
 from __future__ import annotations
@@ -20,14 +19,18 @@ from __future__ import annotations
 import re
 import unicodedata
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import yaml
 
 from knowledge_os.exceptions import ValidationError
-from knowledge_os.schemas.item_schemas import decode_paths
 
 _SEM_KEY_DIR = "_sem-key"
+
+# Loader seguro em C quando o PyYAML foi compilado com libyaml: abrir milhares de itens com o
+# loader em Python puro leva segundos.
+_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
 # Campos obrigatórios no frontmatter: sem eles não dá para reconstruir o item.
 _REQUIRED_FIELDS = (
@@ -40,6 +43,9 @@ _REQUIRED_FIELDS = (
     "created_at",
     "updated_at",
 )
+
+# Campos que carregariam o valor de um segredo: nunca podem chegar ao arquivo versionável.
+_SECRET_VALUE_FIELDS = ("value", "valor", "secret_value", "ciphertext")
 
 _FRONTMATTER_RE = re.compile(r"\A---\n(.*?\n)---\n(.*)\Z", re.DOTALL)
 
@@ -71,6 +77,57 @@ def slugify(name: str) -> str:
     return slug.strip("-")
 
 
+_ID_RE = re.compile(r"[A-Za-z0-9-]{1,100}")
+# Segmento de key: começa por letra ou número (nada de vazio, "." , ".." ou pasta oculta).
+_KEY_SEGMENT_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+
+def key_problem(key: Any) -> str | None:
+    """Motivo pelo qual a key não serve de path dentro do project (None se serve).
+
+    A key vira `<ws>/<pj>/<key>.md`: cada segmento separado por "/" precisa começar por letra
+    ou número e ter só letras, números, ".", "_" e "-". Isso recusa segmento vazio, ".", "..",
+    pasta oculta, barra invertida, ":" e caminho absoluto.
+    """
+    if not isinstance(key, str) or not key or len(key) > 200:
+        return "key deve ser um texto de 1 a 200 caracteres"
+    if not all(_KEY_SEGMENT_RE.fullmatch(seg) for seg in key.split("/")):
+        return (f"key inválida: {key!r} (cada parte entre '/' começa por letra ou número e "
+                "usa só letras, números, '.', '_' e '-')")
+    return None
+
+
+def id_problem(item_id: Any) -> str | None:
+    """Motivo pelo qual o id não serve (None se serve): só letras, números e hífen."""
+    if not isinstance(item_id, str) or not _ID_RE.fullmatch(item_id):
+        return f"id inválido: {item_id!r} (use só letras, números e '-')"
+    return None
+
+
+def folder_problem(name: Any, what: str) -> str | None:
+    """Motivo pelo qual o nome de workspace/project não vira uma pasta segura (None se vira)."""
+    if not isinstance(name, str):
+        return f"{what} deve ser texto: {name!r}"
+    slug = slugify(name)
+    if not slug or slug.startswith(".") or slug in (".", ".."):
+        return f"{what} inválido para nome de pasta: {name!r}"
+    return None
+
+
+def safe_join(root: Path, rel: str) -> Path:
+    """`root / rel`, desde que o destino (resolvido, seguindo symlink) fique dentro de `root`.
+
+    Última barreira de toda gravação e remoção na pasta da conexão: um path relativo vindo de
+    key, id ou nome que escape da pasta (ex.: "../../x", absoluto, ou por um symlink que aponta
+    para fora) levanta `ValidationError` em vez de tocar o disco.
+    """
+    base = Path(root).resolve()
+    target = Path(root) / rel
+    if not target.resolve().is_relative_to(base) or target.resolve() == base:
+        raise ValidationError(f"Caminho fora da pasta da conexão: {rel!r}")
+    return target
+
+
 def item_path(workspace_name: str, project_name: str, key: str | None, item_id: str) -> str:
     """Path do arquivo do item, relativo à raiz do repositório de dados.
 
@@ -78,7 +135,15 @@ def item_path(workspace_name: str, project_name: str, key: str | None, item_id: 
     namespace (ex.: "regra/money"), que vira níveis de pasta dentro do project, não um nome de
     arquivo com "/" literal. Sem key (item criado só com título): o arquivo vai para a pasta
     "_sem-key", nomeado pelo id.
+
+    Levanta `ValidationError` se key, id, workspace ou project levariam o arquivo para fora da
+    pasta do project (ex.: key com "..").
     """
+    problem = (folder_problem(workspace_name, "workspace")
+               or folder_problem(project_name, "project")
+               or (key_problem(key) if key else id_problem(item_id)))
+    if problem:
+        raise ValidationError(problem)
     ws = slugify(workspace_name)
     dm = slugify(project_name)
     if key:
@@ -96,9 +161,7 @@ def _field(item: Any, name: str, default: Any = None) -> Any:
 
 
 def _scope_paths(item: Any) -> list[str]:
-    if isinstance(item, dict):
-        return list(item.get("scope_paths") or [])
-    return decode_paths(item.scope_paths)
+    return list(_field(item, "scope_paths") or [])
 
 
 def _fmt_dt(value: datetime) -> str:
@@ -133,19 +196,22 @@ def serialize_item(
     tags: list[str],
     labels: list[str],
 ) -> str:
-    """Serializa um item (Item do SQLAlchemy ou dict equivalente) em conteúdo de arquivo
+    """Serializa um item (dict ou objeto com os mesmos campos) em conteúdo de arquivo
     Markdown com frontmatter YAML.
 
-    Recusa (`ValidationError`) serializar um item `type == "secret"`: segredo nunca vai pro
-    git. Campos de telemetria (`access_count`, `last_accessed`) e `expires_at` (sempre
-    recalculado a partir de `updated_at` + `ttl_days`) nunca são persistidos no arquivo.
+    Item `type == "secret"` é serializado só com metadados; recusa (`ValidationError`) se ele
+    trouxer algum campo de valor — o valor do segredo nunca vai pro git. Campos de telemetria
+    (`access_count`, `last_accessed`) e `expires_at` (sempre recalculado a partir de
+    `updated_at` + `ttl_days`) nunca são persistidos no arquivo.
     """
     item_type = _field(item, "type")
     if item_type == "secret":
-        raise ValidationError(
-            "Item do tipo 'secret' não pode ser serializado para arquivo versionável "
-            "(segredos nunca vão para o git)"
-        )
+        found = [f for f in _SECRET_VALUE_FIELDS if _field(item, f) is not None]
+        if found:
+            raise ValidationError(
+                f"Item do tipo 'secret' com campo de valor ({', '.join(found)}) não pode ser "
+                "serializado para arquivo versionável (o valor nunca vai para o git)"
+            )
 
     memory_class = _field(item, "memory_class")
     key = _field(item, "key")
@@ -216,7 +282,7 @@ def parse_item_file(raw: str) -> dict[str, Any]:
     raw_frontmatter, content = match.groups()
 
     try:
-        data = yaml.safe_load(raw_frontmatter)
+        data = yaml.load(raw_frontmatter, Loader=_LOADER)  # noqa: S506 - loader seguro
     except yaml.YAMLError as exc:
         raise ValidationError(f"Frontmatter YAML malformado: {exc}") from exc
     if not isinstance(data, dict):
@@ -225,6 +291,19 @@ def parse_item_file(raw: str) -> dict[str, Any]:
     missing = [f for f in _REQUIRED_FIELDS if data.get(f) is None]
     if missing:
         raise ValidationError(f"Frontmatter sem campo(s) obrigatório(s): {', '.join(missing)}")
+
+    for name in _TEXT_REQUIRED:
+        _text(data, name, required=True)
+    for name in _TEXT_OPTIONAL:
+        _text(data, name, required=False)
+    problem = id_problem(data["id"])
+    if not problem and data.get("key") is not None:
+        problem = key_problem(data["key"])
+    for name in ("workspace", "project"):
+        if not problem and data.get(name) is not None:
+            problem = folder_problem(data[name], name)
+    if problem:
+        raise ValidationError(f"Frontmatter com {problem}")
 
     parsed: dict[str, Any] = {
         "id": data["id"],
@@ -236,18 +315,66 @@ def parse_item_file(raw: str) -> dict[str, Any]:
         "title": data["title"],
         "status": data["status"],
         "memory_class": data["memory_class"],
-        "tags": list(data.get("tags") or []),
-        "labels": list(data.get("labels") or []),
-        "scope_paths": list(data.get("scope_paths") or []),
-        "confidence": data.get("confidence"),
-        "importance": data.get("importance"),
-        "ttl_days": data.get("ttl_days"),
+        "tags": _str_list(data, "tags"),
+        "labels": _str_list(data, "labels"),
+        "scope_paths": _str_list(data, "scope_paths"),
+        "confidence": _int(data, "confidence"),
+        "importance": _int(data, "importance"),
+        "ttl_days": _int(data, "ttl_days"),
         "keywords": data.get("keywords"),
         "source": data.get("source"),
         "created_at": _parse_dt(data["created_at"], "created_at"),
         "updated_at": _parse_dt(data["updated_at"], "updated_at"),
-        "relations": list(data.get("relations") or []),
+        "relations": _relations(data),
         "summary": data["summary"],
         "content": content,
     }
     return parsed
+
+
+# Campos de texto do frontmatter: um YAML válido com outro tipo (`title: 2024`, `id: [a]`)
+# derrubaria quem lê o item; aqui ele vira erro do arquivo.
+_TEXT_REQUIRED = ("id", "type", "title", "summary", "status", "memory_class")
+_TEXT_OPTIONAL = ("key", "workspace", "project", "subject", "keywords", "source")
+
+
+def _text(data: dict[str, Any], name: str, *, required: bool) -> None:
+    value = data.get(name)
+    if value is None and not required:
+        return
+    if not isinstance(value, str):
+        raise ValidationError(f"Frontmatter com {name!r} que não é texto: {value!r}")
+
+
+def _str_list(data: dict[str, Any], name: str) -> list[str]:
+    value = data.get(name)
+    if value is None:
+        return []
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        raise ValidationError(f"Frontmatter com {name!r} que não é lista de textos: {value!r}")
+    return list(value)
+
+
+def _int(data: dict[str, Any], name: str) -> int | None:
+    value = data.get(name)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValidationError(f"Frontmatter com {name!r} que não é número inteiro: {value!r}")
+    return value
+
+
+def _relations(data: dict[str, Any]) -> list[dict[str, str]]:
+    value = data.get("relations")
+    if value is None:
+        return []
+    ok = isinstance(value, list) and all(
+        isinstance(r, dict) and isinstance(r.get("type"), str)
+        and isinstance(r.get("target"), str)
+        for r in value
+    )
+    if not ok:
+        raise ValidationError(
+            f"Frontmatter com 'relations' fora do formato [{{type, target}}]: {value!r}"
+        )
+    return [{"type": r["type"], "target": r["target"]} for r in value]

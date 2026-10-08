@@ -175,7 +175,8 @@
             </div>
           </div>
         </template>
-        <div class="tree-empty" x-show="!$store.app.workspaces.length">No workspaces in this connection.</div>
+        <div class="tree-empty" x-show="$store.app.connections.length && !$store.app.workspaces.length">No workspaces in this connection.</div>
+        <div class="tree-empty" x-show="!$store.app.connError && !$store.app.connections.length">Nenhuma conexão. Crie uma pelo MCP com <code>connection_create</code>.</div>
       </nav>
 
       <div class="side-foot">
@@ -224,6 +225,21 @@
 
       <template x-if="$store.app.ready">
         <div>
+
+          <!-- Início sem conexão -->
+          <template x-if="$store.app.route.name === 'home' && !$store.app.connError && !$store.app.connections.length">
+            <div class="page"><div class="doc">
+              <div class="state">
+                <svg class="logo"><use href="#logo"/></svg>
+                <h3>Nenhuma conexão ainda</h3>
+                <p>O Knowledge OS guarda os dados numa pasta (repositório git) — a conexão. A criação é pelo MCP, com a ferramenta <code>connection_create</code>. Por exemplo:</p>
+                <pre class="mono"><code>connection_create(name="pessoal", path="C:\\caminho\\da\\pasta")</code></pre>
+                <p class="form-hint-text">Depois de criar, recarregue esta página.</p>
+                <a class="btn" href="#/settings/connections">Ver conexões</a>
+              </div>
+            </div></div>
+          </template>
+          <!-- /Início sem conexão -->
 
           <!-- Conexão: lista de workspaces -->
           <template x-if="$store.app.route.name === 'connection'">
@@ -920,41 +936,48 @@
             </div>
           </template>
 
-          <!-- Configurações · Conexões (T8) -->
+          <!-- Configurações · Conexões: listar, editar, definir a padrão e apagar. Criar é pelo MCP. -->
           <template x-if="$store.app.route.name === 'connections'">
             <div class="page"><div class="doc" x-data="connectionsView">
               <nav class="crumbs">
-                <a href="#/settings/connections" x-show="sub">Connections</a><span class="sep" x-show="sub">/</span>
-                <span x-show="!sub">Settings</span>
-                <span x-show="isNew">New connection</span>
+                <a href="#/settings/connections" x-show="sub">Conexões</a><span class="sep" x-show="sub">/</span>
+                <span x-show="!sub">Configurações</span>
                 <span x-show="conn" x-text="conn?.name"></span>
-                <a class="crumb-back" href="#/settings/connections" x-show="sub"><svg class="ic"><use href="#i-arrow-left"/></svg> Back</a>
+                <a class="crumb-back" href="#/settings/connections" x-show="sub"><svg class="ic"><use href="#i-arrow-left"/></svg> Voltar</a>
               </nav>
 
               <!-- Lista -->
               <template x-if="!sub">
                 <div>
                   <div class="page-head">
-                    <h1 class="page-title">Connections</h1>
-                    <div class="toolbar"><a class="btn primary" href="#/settings/connections/new"><svg class="ic"><use href="#i-plus"/></svg> New connection</a></div>
+                    <h1 class="page-title">Conexões</h1>
                   </div>
                   <div class="state error" x-show="error || $store.app.connError" role="alert">
                     <svg class="logo"><use href="#logo"/></svg>
-                    <h3>Could not list connections</h3>
+                    <h3>Não foi possível listar as conexões</h3>
                     <p x-text="error || $store.app.connError"></p>
-                    <button class="btn" @click="load()">Try again</button>
+                    <button class="btn" @click="load()">Tentar de novo</button>
                   </div>
-                  <div class="conn-list" x-show="!error && !$store.app.connError">
+                  <div class="state" x-show="!error && !$store.app.connError && !loading && !$store.app.connections.length">
+                    <svg class="logo"><use href="#logo"/></svg>
+                    <h3>Nenhuma conexão ainda</h3>
+                    <p>Cada conexão é uma pasta (repositório git) onde ficam os dados. A criação é pelo MCP, com a ferramenta <code>connection_create</code>. Por exemplo:</p>
+                    <pre class="mono"><code>connection_create(name="pessoal", path="C:\\caminho\\da\\pasta")</code></pre>
+                    <p class="form-hint-text">Depois de criar, recarregue esta página.</p>
+                  </div>
+                  <div class="conn-list" x-show="!error && !$store.app.connError && $store.app.connections.length">
                     <template x-for="c in $store.app.connections" :key="c.id">
                       <a class="conn-row" :href="'#/settings/connections/' + encodeURIComponent(c.id)">
                         <span class="dot" :class="dotClass(c)" :title="lastTest(c)"></span>
                         <span class="conn-main">
                           <span class="conn-name"><b x-text="c.name"></b>
                             <span class="chip outline" x-text="c.review_mode"></span>
-                            <span class="chip accent" x-show="c.is_default">Default</span>
-                            <span class="chip outline" x-show="!c.enabled">Disabled</span>
+                            <span class="chip accent" x-show="c.is_default">Padrão</span>
+                            <span class="chip outline" x-show="!c.enabled">Desativada</span>
+                            <span class="chip outline" :class="{ accent: folderState(c).ok }" x-text="folderState(c).label"></span>
                           </span>
-                          <span class="conn-sub" x-text="target(c)"></span>
+                          <span class="conn-sub mono" x-text="c.path || '(sem caminho)'" :title="c.path"></span>
+                          <span class="conn-sub" x-text="c.remote_url ? 'Remote: ' + c.remote_url : 'Só local (sem remote)'"></span>
                         </span>
                         <span class="conn-test muted">
                           <span x-text="lastTest(c)"></span>
@@ -963,88 +986,55 @@
                       </a>
                     </template>
                   </div>
+                  <p class="form-hint-text" x-show="$store.app.connections.length">Para criar outra conexão, use a ferramenta MCP <code>connection_create</code>.</p>
                 </div>
               </template>
 
-              <!-- Detalhe / nova -->
+              <!-- Detalhe -->
               <template x-if="sub">
                 <div>
-                  <h1 class="page-title" x-text="isNew ? 'New connection' : (conn ? conn.name : 'Connection')"></h1>
-                  <p class="page-meta" x-show="conn?.is_default">
-                    <span class="chip accent">Default</span>
+                  <h1 class="page-title" x-text="conn ? conn.name : 'Conexão'"></h1>
+                  <p class="page-meta" x-show="conn">
+                    <span class="chip accent" x-show="conn?.is_default">Padrão</span>
+                    <span class="chip outline" x-show="conn" x-text="conn ? folderState(conn).label : ''"></span>
                   </p>
+                  <p class="mono" x-show="conn" x-text="conn?.path"></p>
 
                   <div class="state error" x-show="notFound" role="alert">
                     <svg class="logo"><use href="#logo"/></svg>
-                    <h3>Connection not found</h3>
-                    <a class="btn" href="#/settings/connections">Back to connections</a>
+                    <h3>Conexão não encontrada</h3>
+                    <a class="btn" href="#/settings/connections">Voltar para as conexões</a>
                   </div>
 
                   <div x-show="!notFound">
                     <p class="form-error" x-show="error" x-text="error" role="alert"></p>
 
-                    <!-- Form (does not exist for the catalog) -->
-                    <form x-show="isNew || editable" @submit.prevent="save()" autocomplete="off">
+                    <!-- Edição: nome, remote, modo e ativar. A pasta não muda por aqui. -->
+                    <form x-show="conn" @submit.prevent="save()" autocomplete="off">
                       <div class="form-row">
-                        <div class="field grow"><label for="c-name">Name</label>
+                        <div class="field grow"><label for="c-name">Nome</label>
                           <input id="c-name" class="input" type="text" x-model="form.name" maxlength="255" required></div>
-                        <div class="field"><label for="c-review">Publish mode</label>
+                        <div class="field"><label for="c-review">Modo de publicação</label>
                           <select id="c-review" class="select" x-model="form.review_mode">
-                            <option value="direct">Direct</option>
+                            <option value="direct">Direto</option>
                             <option value="pr">Pull request</option>
                           </select></div>
                       </div>
 
-                      <div class="field" x-show="isNew"><label for="c-path">Repository folder</label>
-                        <div style="display:flex; gap:8px">
-                          <input id="c-path" class="input mono" style="flex:1" type="text" x-model="form.path" placeholder="/home/user/my-knowledge" required>
-                          <button type="button" class="btn" @click="openBrowse()"><svg class="ic"><use href="#i-folder"/></svg> Browse…</button>
-                        </div>
-                        <span class="form-hint-text">A local folder — already a git repository (used as-is) or a plain one (git init, keeping what's inside).</span></div>
+                      <div class="field"><label for="c-remote">Remote git</label>
+                        <input id="c-remote" class="input mono" type="text" x-model="form.remote_url" placeholder="(vazio = só local)">
+                        <span class="form-hint-text">Opcional. Sem remote, o repositório fica só nesta máquina.</span></div>
 
-                      <label class="check"><input type="checkbox" x-model="form.enabled"> Enabled</label>
+                      <label class="check"><input type="checkbox" x-model="form.enabled"> Ativa</label>
 
                       <div class="toolbar" style="margin-top:14px">
-                        <button type="submit" class="btn primary" :disabled="saving" x-text="saving ? 'Saving…' : (isNew ? 'Create' : 'Save')"></button>
-                        <button type="button" class="btn" :disabled="saving || testing" @click="saveAndTest()">Save and test</button>
-                        <a class="btn ghost" href="#/settings/connections">Cancel</a>
+                        <button type="submit" class="btn primary" :disabled="saving" x-text="saving ? 'Salvando…' : 'Salvar'"></button>
+                        <button type="button" class="btn" :disabled="saving || testing" @click="saveAndTest()">Salvar e testar</button>
+                        <a class="btn ghost" href="#/settings/connections">Cancelar</a>
                       </div>
                     </form>
 
-                    <!-- Folder picker (GET /fs/browse — server listens on 127.0.0.1 only) -->
-                    <div class="overlay" x-show="browse.open" x-cloak @click.self="closeBrowse()" @keydown.escape.window="closeBrowse()">
-                      <div class="dialog" role="dialog" aria-modal="true" aria-label="Choose a folder">
-                        <div class="dialog-head">
-                          <h2>Choose a folder</h2>
-                          <button class="btn icon ghost" @click="closeBrowse()" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button>
-                        </div>
-                        <div class="dialog-body">
-                          <p class="form-error" x-show="browse.error" x-text="browse.error" role="alert"></p>
-                          <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px">
-                            <span class="chip outline" style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:var(--mono)" x-text="browse.path"></span>
-                            <span class="chip accent" x-show="browse.isGitRepo">Git repo</span>
-                          </div>
-                          <div style="max-height:320px; overflow:auto; border:1px solid var(--border); border-radius:var(--radius)">
-                            <a class="fs-row" href="#" @click.prevent="browseTo(browse.parent)" x-show="browse.parent">.. (up)</a>
-                            <template x-for="e in browse.entries" :key="e.path">
-                              <a class="fs-row" href="#" @click.prevent="browseTo(e.path)">
-                                <svg class="ic"><use href="#i-folder"/></svg> <span x-text="e.name"></span>
-                                <span class="chip accent" x-show="e.is_git_repo">git</span>
-                              </a>
-                            </template>
-                            <div class="state" x-show="!browse.loading && !browse.entries.length">
-                              <p>No subfolders here.</p>
-                            </div>
-                          </div>
-                        </div>
-                        <div class="dialog-foot">
-                          <button type="button" class="btn ghost" @click="closeBrowse()">Cancel</button>
-                          <button type="button" class="btn primary" @click="pickFolder()">Use this folder</button>
-                        </div>
-                      </div>
-                    </div>
-
-                    <!-- Test result: message + latency (the message never includes the password) -->
+                    <!-- Resultado do teste: mensagem + latência -->
                     <div class="alert-inline" :class="alert?.kind" x-show="alert" role="status">
                       <svg class="ic"><use :href="alert?.kind === 'ok' ? '#i-check' : '#i-alert'"/></svg>
                       <span x-text="alert?.message"></span>
@@ -1053,22 +1043,20 @@
 
                     <template x-if="conn">
                       <div>
-                        <h2 class="section-title">Actions</h2>
+                        <h2 class="section-title">Ações</h2>
                         <div class="toolbar">
-                          <button class="btn" :disabled="testing" @click="test()"><svg class="ic"><use href="#i-refresh"/></svg> <span x-text="testing ? 'Testing…' : 'Test'"></span></button>
-                          <button class="btn" :disabled="conn.is_default || !conn.enabled" @click="makeDefault()">Set as default</button>
+                          <button class="btn" :disabled="testing" @click="test()"><svg class="ic"><use href="#i-refresh"/></svg> <span x-text="testing ? 'Testando…' : 'Testar'"></span></button>
+                          <button class="btn" :disabled="conn.is_default || !conn.enabled" @click="makeDefault()">Definir como padrão</button>
                         </div>
-                        <p class="form-hint-text">"Test" uses the saved configuration. "Set as default" also changes the connection used by MCP tools when they're called without <code>connection_id</code>.</p>
+                        <p class="form-hint-text">"Testar" usa a configuração salva. "Definir como padrão" também muda a conexão usada pelas ferramentas MCP chamadas sem <code>connection_id</code>.</p>
 
-                        <div class="danger-zone" x-show="editable">
-                          <h2 class="section-title">Danger zone</h2>
-                          <div x-show="canDelete">
-                            <p>Removes the connection from the list — the repository folder and its files stay untouched. Type <b x-text="conn.name"></b> to confirm.</p>
-                            <p class="form-hint-text" x-show="conn.is_default">This is the current default: another connection takes over automatically.</p>
-                            <div class="toolbar">
-                              <input class="input" type="text" x-model="confirmName" :placeholder="conn.name" aria-label="Connection name to confirm" autocomplete="off" style="max-width:260px">
-                              <button class="btn danger" :disabled="!dangerReady || deleting" @click="remove()">Delete connection</button>
-                            </div>
+                        <div class="danger-zone">
+                          <h2 class="section-title">Zona de perigo</h2>
+                          <p>Tira a conexão da lista — a pasta do repositório e os arquivos dela ficam intactos. Digite <b x-text="conn.name"></b> para confirmar.</p>
+                          <p class="form-hint-text" x-show="conn.is_default">Esta é a padrão atual: outra conexão ativa assume o posto (se houver).</p>
+                          <div class="toolbar">
+                            <input class="input" type="text" x-model="confirmName" :placeholder="conn.name" aria-label="Nome da conexão para confirmar" autocomplete="off" style="max-width:260px">
+                            <button class="btn danger" :disabled="!dangerReady || deleting" @click="remove()">Apagar conexão</button>
                           </div>
                         </div>
                       </div>

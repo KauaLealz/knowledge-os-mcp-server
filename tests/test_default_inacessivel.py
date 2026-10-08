@@ -1,4 +1,4 @@
-"""Default do connections.json inacessível não impede o MCP/UI de subir."""
+"""connections.json ilegível (ou sem conexão) não impede o MCP/UI de subir."""
 
 import asyncio
 import json
@@ -9,7 +9,6 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 import knowledge_os.main as main_mod
-from tests.helpers_multidb import catalog  # noqa: F401  (fixture reaproveitada)
 from tests.test_stdio import server_env  # noqa: F401  (fixture reaproveitada)
 
 
@@ -32,17 +31,12 @@ def _write_down_default(home):
 
 
 @pytest.fixture
-def down_default(monkeypatch, catalog):  # noqa: F811
+def down_default(monkeypatch):
     import knowledge_os.config as config
 
     _write_down_default(config.KNOWLEDGE_HOME)
     monkeypatch.setattr(main_mod, "ensure_home", lambda: None)
     return config.KNOWLEDGE_HOME
-
-
-def test_bootstrap_sobe_com_default_inacessivel(down_default, capsys):
-    assert main_mod.main(["--bootstrap"]) == 0
-    assert "bootstrap: OK" in capsys.readouterr().out
 
 
 def test_ui_sobe_com_default_inacessivel(down_default, monkeypatch):
@@ -55,7 +49,13 @@ def test_ui_sobe_com_default_inacessivel(down_default, monkeypatch):
     assert calls
 
 
-def test_stdio_sobe_e_tool_sem_connection_id_da_erro_explicito(server_env):  # noqa: F811
+def test_health_check_conta_o_problema_sem_derrubar(down_default):
+    report = main_mod.check_connection()
+    assert report["status"] == "error" and report["connection"] is None
+    assert "pg" in report["message"] and "review_mode" in report["message"]
+
+
+def test_stdio_sobe_e_tool_da_erro_explicito(server_env):  # noqa: F811
     cwd, env, home = server_env
     _write_down_default(home)
     params = StdioServerParameters(
@@ -67,11 +67,10 @@ def test_stdio_sobe_e_tool_sem_connection_id_da_erro_explicito(server_env):  # n
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 broken = await session.call_tool("workspace_list", {})
-                cat = await session.call_tool(
-                    "workspace_list", {"connection_id": "default"})
-                return broken, cat
+                health = await session.call_tool("health_check", {})
+                return broken, health
 
-    broken, cat = asyncio.run(asyncio.wait_for(scenario(), timeout=60))
+    broken, health = asyncio.run(asyncio.wait_for(scenario(), timeout=60))
     assert broken.is_error
     assert "pg" in broken.content[0].text
-    assert not cat.is_error
+    assert not health.is_error

@@ -2,7 +2,7 @@
 
 Os subcomandos do segundo cérebro (`context`, `recent`, `pending`, `link`) rodam sem carregar
 o fastmcp: o hook de início de sessão chama `context` em toda sessão e precisa ser rápido.
-O resto (servidor MCP via stdio, `ui`, `--check-db`, `--bootstrap`) delega ao `knowledge_os.main`.
+O resto (servidor MCP via stdio e `ui`) delega ao `knowledge_os.main`.
 """
 
 import argparse
@@ -15,8 +15,9 @@ from pathlib import Path
 from typing import Any
 
 from knowledge_os import __version__
+from knowledge_os.exceptions import NoConnectionError
 
-BRAIN_COMMANDS = ("context", "recent", "pending", "link", "backup", "run")
+BRAIN_COMMANDS = ("context", "recent", "pending", "link", "run")
 PENDING_NAME = "pending.jsonl"  # no home do cérebro, fora de qualquer repositório
 LEGACY_PENDING = Path(".plumb") / "pending-brain.jsonl"  # versões antigas do Plumb
 HOOK_BUDGET = 1200
@@ -42,8 +43,6 @@ def _parser() -> argparse.ArgumentParser:
     pen = sub.add_parser("pending", help="grava a fila offline (<home>/pending.jsonl)")
     pen.add_argument("--repo", default=".", help="pasta do projeto (padrão: atual)")
 
-    sub.add_parser("backup", help="copia consistente do banco SQLite em <home>/backups")
-
     lnk = sub.add_parser("link", help="liga o projeto a um workspace/project")
     lnk.add_argument("--repo", default=".")
     lnk.add_argument("--workspace",
@@ -64,10 +63,10 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _init() -> None:
-    from knowledge_os.config import ensure_home, validate_and_init_config
+    from knowledge_os.config import ensure_home, validate_config
 
     ensure_home()
-    validate_and_init_config()
+    validate_config()
 
 
 def _pending_file() -> Path:
@@ -192,7 +191,7 @@ def _flush_claimed(claimed: Path, queue: Path, repo: Path) -> tuple[int, str | N
         entries = [e for e, _ in items]
         try:
             link = RepoService().resolve(proj)
-            default = (link["workspace_id"], link["project_id"]) if link else None
+            default = (link["workspace"], link["project"]) if link else None
             ItemService().save(entries, default_location=default)
             saved += len(entries)
         except Exception as exc:  # noqa: BLE001 - a fila fica para a próxima tentativa
@@ -223,21 +222,19 @@ def _is_project(path: Path) -> bool:
 
 
 def _sync_connection() -> None:
-    """Puxa o que mudou no repositório git da connection ativa (sem bloquear a sessão).
+    """Puxa o que mudou no repositório git da conexão padrão (sem bloquear a sessão).
 
-    Sem connection configurada (catálogo, sem repositório), não há o que sincronizar.
+    Sem conexão padrão, não há o que sincronizar.
     """
-    from knowledge_os.config import CATALOG_ID, ConfigManager
-    from knowledge_os.db.session import default_connection_id
-    from knowledge_os.services.git_repo_service import GitRepoService
+    from knowledge_os.storage.access import (
+        default_connection_id,
+        resolve_connection,
+        sync_connection,
+    )
 
-    cid = default_connection_id()
-    if cid == CATALOG_ID:
+    if default_connection_id() is None:
         return
-    conn = ConfigManager.load_or_create().get_connection(cid)
-    git = GitRepoService(conn.clone_path(), conn.remote_url, conn.review_mode)
-    git.ensure_clone()
-    git.sync()
+    sync_connection(resolve_connection())
 
 
 def _context(args: argparse.Namespace) -> int:
@@ -272,6 +269,10 @@ def _context(args: argparse.Namespace) -> int:
         if flush_error:
             text += (f"\n\n_Fila offline não gravada ({flush_error}); "
                      f"continua em {_pending_file()}._")
+    except NoConnectionError as exc:
+        if args.hook and not _is_project(repo.resolve()):
+            return 0
+        text = f"# Segundo cérebro\n{exc}"
     except Exception as exc:  # noqa: BLE001 - hook nunca pode quebrar a sessão
         text = (
             f"_Segundo cérebro indisponível ({type(exc).__name__}). Siga o trabalho e avise o "
@@ -299,36 +300,27 @@ def _parse_when(value: str | None, default: datetime) -> datetime:
 
 def _recent(args: argparse.Namespace) -> int:
     _init()
-    from sqlalchemy import select
-
-    from knowledge_os.db.models import Item, Project, Workspace
-    from knowledge_os.db.session import get_engine, get_session
+    from knowledge_os.services.brain import Brain
 
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     since = _parse_when(args.since, today - timedelta(days=1))
     until = _parse_when(args.until, datetime.now())
-    # O banco grava em UTC (utcnow); a janela vem em hora local.
+    # Os arquivos gravam em UTC; a janela vem em hora local.
     offset = datetime.now(timezone.utc).replace(tzinfo=None) - datetime.now()
     since_utc, until_utc = since + offset, until + offset
-    session = get_session(get_engine())
-    try:
-        rows = session.execute(
-            select(Item, Workspace.name, Project.name)
-            .join(Workspace, Workspace.id == Item.workspace_id)
-            .join(Project, Project.id == Item.project_id)
-            .where(Item.updated_at >= since_utc, Item.updated_at < until_utc)
-            .order_by(Item.updated_at)
-        ).all()
-    finally:
-        session.close()
+    records = sorted(
+        (r for r in Brain().snapshot.records.values()
+         if since_utc <= r.updated_at < until_utc),
+        key=lambda r: (r.updated_at, r.path),
+    )
     data = [
         {
-            "action": "created" if item.created_at and item.created_at >= since_utc else "updated",
-            "workspace": ws, "project": dm, "key": item.key, "type": item.type,
-            "memory_class": item.memory_class, "title": item.title, "summary": item.summary,
-            "source": item.source, "status": item.status,
+            "action": "created" if r.created_at >= since_utc else "updated",
+            "workspace": r.workspace, "project": r.project, "key": r.key, "type": r.type,
+            "memory_class": r.memory_class, "title": r.title, "summary": r.summary,
+            "source": r.source, "status": r.status,
         }
-        for item, ws, dm in rows
+        for r in records
     ]
     if args.json:
         print(json.dumps(data, ensure_ascii=False, indent=2))
@@ -358,15 +350,6 @@ def _link(args: argparse.Namespace) -> int:
 
     print(json.dumps(RepoService().link(args.repo, args.workspace, args.project)))
     return 0
-
-
-def _backup(args: argparse.Namespace) -> int:
-    _init()
-    from knowledge_os.services.maintenance import backup
-
-    path = backup("manual")
-    print(path if path else "Backup automático só para SQLite; este banco não é suportado.")
-    return 0 if path else 1
 
 
 def _run(args: argparse.Namespace) -> int:
@@ -409,7 +392,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         return {"context": _context, "recent": _recent, "pending": _pending,
-                "link": _link, "backup": _backup, "run": _run}[args.command](args)
+                "link": _link, "run": _run}[args.command](args)
     except Exception as exc:  # noqa: BLE001
         print(f"Erro: {exc}", file=sys.stderr)
         return 1

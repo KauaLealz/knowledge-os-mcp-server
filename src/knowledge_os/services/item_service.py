@@ -1,47 +1,36 @@
-"""Item service: CRUD, upsert por chave, lote, busca FTS5."""
+"""Item service: CRUD, upsert por chave, lote e busca — tudo nos arquivos da conexão.
 
-import json
+Toda escrita monta um rascunho (`brain.Draft`) e publica de uma vez pelo repositório git da
+conexão: em `review_mode="direct"` grava, comita (e empurra, se houver remote) e a leitura
+seguinte já vê o resultado; em `review_mode="pr"` abre PR (ou Issue) e a pasta continua na
+branch principal — a mudança só aparece depois do merge e de um sync.
+"""
+
+import dataclasses
 import logging
 import re
 import uuid
-from collections.abc import Iterator
-from contextlib import contextmanager
-from datetime import datetime, timedelta
 from typing import Any
 
 from pydantic import ValidationError as PydanticValidationError
-from sqlalchemy import DateTime, Engine, bindparam, delete, func, select, text, update
-from sqlalchemy.exc import OperationalError
-from sqlalchemy.orm import Session
 
-from knowledge_os.config import CATALOG_ID, ConfigManager, ConnectionConfig
-from knowledge_os.db.dialects import get_dialect
-from knowledge_os.db.models import (
-    Item,
-    ItemLabel,
-    ItemTag,
-    Label,
-    Project,
-    Relation,
-    SecretValue,
-    Subject,
-    Tag,
-    Workspace,
-)
-from knowledge_os.db.search_query import match_expressions
-from knowledge_os.db.session import (
-    connection_id_of,
-    default_connection_id,
-    get_engine,
-    get_session,
-    run_with_retry,
-)
-from knowledge_os.db.timeutil import utcnow
 from knowledge_os.exceptions import NotFoundError, ValidationError
 from knowledge_os.schemas.item_schemas import MEMORY_CLASSES, ItemCreate, ItemUpdate
-from knowledge_os.services.git_repo_service import GitRepoService, PublishResult
-from knowledge_os.services.item_file import item_path, serialize_item
+from knowledge_os.services.brain import (
+    Brain,
+    Draft,
+    Item,
+    Snapshot,
+    check_name,
+    is_expired,
+    meta_location,
+    utcnow,
+)
+from knowledge_os.services.git_repo_service import PublishResult
+from knowledge_os.services.item_file import slugify
 from knowledge_os.services.secret_guard import ensure_no_secrets
+from knowledge_os.storage.files import ItemRecord
+from knowledge_os.storage.search import search as search_records
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +48,7 @@ def _looks_random(text: str | None) -> bool:
             return True
     return False
 
+
 UPDATABLE_FIELDS = (
     "title", "type", "summary", "content", "confidence", "importance", "ttl_days",
     "keywords", "source", "status", "scope_paths", "tags", "labels",
@@ -75,226 +65,112 @@ def _validation_message(exc: PydanticValidationError) -> str:
     )
 
 
-def _expiry(
-    memory_class: str, ttl_days: int | None, base: datetime | None = None
-) -> datetime | None:
-    """Data de expiração de um ephemeral (None para as demais classes)."""
-    if memory_class != "ephemeral" or not ttl_days:
+def _names(values: list[str] | None) -> list[str]:
+    """Tags/labels sem repetição e sem vazio, em ordem alfabética (arquivo estável)."""
+    return sorted({v.strip() for v in values or [] if v and v.strip()})
+
+
+def _ids(value: str | list[str] | None) -> set[str] | None:
+    if not value:
         return None
-    return (base or utcnow()) + timedelta(days=ttl_days)
+    return {value} if isinstance(value, str) else set(value)
+
+
+def review_result(index: int, publish: PublishResult) -> dict[str, Any]:
+    if publish.status == "pending_review":
+        return {"index": index, "status": "pending_review", "pr_url": publish.pr_url}
+    return {"index": index, "status": "issue_opened", "issue_url": publish.issue_url}
+
+
+def run_search(
+    brain: Brain,
+    workspace_id: str | None,
+    project_id: str | list[str] | None,
+    query: str,
+    subject_id: str | list[str] | None = None,
+    types: list[str] | None = None,
+    memory_classes: list[str] | None = None,
+    limit: int = 10,
+    include_inactive: bool = False,
+    tags: list[str] | None = None,
+    labels: list[str] | None = None,
+) -> list[tuple[ItemRecord, float]]:
+    """Busca nos itens da conexão já lidos por `brain` (pares item, score)."""
+    if limit < 1:
+        raise ValidationError("limit deve ser >= 1")
+    projects, subjects = _ids(project_id), _ids(subject_id)
+    type_set, class_set = set(types or []), set(memory_classes or [])
+    want_tags, want_labels = set(_names(tags)), set(_names(labels))
+    now = utcnow()
+
+    def wanted(r: ItemRecord) -> bool:
+        if workspace_id and slugify(r.workspace or "") != workspace_id:
+            return False
+        if projects is not None and slugify(r.project or "") not in projects:
+            return False
+        if subjects is not None and (not r.subject or slugify(r.subject) not in subjects):
+            return False
+        if type_set and r.type not in type_set:
+            return False
+        if class_set and r.memory_class not in class_set:
+            return False
+        if want_tags and not want_tags <= set(r.tags or []):
+            return False
+        if want_labels and not want_labels <= set(r.labels or []):
+            return False
+        if not include_inactive:
+            if (r.status or "active") not in ("active", "done") or is_expired(r, now):
+                return False
+        return True
+
+    usage = brain.usage()
+
+    def tie(r: ItemRecord) -> tuple[Any, ...]:
+        uses = int((usage.get(r.id) or {}).get("uses") or 0)
+        return (r.importance or 0, r.confidence or 0, uses, r.updated_at)
+
+    records = [r for r in brain.snapshot.records.values() if wanted(r)]
+    return search_records(records, (query or "").strip(), limit, key=tie,
+                          index=brain.store.index)
 
 
 class ItemService:
-    """Operações de CRUD e busca FTS5 sobre Items.
+    """Operações de CRUD e busca sobre os itens da conexão (a informada ou a padrão)."""
 
-    Cada chamada abre e fecha a própria sessão. Os objetos retornados ficam
-    desanexados, mas com atributos (inclusive tags e labels) já carregados.
-    """
-
-    def __init__(self, engine: Engine | None = None, connection_id: str | None = None) -> None:
-        """Usa o engine informado ou o da connection (sem ambos, o banco default)."""
-        self._engine = engine
+    def __init__(self, connection_id: str | None = None) -> None:
         self._connection_id = connection_id
 
-    def _get_engine(self) -> Engine:
-        if self._engine is not None:
-            return self._engine
-        return get_engine(self._connection_id)
-
-    @property
-    def _cid(self) -> str:
-        """Connection dona dos workspaces: a informada, a do engine ou a default do JSON."""
-        if self._connection_id:
-            return self._connection_id
-        if self._engine is not None and (known := connection_id_of(self._engine)):
-            return known
-        return default_connection_id()
-
-    def _connection_config(self) -> ConnectionConfig | None:
-        """Config git da connection ativa; None para o catálogo (não tem repositório git)."""
-        cid = self._cid
-        if cid == CATALOG_ID:
-            return None
-        try:
-            return ConfigManager.load_or_create().get_connection(cid)
-        except ValueError:
-            return None
-
-    @staticmethod
-    def _git_service(conn: ConnectionConfig) -> GitRepoService:
-        return GitRepoService(conn.clone_path(), conn.remote_url, conn.review_mode)
-
-    @staticmethod
-    def _publish_path(s: Session, item: Item) -> str:
-        ws = s.get(Workspace, item.workspace_id)
-        pj = s.get(Project, item.project_id)
-        return item_path(ws.name, pj.name, item.key, item.id)
-
-    @staticmethod
-    def _publish_path_and_content(s: Session, item: Item) -> tuple[str, str]:
-        """Path relativo + conteúdo serializado do item, a partir do estado já resolvido
-        na sessão (workspace/project/subject, tags, labels e relações atuais)."""
-        ws = s.get(Workspace, item.workspace_id)
-        pj = s.get(Project, item.project_id)
-        sj = s.get(Subject, item.subject_id) if item.subject_id else None
-        relations: list[dict[str, str]] = []
-        for rel in s.scalars(select(Relation).where(Relation.source_item_id == item.id)):
-            target = s.get(Item, rel.target_item_id)
-            ref = (target.key or target.id) if target is not None else rel.target_item_id
-            relations.append({"type": rel.relation_type, "target": ref})
-        path = item_path(ws.name, pj.name, item.key, item.id)
-        content = serialize_item(
-            item,
-            workspace_name=ws.name,
-            project_name=pj.name,
-            subject_name=sj.name if sj else None,
-            relations=relations,
-            tags=[t.name for t in item.tags],
-            labels=[lb.name for lb in item.labels],
-        )
-        return path, content
-
-    @staticmethod
-    def _review_result(index: int, publish: PublishResult) -> dict[str, Any]:
-        if publish.status == "pending_review":
-            return {"index": index, "status": "pending_review", "pr_url": publish.pr_url}
-        return {"index": index, "status": "issue_opened", "issue_url": publish.issue_url}
-
-    @contextmanager
-    def _session(self) -> Iterator[Session]:
-        session = get_session(self._get_engine())
-        session.expire_on_commit = False
-        try:
-            yield session
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
+    def brain(self) -> Brain:
+        return Brain(self._connection_id)
 
     # ------------------------------------------------------------------ resolução
 
     def resolve_workspace_id(self, ref: str) -> str:
         """Resolve um workspace por nome ou id. Levanta NotFoundError se não existir."""
-        with self._session() as s:
-            ws_id = s.scalar(
-                select(Workspace.id).where(
-                    (Workspace.name == ref) | (Workspace.id == ref),
-                    Workspace.connection_id == self._cid,
-                )
-            )
-        if ws_id is None:
-            raise NotFoundError(f"Workspace não encontrado: {ref}")
-        return ws_id
+        return self.brain().snapshot.workspace(ref).id
 
     def resolve_project_id(self, workspace_id: str, ref: str) -> str:
         """Resolve um project (nome ou id) dentro do workspace. Levanta NotFoundError."""
-        with self._session() as s:
-            dm_id = s.scalar(
-                select(Project.id).where(
-                    Project.workspace_id == workspace_id,
-                    (Project.name == ref) | (Project.id == ref),
-                )
-            )
-        if dm_id is None:
-            raise NotFoundError(f"Project não encontrado: {ref}")
-        return dm_id
+        return self.brain().snapshot.project(workspace_id, ref).id
 
-    def resolve_subject_id(self, project_id: str, ref: str) -> str:
+    def resolve_subject_id(self, workspace_id: str, project_id: str, ref: str) -> str:
         """Resolve um subject (nome ou id) dentro do project. Levanta NotFoundError."""
-        with self._session() as s:
-            sj_id = s.scalar(
-                select(Subject.id).where(
-                    Subject.project_id == project_id,
-                    (Subject.name == ref) | (Subject.id == ref),
-                )
-            )
-        if sj_id is None:
-            raise NotFoundError(f"Subject não encontrado: {ref}")
-        return sj_id
-
-    def ensure_subject(self, project_id: str, name: str) -> str:
-        """Resolve um subject por nome dentro do project, criando o que não existir."""
-        return run_with_retry(
-            lambda: self._ensure_subject_once(project_id, name), retry_conflict=True
-        )
-
-    def _ensure_subject_once(self, project_id: str, name: str) -> str:
-        with self._session() as s:
-            sj_id = self._ensure_subject_in(s, project_id, name)
-            s.commit()
-            return sj_id
-
-    @staticmethod
-    def _ensure_subject_in(s: Session, project_id: str, name: str) -> str:
-        """Resolve/cria o subject dentro de uma sessão já aberta (sem commit próprio)."""
-        sj = s.scalar(
-            select(Subject).where(
-                Subject.project_id == project_id,
-                (Subject.name == name) | (Subject.id == name),
-            )
-        )
-        if sj is None:
-            sj = Subject(id=str(uuid.uuid4()), project_id=project_id, name=name)
-            s.add(sj)
-            s.flush()
-        return sj.id
+        return self.brain().snapshot.subject(workspace_id, project_id, ref).id
 
     def ensure_location(self, workspace: str, project: str) -> tuple[str, str]:
-        """Resolve workspace e project por nome ou id, criando os que não existem."""
-        return run_with_retry(
-            lambda: self._ensure_location_once(workspace, project), retry_conflict=True
-        )
+        """Workspace e project por nome ou id; os que faltam são criados (`.knowledge.yaml`)."""
+        brain = self.brain()
+        with brain.editing() as d:
+            ws_name, pj_name = location_names(d, workspace, project)
+            ws_id, pj_id = slugify(ws_name), slugify(pj_name)
+            if d.find_workspace(ws_id) is None:
+                d.set_meta(meta_location(ws_id), {"name": ws_name})
+            if d.find_project(ws_id, pj_id) is None:
+                d.set_meta(meta_location(ws_id, pj_id), {"name": pj_name})
+            brain.commit(d, f"knowledge-os: cria {ws_name}/{pj_name}")
+        return ws_id, pj_id
 
-    def _ensure_location_once(self, workspace: str, project: str) -> tuple[str, str]:
-        with self._session() as s:
-            ws = s.scalar(
-                select(Workspace).where(
-                    (Workspace.name == workspace) | (Workspace.id == workspace),
-                    Workspace.connection_id == self._cid,
-                )
-            )
-            if ws is None:
-                ws = Workspace(id=str(uuid.uuid4()), name=workspace, connection_id=self._cid)
-                s.add(ws)
-                s.flush()
-            dm = s.scalar(
-                select(Project).where(
-                    Project.workspace_id == ws.id,
-                    (Project.name == project) | (Project.id == project),
-                )
-            )
-            if dm is None:
-                dm = Project(id=str(uuid.uuid4()), workspace_id=ws.id, name=project)
-                s.add(dm)
-            s.commit()
-            return ws.id, dm.id
-
-    # ------------------------------------------------------------------ helpers
-
-    @staticmethod
-    def _get_or_create(session: Session, model: type[Tag] | type[Label], names: list[str]) -> list:
-        """Reusa registros existentes por nome e cria os que faltam (sem duplicar)."""
-        unique = list(dict.fromkeys(n.strip() for n in names if n and n.strip()))
-        if not unique:
-            return []
-        found = {r.name: r for r in session.scalars(select(model).where(model.name.in_(unique)))}
-        result = []
-        for name in unique:
-            row = found.get(name)
-            if row is None:
-                row = model(id=str(uuid.uuid4()), name=name)
-                session.add(row)
-            result.append(row)
-        return result
-
-    @staticmethod
-    def _load(session: Session, item_id: str) -> Item:
-        item = session.get(Item, item_id)
-        if item is None:
-            raise NotFoundError(f"Item não encontrado: {item_id}")
-        _ = item.tags, item.labels  # carrega antes de desanexar
-        return item
+    # ------------------------------------------------------------------ validação
 
     @staticmethod
     def _validate_create(**kwargs: Any) -> ItemCreate:
@@ -304,47 +180,6 @@ class ItemService:
             raise ValidationError(_validation_message(exc)) from exc
         ensure_no_secrets(**{f: getattr(data, f) for f in _TEXT_FIELDS})
         return data
-
-    def _insert(self, s: Session, data: ItemCreate) -> Item:
-        if s.get(Workspace, data.workspace_id) is None:
-            raise NotFoundError(f"Workspace não encontrado: {data.workspace_id}")
-        project = s.get(Project, data.project_id)
-        if project is None or project.workspace_id != data.workspace_id:
-            raise NotFoundError(f"Project não encontrado: {data.project_id}")
-        if data.subject_id is not None:
-            subject = s.get(Subject, data.subject_id)
-            if subject is None or subject.project_id != data.project_id:
-                raise NotFoundError(f"Subject não encontrado: {data.subject_id}")
-        if data.key and self._by_key(s, data.project_id, data.key) is not None:
-            raise ValidationError(f"Já existe item com key {data.key!r} neste project (use upsert)")
-        now = utcnow()
-        item = Item(
-            id=str(uuid.uuid4()),
-            workspace_id=data.workspace_id,
-            project_id=data.project_id,
-            subject_id=data.subject_id,
-            type=data.type,
-            memory_class=data.memory_class,
-            title=data.title,
-            summary=data.summary,
-            content=data.content,
-            confidence=data.confidence,
-            importance=data.importance,
-            ttl_days=data.ttl_days,
-            expires_at=_expiry(data.memory_class, data.ttl_days, now),
-            key=data.key,
-            keywords=data.keywords,
-            source=data.source,
-            status=data.status,
-            scope_paths=json.dumps(data.scope_paths) if data.scope_paths else None,
-            access_count=0,
-            created_at=now,
-            updated_at=now,
-        )
-        item.tags = self._get_or_create(s, Tag, data.tags)
-        item.labels = self._get_or_create(s, Label, data.labels)
-        s.add(item)
-        return item
 
     @staticmethod
     def _check_update(fields: dict[str, Any]) -> None:
@@ -360,53 +195,116 @@ class ItemService:
             raise ValidationError(_validation_message(exc)) from exc
         ensure_no_secrets(**{f: fields.get(f) for f in _TEXT_FIELDS})
 
-    def _apply(self, s: Session, item: Item, fields: dict[str, Any]) -> bool:
-        """Aplica campos ao item na sessão. True se algo mudou."""
-        changed = False
-        new_type = fields.get("type", item.type)
-        if item.type == "secret" and new_type != "secret" and item.has_value:
+    # ------------------------------------------------------------------ rascunho
+
+    @staticmethod
+    def _insert(
+        d: Draft, ws_name: str, pj_name: str, subject: str | None, data: ItemCreate
+    ) -> ItemRecord:
+        if data.key and d.by_key(slugify(ws_name), slugify(pj_name), data.key) is not None:
+            raise ValidationError(f"Já existe item com key {data.key!r} neste project (use upsert)")
+        now = utcnow()
+        record = ItemRecord(
+            id=str(uuid.uuid4()), key=data.key, workspace=ws_name, project=pj_name,
+            subject=subject, type=data.type, title=data.title, status=data.status,
+            memory_class=data.memory_class, tags=_names(data.tags), labels=_names(data.labels),
+            scope_paths=list(data.scope_paths or []), confidence=data.confidence,
+            importance=data.importance,
+            ttl_days=data.ttl_days if data.memory_class == "ephemeral" else None,
+            keywords=data.keywords, source=data.source, created_at=now, updated_at=now,
+            relations=[], summary=data.summary, content=data.content,
+        )
+        return d.put(record)
+
+    @staticmethod
+    def _apply(brain: Brain, record: ItemRecord, fields: dict[str, Any]) -> tuple[ItemRecord, bool]:
+        """Aplica campos ao item. (item novo, mudou?)."""
+        new_type = fields.get("type", record.type)
+        if (record.type == "secret" and new_type != "secret"
+                and brain.secret_path(record.id).is_file()):
             raise ValidationError(
                 "Este segredo tem valor. Apague o valor (na UI) antes de mudar o tipo do item."
             )
-        if item.memory_class == "ephemeral" and fields.get("ttl_days", item.ttl_days) is None:
+        if record.memory_class == "ephemeral" and fields.get("ttl_days", record.ttl_days) is None:
             raise ValidationError("ttl_days é obrigatório para memory_class 'ephemeral'")
+        changes: dict[str, Any] = {}
         for name, value in fields.items():
-            if name == "tags":
-                if sorted(t.name for t in item.tags) != sorted(set(value)):
-                    item.tags = self._get_or_create(s, Tag, value)
-                    changed = True
-            elif name == "labels":
-                if sorted(lb.name for lb in item.labels) != sorted(set(value)):
-                    item.labels = self._get_or_create(s, Label, value)
-                    changed = True
+            if name in ("tags", "labels"):
+                value = _names(value)
+                if sorted(getattr(record, name) or []) != value:
+                    changes[name] = value
             elif name == "scope_paths":
-                encoded = json.dumps(value) if value else None
-                if item.scope_paths != encoded:
-                    item.scope_paths = encoded
-                    changed = True
-            elif getattr(item, name) != value:
-                setattr(item, name, value)
-                changed = True
-        if "ttl_days" in fields and item.memory_class == "ephemeral":
-            item.expires_at = _expiry(item.memory_class, item.ttl_days)
-        return changed
+                value = list(value or [])
+                if list(record.scope_paths or []) != value:
+                    changes[name] = value
+            elif name == "ttl_days" and record.memory_class == "ephemeral":
+                changes[name] = value  # renovar conta a partir de agora, mesmo com o mesmo prazo
+            elif getattr(record, name) != value:
+                changes[name] = value
+        if not changes:
+            return record, False
+        return dataclasses.replace(record, **changes), True
 
     @staticmethod
-    def _raise_class(item: Item, target: str) -> bool:
-        """Sobe a classe de memória se `target` for maior; nunca rebaixa. True se subiu."""
+    def _raise_class(record: ItemRecord, target: str) -> tuple[ItemRecord, bool]:
+        """Sobe a classe de memória se `target` for maior; nunca rebaixa."""
         if target not in _RANK:
             raise ValidationError(f"memory_class inválido: {target!r}")
-        if _RANK[target] <= _RANK.get(item.memory_class, 0):
-            return False
-        item.memory_class = target
+        if _RANK[target] <= _RANK.get(record.memory_class, 0):
+            return record, False
+        changes: dict[str, Any] = {"memory_class": target}
         if target != "ephemeral":
-            item.ttl_days = None
-            item.expires_at = None
-        return True
+            changes["ttl_days"] = None
+        return dataclasses.replace(record, **changes), True
+
+    def _upsert_in(
+        self, brain: Brain, d: Draft, ws_name: str, pj_name: str, subject: str | None,
+        key: str, fields: dict[str, Any],
+    ) -> tuple[ItemRecord, str]:
+        fields = {k: v for k, v in fields.items() if v is not None}
+        existing = d.by_key(slugify(ws_name), slugify(pj_name), key)
+        if existing is None:
+            data = self._validate_create(
+                workspace_id=slugify(ws_name), project_id=slugify(pj_name), key=key,
+                **{"tags": [], "labels": [], "scope_paths": [], **fields},
+            )
+            return self._insert(d, ws_name, pj_name, subject, data), "created"
+        memory_class = fields.pop("memory_class", None)
+        self._check_update(fields)
+        record, changed = self._apply(brain, existing, fields)
+        if memory_class:
+            record, raised = self._raise_class(record, memory_class)
+            changed = changed or raised
+        if subject is not None and record.subject != subject:
+            record, changed = dataclasses.replace(record, subject=subject), True
+        if not changed:
+            return existing, "unchanged"
+        return d.put(dataclasses.replace(record, updated_at=utcnow())), "updated"
 
     @staticmethod
-    def _by_key(s: Session, project_id: str, key: str) -> Item | None:
-        return s.scalar(select(Item).where(Item.project_id == project_id, Item.key == key))
+    def _relate(d: Draft, source_id: str, rel: dict[str, Any]) -> bool:
+        """Cria a relação item → alvo (id ou key do mesmo project). False se já existia."""
+        from knowledge_os.services.relation_service import RELATION_TYPES
+
+        rtype, target_ref = rel.get("type"), rel.get("target")
+        if rtype not in RELATION_TYPES:
+            raise ValidationError(f"type inválido: {rtype!r}. Válidos: {', '.join(RELATION_TYPES)}")
+        if not target_ref:
+            raise ValidationError("relação sem target")
+        source = d.require(source_id)
+        target = d.resolve_target(source, str(target_ref))
+        if target is None:
+            raise NotFoundError(f"Alvo não encontrado: {target_ref}")
+        if target.id == source_id:
+            raise ValidationError("Um item não pode se relacionar consigo mesmo")
+        if not d.add_link(source_id, rtype, target.id):
+            return False
+        if rtype == "supersedes" and target.status != "superseded":
+            d.update(target.id, status="superseded", updated_at=utcnow())
+        return True
+
+    def _publish(self, brain: Brain, d: Draft, message: str) -> PublishResult | None:
+        return brain.commit(d, message)
 
     # ------------------------------------------------------------------ CRUD
 
@@ -431,7 +329,7 @@ class ItemService:
         status: str = "active",
         scope_paths: list[str] | None = None,
     ) -> Item:
-        """Cria um item e associa tags e labels (criando as que não existirem)."""
+        """Cria um item no workspace/project (que precisam existir)."""
         data = self._validate_create(
             workspace_id=workspace_id, project_id=project_id, subject_id=subject_id, type=type,
             memory_class=memory_class, title=title, summary=summary, content=content,
@@ -439,21 +337,26 @@ class ItemService:
             importance=importance, ttl_days=ttl_days, key=key, keywords=keywords,
             source=source, status=status, scope_paths=scope_paths or [],
         )
-        with self._session() as s:
-            item = self._insert(s, data)
-            s.commit()
-            logger.info("Item criado: %s", item.id)
-            return self._load(s, item.id)
+        brain = self.brain()
+        with brain.editing() as d:
+            ws = d.workspace(workspace_id)
+            pj = d.project(ws.id, project_id)
+            subject = d.subject(ws.id, pj.id, subject_id).name if subject_id else None
+            record = self._insert(d, ws.name, pj.name, subject, data)
+            self._publish(brain, d, f"knowledge-os: cria {record.title}")
+        logger.info("Item criado: %s", record.id)
+        return self._get(brain, record.id)
 
     def update(self, item_id: str, **fields: Any) -> Item:
         """Atualiza só os campos informados (tags e labels substituem as atuais)."""
         self._check_update(fields)
-        with self._session() as s:
-            item = self._load(s, item_id)
-            self._apply(s, item, fields)
-            s.commit()
-            logger.info("Item atualizado: %s", item_id)
-            return self._load(s, item_id)
+        brain = self.brain()
+        with brain.editing() as d:
+            record, changed = self._apply(brain, d.require(item_id), fields)
+            if changed:
+                d.put(dataclasses.replace(record, updated_at=utcnow()))
+                self._publish(brain, d, f"knowledge-os: atualiza {record.title}")
+        return self._get(brain, item_id)
 
     def upsert(
         self, workspace_id: str, project_id: str, key: str, **fields: Any
@@ -463,44 +366,54 @@ class ItemService:
         `memory_class` só sobe (nunca rebaixa um item existente). Na criação, os campos
         obrigatórios de item_create valem.
         """
-        with self._session() as s:
-            item, action = self._upsert_in(s, workspace_id, project_id, key, fields)
-            s.commit()
-            return self._load(s, item.id), action
-
-    def _upsert_in(
-        self, s: Session, workspace_id: str, project_id: str, key: str, fields: dict[str, Any]
-    ) -> tuple[Item, str]:
-        fields = {k: v for k, v in fields.items() if v is not None}
-        existing = self._by_key(s, project_id, key)
-        if existing is None:
-            data = self._validate_create(
-                workspace_id=workspace_id, project_id=project_id, key=key,
-                **{"tags": [], "labels": [], "scope_paths": [], **fields},
-            )
-            return self._insert(s, data), "created"
-        memory_class = fields.pop("memory_class", None)
-        self._check_update(fields)
-        _ = existing.tags, existing.labels
-        changed = self._apply(s, existing, fields)
-        if memory_class:
-            changed = self._raise_class(existing, memory_class) or changed
-        return existing, ("updated" if changed else "unchanged")
+        brain = self.brain()
+        with brain.editing() as d:
+            ws_name, pj_name = location_names(d, workspace_id, project_id)
+            record, action = self._upsert_in(brain, d, ws_name, pj_name, None, key, fields)
+            self._publish(brain, d, f"knowledge-os: salva {key}")
+        return self._get(brain, record.id), action
 
     def batch_upsert(self, entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Upsert de vários itens numa transação. Cada entrada traz workspace, project e key."""
+        """Upsert de vários itens numa publicação. Cada entrada traz workspace, project e key."""
         for i, e in enumerate(entries):
             missing = [f for f in ("workspace", "project", "key") if not e.get(f)]
             if missing:
                 raise ValidationError(f"Entrada {i}: faltam {', '.join(missing)}")
-        return [
-            {k: r[k] for k in ("key", "id", "action")} for r in self.save(entries)
-        ]
+        return [{k: r[k] for k in ("key", "id", "action")} for r in self.save(entries)]
+
+    @staticmethod
+    def _prepare(i: int, raw: dict[str, Any]) -> dict[str, Any]:
+        e = dict(raw)
+        if VALUE_FIELDS & {str(k).lower() for k in e}:
+            raise ValidationError(
+                f"Entrada {i}: o valor de um segredo não passa pelo agente. Grave o item "
+                "(type secret) sem valor e passe ao usuário o fill_url da resposta: ele "
+                "preenche na UI local."
+            )
+        if e.get("type") == "secret" and not e.get("key") and not e.get("id"):
+            raise ValidationError(
+                f"Entrada {i}: segredo precisa de key (segredo/<nome>): é por ela que o "
+                "knowledge-mcp run o encontra."
+            )
+        if e.get("type") == "secret":
+            if e.get("content") and e.get("content") != e.get("summary"):
+                raise ValidationError(
+                    f"Entrada {i}: segredo não tem corpo — só title e summary (para que "
+                    "serve). O valor vai pela UI (fill_url)."
+                )
+            if any(_looks_random(e.get(f)) for f in ("title", "summary", "keywords")):
+                raise ValidationError(
+                    f"Entrada {i}: o texto do segredo parece conter a credencial. Descreva "
+                    "só para que serve; o valor vai pela UI (fill_url)."
+                )
+            if e.get("summary"):
+                e["content"] = e["summary"]  # o resumo diz para que serve
+        return e
 
     def save(
         self, entries: list[dict[str, Any]], default_location: tuple[str, str] | None = None
     ) -> list[dict[str, Any]]:
-        """Grava vários itens numa transação; cada entrada escolhe o modo pelo que traz.
+        """Grava vários itens numa publicação só; cada entrada escolhe o modo pelo que traz.
 
         - `id`: atualiza esse item (só os campos informados).
         - `key`: upsert no project (cria ou atualiza; não duplica).
@@ -509,257 +422,151 @@ class ItemService:
         Em qualquer modo: `memory_class` só sobe (promoção), `ttl_days` renova um ephemeral a
         partir de agora, e `relations: [{type, target}]` liga ao alvo (id, ou key do mesmo
         project, inclusive itens criados no mesmo lote); `supersedes` marca o alvo como
-        substituído. Workspace/project vêm da entrada ou de `default_location` e são criados se
-        não existirem. `subject` (nome do assunto) é resolvido/criado dentro do project e vira
-        `subject_id` do item. Com `id`: se a entrada também trouxer `workspace`+`project`, o
-        item é *movido* para esse workspace/project (criados se não existirem) — o `subject`, se
-        vier, é resolvido/criado dentro do project novo; se não vier, o subject do item é zerado
-        (subject de outro project não se aproveita). Só `subject` (sem workspace/project) move o
-        item para esse subject dentro do project atual. Em todos os casos de `id`, id,
-        created_at, access_count, tags, labels, relations e artifacts do item não mudam — só as
-        FKs de localização. Qualquer erro desfaz o lote inteiro e aponta a entrada.
+        substituído. Workspace/project vêm da entrada ou de `default_location` (nomes ou ids) e
+        passam a existir com o item. `subject` (nome do assunto) vale dentro do project. Com
+        `id`: se a entrada também trouxer `workspace`+`project`, o item é *movido* para lá — o
+        `subject`, se vier, vale no project novo; se não vier, o item fica sem subject. Só
+        `subject` (sem workspace/project) move o item para esse subject no project atual. Em
+        todos os casos de `id`, id, created_at, tags, labels e relations não mudam — só a
+        localização. Qualquer erro desfaz o lote inteiro e aponta a entrada.
         """
         if not entries:
             return []
-        plans = []
-        for i, raw in enumerate(entries):
-            e = dict(raw)
-            if VALUE_FIELDS & {str(k).lower() for k in e}:
-                raise ValidationError(
-                    f"Entrada {i}: o valor de um segredo não passa pelo agente. Grave o item "
-                    "(type secret) sem valor e passe ao usuário o fill_url da resposta: ele "
-                    "preenche na UI local."
-                )
-            if e.get("type") == "secret" and not e.get("key") and not e.get("id"):
-                raise ValidationError(
-                    f"Entrada {i}: segredo precisa de key (segredo/<nome>): é por ela que o "
-                    "knowledge-mcp run o encontra."
-                )
-            if e.get("type") == "secret":
-                if e.get("content") and e.get("content") != e.get("summary"):
-                    raise ValidationError(
-                        f"Entrada {i}: segredo não tem corpo — só title e summary (para que "
-                        "serve). O valor vai pela UI (fill_url)."
-                    )
-                if any(_looks_random(e.get(f)) for f in ("title", "summary", "keywords")):
-                    raise ValidationError(
-                        f"Entrada {i}: o texto do segredo parece conter a credencial. Descreva "
-                        "só para que serve; o valor vai pela UI (fill_url)."
-                    )
-                if e.get("summary"):
-                    e["content"] = e["summary"]  # o resumo diz para que serve
-            relations = e.pop("relations", None) or []
-            item_id, key = e.pop("id", None), e.pop("key", None)
-            ws, dm = e.pop("workspace", None), e.pop("project", None)
-            sj = e.pop("subject", None)
-            location = None
-            move: dict[str, Any] | None = None
-            if not item_id:
-                if ws and dm:
-                    location = self.ensure_location(ws, dm)
-                elif default_location:
-                    location = default_location
-                else:
-                    raise ValidationError(f"Entrada {i}: informe workspace e project (ou repo)")
-                if sj:
-                    e["subject_id"] = self.ensure_subject(location[1], sj)
-            elif ws and dm:
-                new_location = self.ensure_location(ws, dm)
-                move = {
-                    "workspace_id": new_location[0],
-                    "project_id": new_location[1],
-                    "subject_id": self.ensure_subject(new_location[1], sj) if sj else None,
-                }
-            elif sj:
-                move = {"subject_name": sj}
-            fields = {k: v for k, v in e.items() if v is not None}
-            plans.append((i, item_id, key, location, fields, relations, move))
-
-        return run_with_retry(lambda: self._save_plans(plans), retry_conflict=True)
-
-    def _save_plans(self, plans: list[tuple]) -> list[dict[str, Any]]:
-        """Executa o plano numa transação (reexecutável: cada tentativa copia os campos).
-
-        Se a connection ativa tem repositório git configurado (não é o catálogo), itens
-        não secretos são serializados e publicados nesse repositório antes do índice ser
-        atualizado: modo `direct` publica e aplica no índice; modo `pr` publica para
-        revisão e devolve `pending_review`/`issue_opened` por entrada, sem tocar o índice
-        (a tentativa inteira é desfeita; o índice só muda quando o PR for mergeado e o
-        repositório sincronizado).
-        """
+        prepared = [self._prepare(i, raw) for i, raw in enumerate(entries)]
+        brain = self.brain()
         results: list[dict[str, Any]] = []
-        links: list[tuple[int, Item, dict[str, Any]]] = []
-        items_by_index: dict[int, Item] = {}
-        conn = self._connection_config()
-        git = self._git_service(conn) if conn is not None else None
-        with self._session() as s:
-            for i, item_id, key, location, fields, relations, move in plans:
-                fields = dict(fields)  # o ramo de id consome `memory_class` com pop
+        touched: list[int] = []
+        with brain.editing() as d:
+            links: list[tuple[int, str, dict[str, Any]]] = []
+            for i, e in enumerate(prepared):
+                relations = e.pop("relations", None) or []
+                item_id, key = e.pop("id", None), e.pop("key", None)
+                ws, dm = e.pop("workspace", None), e.pop("project", None)
+                sj = e.pop("subject", None)
+                fields = {k: v for k, v in e.items() if v is not None}
                 label = key or item_id or fields.get("title", "?")
                 similar: list[dict[str, Any]] = []
                 try:
                     if item_id:
-                        item = self._load(s, item_id)
-                        moved = False
-                        if move is not None:
-                            if "workspace_id" in move:
-                                item.workspace_id = move["workspace_id"]
-                                item.project_id = move["project_id"]
-                                item.subject_id = move["subject_id"]
-                            else:
-                                item.subject_id = self._ensure_subject_in(
-                                    s, item.project_id, move["subject_name"]
-                                )
-                            moved = True
-                        memory_class = fields.pop("memory_class", None)
-                        self._check_update(fields)
-                        changed = self._apply(s, item, fields)
-                        if memory_class:
-                            changed = self._raise_class(item, memory_class) or changed
-                        action = "updated" if (changed or moved) else "unchanged"
-                    elif key:
-                        item, action = self._upsert_in(s, location[0], location[1], key, fields)
+                        record, action = self._save_by_id(brain, d, item_id, ws, dm, sj, fields)
                     else:
-                        if fields.get("title"):
-                            similar = self.similar(location[0], fields["title"])
-                        data = self._validate_create(
-                            workspace_id=location[0], project_id=location[1],
-                            **{"tags": [], "labels": [], "scope_paths": [], **fields},
-                        )
-                        item, action = self._insert(s, data), "created"
-                    s.flush()
+                        if ws and dm:
+                            ws_name, pj_name = location_names(d, ws, dm)
+                        elif default_location:
+                            ws_name, pj_name = location_names(d, *default_location)
+                        else:
+                            raise ValidationError(
+                                f"Entrada {i}: informe workspace e project (ou repo)"
+                            )
+                        subject = subject_name(d, ws_name, pj_name, sj) if sj else None
+                        if key:
+                            record, action = self._upsert_in(
+                                brain, d, ws_name, pj_name, subject, key, fields
+                            )
+                        else:
+                            if fields.get("title"):
+                                similar = similar_in(d, slugify(ws_name), fields["title"])
+                            data = self._validate_create(
+                                workspace_id=slugify(ws_name), project_id=slugify(pj_name),
+                                **{"tags": [], "labels": [], "scope_paths": [], **fields},
+                            )
+                            record = self._insert(d, ws_name, pj_name, subject, data)
+                            action = "created"
                 except (ValidationError, NotFoundError) as exc:
+                    if str(exc).startswith(f"Entrada {i}"):
+                        raise
                     raise ValidationError(f"Entrada {i} ({label}): {exc}") from exc
-                row: dict[str, Any] = {"index": i, "id": item.id, "key": item.key, "action": action}
+                row: dict[str, Any] = {"index": i, "id": record.id, "key": record.key,
+                                       "action": action}
                 if similar:
                     row["similar"] = similar
                 results.append(row)
-                items_by_index[i] = item
-                links += [(i, item, r) for r in relations]
-            for i, item, rel in links:
+                touched.append(i)
+                links += [(i, record.id, r) for r in relations]
+            for i, record_id, rel in links:
                 try:
-                    created = self._relate(s, item, rel)
+                    created = self._relate(d, record_id, rel)
                 except (ValidationError, NotFoundError) as exc:
                     raise ValidationError(f"Entrada {i}, relação {rel}: {exc}") from exc
                 if created:
                     results[i]["relations"] = results[i].get("relations", 0) + 1
-
-            files: dict[str, str | None] = {}
-            if git is not None:
-                s.flush()
-                for i, item in items_by_index.items():
-                    if item.type == "secret":
-                        continue
-                    path, content = self._publish_path_and_content(s, item)
-                    files[path] = content
-
-            if git is not None and files:
-                git.ensure_clone()
-                message = f"knowledge-os: salva {len(files)} item(ns)"
-                publish = git.publish(files, message)
-                if git.review_mode == "pr":
-                    s.rollback()
-                    return [self._review_result(i, publish) for i in sorted(items_by_index)]
-
-            s.commit()
+            publish = self._publish(brain, d, f"knowledge-os: salva {len(entries)} item(ns)")
+        if publish is not None and publish.status != "published":
+            return [review_result(i, publish) for i in touched]
         return results
 
-    def _relate(self, s: Session, item: Item, rel: dict[str, Any]) -> bool:
-        """Cria a relação item → alvo (id ou key do mesmo project). False se já existia."""
-        from knowledge_os.services.relation_service import RELATION_TYPES
-
-        rtype, target_ref = rel.get("type"), rel.get("target")
-        if rtype not in RELATION_TYPES:
-            raise ValidationError(f"type inválido: {rtype!r}. Válidos: {', '.join(RELATION_TYPES)}")
-        if not target_ref:
-            raise ValidationError("relação sem target")
-        target = s.get(Item, target_ref) or self._by_key(s, item.project_id, target_ref)
-        if target is None:
-            raise NotFoundError(f"Alvo não encontrado: {target_ref}")
-        if target.id == item.id:
-            raise ValidationError("Um item não pode se relacionar consigo mesmo")
-        exists = s.scalar(
-            select(Relation.id).where(
-                Relation.source_item_id == item.id,
-                Relation.target_item_id == target.id,
-                Relation.relation_type == rtype,
-            )
-        )
-        if exists:
-            return False
-        s.add(Relation(id=str(uuid.uuid4()), source_item_id=item.id,
-                       target_item_id=target.id, relation_type=rtype))
-        if rtype == "supersedes":
-            target.status = "superseded"
-        return True
+    def _save_by_id(
+        self, brain: Brain, d: Draft, item_id: str, ws: str | None, dm: str | None,
+        sj: str | None, fields: dict[str, Any],
+    ) -> tuple[ItemRecord, str]:
+        record = d.require(item_id)
+        moved = False
+        if ws and dm:
+            ws_name, pj_name = location_names(d, ws, dm)
+            subject = subject_name(d, ws_name, pj_name, sj) if sj else None
+            record = dataclasses.replace(record, workspace=ws_name, project=pj_name,
+                                         subject=subject)
+            moved = True
+        elif sj:
+            subject = subject_name(d, record.workspace or "", record.project or "", sj)
+            record = dataclasses.replace(record, subject=subject)
+            moved = True
+        memory_class = fields.pop("memory_class", None)
+        self._check_update(fields)
+        record, changed = self._apply(brain, record, fields)
+        if memory_class:
+            record, raised = self._raise_class(record, memory_class)
+            changed = changed or raised
+        if not (changed or moved):
+            return record, "unchanged"
+        if record.key and moved:
+            clash = d.by_key(slugify(record.workspace or ""), slugify(record.project or ""),
+                             record.key)
+            if clash is not None and clash.id != record.id:
+                raise ValidationError(
+                    f"Já existe item com key {record.key!r} no project de destino"
+                )
+        return d.put(dataclasses.replace(record, updated_at=utcnow())), "updated"
 
     def delete(self, item_id: str) -> bool:
-        """Remove o item e seus vínculos. Levanta NotFoundError se não existir."""
-        with self._session() as s:
-            item = s.get(Item, item_id)
-            if item is None:
-                raise NotFoundError(f"Item não encontrado: {item_id}")
-            s.execute(delete(ItemTag).where(ItemTag.item_id == item_id))
-            s.execute(delete(ItemLabel).where(ItemLabel.item_id == item_id))
-            s.execute(
-                delete(Relation).where(
-                    (Relation.source_item_id == item_id) | (Relation.target_item_id == item_id)
-                )
-            )
-            s.execute(delete(SecretValue).where(SecretValue.item_id == item_id))
-            s.expire(item, ["tags", "labels"])
-            s.delete(item)
-            s.commit()
-            logger.info("Item removido: %s", item_id)
-            return True
+        """Remove o item (e o valor, se for segredo). NotFoundError se não existir."""
+        result = self.delete_published(item_id)
+        return result["status"] == "deleted"
 
     def delete_published(self, item_id: str) -> dict[str, Any]:
-        """Remove o item, publicando a remoção no repositório git da connection primeiro
-        (se houver, e o item não for secreto).
+        """Remove o arquivo do item e publica a remoção.
 
-        Modo `direct`: publica a remoção do arquivo e só então apaga do índice. Modo
-        `pr`: abre PR (ou Issue) de remoção e NÃO apaga do índice ainda — o índice só
-        reflete a remoção depois do PR mergeado e um `repo(action="sync")`.
+        Modo `direct`: sai da pasta na hora. Modo `pr`: abre PR (ou Issue) de remoção e o item
+        continua na pasta até o PR ser mergeado e sincronizado.
         """
-        conn = self._connection_config()
-        git = self._git_service(conn) if conn is not None else None
-        if git is not None:
-            with self._session() as s:
-                item = s.get(Item, item_id)
-                if item is None:
-                    raise NotFoundError(f"Item não encontrado: {item_id}")
-                if item.type != "secret":
-                    path = self._publish_path(s, item)
-                    git.ensure_clone()
-                    publish = git.publish({path: None}, f"knowledge-os: remove {path}")
-                    if git.review_mode == "pr":
-                        s.rollback()
-                        if publish.status == "pending_review":
-                            return {
-                                "status": "pending_review",
-                                "pr_url": publish.pr_url,
-                                "id": item_id,
-                            }
-                        return {
-                            "status": "issue_opened",
-                            "issue_url": publish.issue_url,
-                            "id": item_id,
-                        }
-        self.delete(item_id)
+        brain = self.brain()
+        with brain.editing() as d:
+            record = d.require(item_id)
+            d.remove(item_id)
+            publish = self._publish(brain, d, f"knowledge-os: remove {record.path}")
+        if publish is not None and publish.status != "published":
+            out = review_result(0, publish)
+            out.pop("index")
+            return {**out, "id": item_id}
+        brain.secret_path(item_id).unlink(missing_ok=True)
+        logger.info("Item removido: %s", item_id)
         return {"status": "deleted", "id": item_id}
+
+    @staticmethod
+    def _get(brain: Brain, item_id: str) -> Item:
+        return brain.view(brain.snapshot.require(item_id))
 
     def get(self, item_id: str) -> Item:
         """Retorna o item completo (com content, tags e labels)."""
-        with self._session() as s:
-            return self._load(s, item_id)
+        return self._get(self.brain(), item_id)
 
-    def get_by_key(self, project_id: str, key: str) -> Item:
-        """Item de `key` no project. Levanta NotFoundError."""
-        with self._session() as s:
-            item = self._by_key(s, project_id, key)
-            if item is None:
-                raise NotFoundError(f"Item não encontrado: key {key!r}")
-            return self._load(s, item.id)
+    def get_by_key(self, workspace_id: str, project_id: str, key: str) -> Item:
+        """Item de `key` no workspace/project. Levanta NotFoundError."""
+        brain = self.brain()
+        record = brain.snapshot.by_key(workspace_id, project_id, key)
+        if record is None:
+            raise NotFoundError(f"Item não encontrado: key {key!r}")
+        return brain.view(record)
 
     # ------------------------------------------------------------------ busca
 
@@ -777,164 +584,81 @@ class ItemService:
         tags: list[str] | None = None,
         labels: list[str] | None = None,
     ) -> list[dict[str, Any]]:
-        """Busca FTS5 em title+summary+keywords+content. Nunca inclui content.
+        """Busca em title+summary+keywords+content. Nunca inclui content.
 
         Com consulta, ordena por relevância (BM25 com peso maior para o título) e desempata
-        por importance, confidence, access_count e updated_at. Sem consulta, lista por esses
-        critérios. Sem workspace, busca em todos os da connection. Omite itens substituídos,
-        obsoletos e ephemeral vencidos, salvo `include_inactive`. Em SQLite, a consulta é
-        normalizada para PT-BR (sem acento, radical, prefixo); se exigir todos os termos não
-        acha nada, tenta qualquer termo. Com `track`, incrementa access_count dos retornados.
+        por importance, confidence, usos e updated_at; sem consulta, lista por esses critérios.
+        Sem workspace, busca em todos os da conexão. Omite itens substituídos, obsoletos e
+        ephemeral vencidos, salvo `include_inactive`. A consulta é normalizada para PT-BR (sem
+        acento, radical, prefixo); se exigir todos os termos não acha nada, tenta qualquer termo.
+        Com `track`, conta um uso de cada item devolvido.
 
-        `tags` e `labels` filtram por conjunção: o item precisa ter **todas** as informadas
-        (buscar por `pagamentos` + `critical` traz só o que é as duas coisas). São filtros,
-        não termos de busca — o que faz o item ser encontrado por texto é `keywords`.
+        `tags` e `labels` filtram por conjunção: o item precisa ter **todas** as informadas.
+        São filtros, não termos de busca — o que faz o item ser encontrado por texto é
+        `keywords`.
         """
-        if limit < 1:
-            raise ValidationError("limit deve ser >= 1")
-        query = (query or "").strip()
-        engine = self._get_engine()
-        dialect_name = engine.dialect.name
-
-        where: list[str] = []
-        params: dict[str, Any] = {"limit": limit}
-        expanding: list[str] = []
-        if workspace_id:
-            where.append("i.workspace_id = :ws")
-            params["ws"] = workspace_id
-        else:
-            where.append(
-                "i.workspace_id IN (SELECT w.id FROM workspaces w WHERE w.connection_id = :cid)"
-            )
-            params["cid"] = self._cid
-        if project_id:
-            ids = [project_id] if isinstance(project_id, str) else list(project_id)
-            where.append("i.project_id IN :dm")
-            params["dm"] = ids
-            expanding.append("dm")
-        if subject_id:
-            ids = [subject_id] if isinstance(subject_id, str) else list(subject_id)
-            where.append("i.subject_id IN :sj")
-            params["sj"] = ids
-            expanding.append("sj")
-        if types:
-            where.append("i.type IN :types")
-            params["types"] = list(types)
-            expanding.append("types")
-        if memory_classes:
-            where.append("i.memory_class IN :mclasses")
-            params["mclasses"] = list(memory_classes)
-            expanding.append("mclasses")
-        # Conjunção: COUNT(DISTINCT) dos que casam tem de bater com o total pedido.
-        for kind, wanted in (("tag", tags), ("label", labels)):
-            if not wanted:
-                continue
-            names = sorted({n.strip() for n in wanted if n and n.strip()})
-            if not names:
-                continue
-            key = f"{kind}s"
-            where.append(
-                f"(SELECT COUNT(DISTINCT t.name) FROM item_{key} it"
-                f" JOIN {key} t ON t.id = it.{kind}_id"
-                f" WHERE it.item_id = i.id AND t.name IN :{key}) = :{key}_n"
-            )
-            params[key] = names
-            params[f"{key}_n"] = len(names)
-            expanding.append(key)
-        if not include_inactive:
-            where.append("COALESCE(i.status, 'active') IN ('active', 'done')")
-            where.append("(i.expires_at IS NULL OR i.expires_at > :now)")
-            params["now"] = utcnow()
-
-        tie = (
-            "COALESCE(i.importance, 0) DESC, COALESCE(i.confidence, 0) DESC, "
-            "COALESCE(i.access_count, 0) DESC, i.updated_at DESC"
+        brain = self.brain()
+        hits = run_search(
+            brain, workspace_id, project_id, query, subject_id, types, memory_classes, limit,
+            include_inactive, tags, labels,
         )
-        columns = (
-            "i.id AS id, i.item_key AS item_key, i.type AS type, i.memory_class AS memory_class, "
-            "d.name AS project, sb.name AS subject, i.title AS title, i.summary AS summary, "
-            "COALESCE(i.access_count, 0) AS uses, "
-            "(SELECT GROUP_CONCAT(t.name) FROM item_tags it JOIN tags t ON t.id = it.tag_id"
-            " WHERE it.item_id = i.id) AS tags, "
-            "(SELECT GROUP_CONCAT(l.name) FROM item_labels il JOIN labels l ON l.id = il.label_id"
-            " WHERE il.item_id = i.id) AS labels"
-        )
-        subject_join = " LEFT JOIN subjects sb ON sb.id = i.subject_id"
-        if not query:
-            attempts = [
-                ("items i JOIN projects d ON d.id = i.project_id" + subject_join, None, "0.0", {})
-            ]
-            order = tie
-        else:
-            dialect = get_dialect(dialect_name)
-            raw = match_expressions(query) if dialect_name == "sqlite" else [query]
-            if not raw:
-                return []
-            attempts = []
-            for expression in raw:
-                source, match, score, mparams = dialect.search_parts(expression)
-                joined = f"{source} JOIN projects d ON d.id = i.project_id" + subject_join
-                attempts.append((joined, match, score, mparams))
-            order = f"score DESC, {tie}"
-
-        with self._session() as s:
-            rows: list[Any] = []
-            for source, match, score, mparams in attempts:
-                clauses = ([match] if match else []) + where
-                sql = text(
-                    f"SELECT {columns}, {score} AS score FROM {source} "
-                    f"WHERE {' AND '.join(clauses)} ORDER BY {order} LIMIT :limit"
-                ).bindparams(
-                    *(bindparam(n, expanding=True) for n in expanding),
-                    *([bindparam("now", type_=DateTime)] if "now" in params else []),
-                )
-                try:
-                    rows = s.execute(sql, {**params, **mparams}).mappings().all()
-                except OperationalError as exc:
-                    raise ValidationError(f"Query FTS5 inválida: {query!r} ({exc.orig})") from exc
-                if rows:
-                    break
-            results = [
-                {
-                    "id": r["id"], "key": r["item_key"], "type": r["type"],
-                    "memory_class": r["memory_class"], "project": r["project"],
-                    "subject": r["subject"],
-                    "title": r["title"], "summary": r["summary"], "score": float(r["score"]),
-                    "uses": int(r["uses"] or 0),
-                    "tags": sorted((r["tags"] or "").split(",")) if r["tags"] else [],
-                    "labels": sorted((r["labels"] or "").split(",")) if r["labels"] else [],
-                }
-                for r in rows
-            ]
-            if results and track:
-                ids = [r["id"] for r in results]
-                run_with_retry(lambda: self._count_use(ids))
-            return results
+        usage = brain.usage()
+        results = [
+            {
+                "id": r.id, "key": r.key, "type": r.type, "memory_class": r.memory_class,
+                "project": r.project, "subject": r.subject, "title": r.title,
+                "summary": r.summary, "score": float(score),
+                "uses": int((usage.get(r.id) or {}).get("uses") or 0),
+                "tags": sorted(r.tags or []), "labels": sorted(r.labels or []),
+                "workspace_id": slugify(r.workspace or ""), "project_id": slugify(r.project or ""),
+            }
+            for r, score in hits
+        ]
+        if results and track:
+            brain.track(r["id"] for r in results)
+        return results
 
     def track_use(self, ids: list[str]) -> None:
         """Conta o uso (item entregue a um agente); falha aqui nunca derruba a leitura."""
         if not ids:
             return
         try:
-            run_with_retry(lambda: self._count_use(ids))
+            self.brain().track(ids)
         except Exception as exc:  # noqa: BLE001
             logger.debug("Contagem de uso ignorada: %s", exc)
 
-    def _count_use(self, ids: list[str]) -> None:
-        with self._session() as s:
-            s.execute(
-                update(Item)
-                .where(Item.id.in_(ids))
-                .values(
-                    access_count=func.coalesce(Item.access_count, 0) + 1,
-                    last_accessed=utcnow(),
-                    updated_at=Item.updated_at,  # busca não conta como edição
-                )
-                .execution_options(synchronize_session=False)
-            )
-            s.commit()
-
     def similar(self, workspace_id: str, title: str, limit: int = 3) -> list[dict[str, Any]]:
         """Itens ativos do workspace com título parecido (para avisar antes de duplicar)."""
-        found = self.search(workspace_id, None, title, limit=limit, track=False)
-        return [{k: r[k] for k in ("id", "key", "title", "summary")} for r in found]
+        return similar_in(self.brain().snapshot, workspace_id, title, limit)
+
+
+# --------------------------------------------------------------------------- helpers
+
+
+def location_names(snap: Snapshot, workspace: str, project: str) -> tuple[str, str]:
+    """Nomes de exibição do workspace/project (existentes por nome ou id; novos validados)."""
+    ws = snap.find_workspace(workspace)
+    ws_name = ws.name if ws else check_name(workspace, "workspace")
+    pj = snap.find_project(slugify(ws_name), project) if ws else None
+    pj_name = pj.name if pj else check_name(project, "project")
+    return ws_name, pj_name
+
+
+def subject_name(snap: Snapshot, ws_name: str, pj_name: str, ref: str) -> str:
+    """Nome do subject (existente por nome ou id; novo validado)."""
+    found = snap.find_subject(slugify(ws_name), slugify(pj_name), ref)
+    return found.name if found else check_name(ref, "subject")
+
+
+def similar_in(
+    snap: Snapshot, workspace_id: str, title: str, limit: int = 3
+) -> list[dict[str, Any]]:
+    """Itens ativos do workspace com título parecido, num `Snapshot` qualquer."""
+    now = utcnow()
+    records = [
+        r for r in snap.items_in(workspace_id)
+        if (r.status or "active") in ("active", "done") and not is_expired(r, now)
+    ]
+    hits = search_records(records, title, limit,
+                          key=lambda r: (r.importance or 0, r.confidence or 0, r.updated_at))
+    return [{"id": r.id, "key": r.key, "title": r.title, "summary": r.summary} for r, _ in hits]

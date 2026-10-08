@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime
 from typing import TYPE_CHECKING, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from knowledge_os.services.item_file import key_problem
+
 if TYPE_CHECKING:
-    from knowledge_os.db.models import Item
+    from knowledge_os.services.brain import Item
 
 ITEM_TYPES: tuple[str, ...] = (
     "context", "rule", "pattern", "procedure", "knowledge", "insight",
@@ -17,19 +18,9 @@ ITEM_TYPES: tuple[str, ...] = (
 )
 MEMORY_CLASSES: tuple[str, ...] = ("ephemeral", "working", "longterm", "canonical")
 ITEM_STATUSES: tuple[str, ...] = ("active", "done", "superseded", "deprecated")
-# Chave estável: minúsculas, números e . _ / - (ex.: "regra/money-em-pagamentos").
-KEY_PATTERN = r"^[a-z0-9][a-z0-9._/-]{0,199}$"
-
-
-def decode_paths(raw: str | None) -> list[str]:
-    """scope_paths é guardado como JSON; tolera vazio ou inválido."""
-    if not raw:
-        return []
-    try:
-        value = json.loads(raw)
-    except ValueError:
-        return []
-    return [str(v) for v in value] if isinstance(value, list) else []
+# Chave estável: minúsculas, números e . _ / - (ex.: "regra/money-em-pagamentos"); cada parte
+# entre "/" começa por letra ou número (validado também por `item_file.key_problem`).
+KEY_PATTERN = r"^[a-z0-9][a-z0-9._-]*(/[a-z0-9][a-z0-9._-]*)*$"
 
 
 def _check_choice(value: str, allowed: tuple[str, ...], field: str) -> str:
@@ -64,6 +55,15 @@ class ItemCreate(BaseModel):
     @classmethod
     def _type(cls, v: str) -> str:
         return _check_choice(v, ITEM_TYPES, "type")
+
+    @field_validator("key")
+    @classmethod
+    def _key(cls, v: str | None) -> str | None:
+        # A key vira path do arquivo: nada de segmento vazio, "." ou ".." (escaparia da pasta).
+        problem = key_problem(v) if v is not None else None
+        if problem:
+            raise ValueError(problem)
+        return v
 
     @field_validator("memory_class")
     @classmethod
@@ -111,7 +111,7 @@ class ItemUpdate(BaseModel):
 
 
 class ItemSearchRequest(BaseModel):
-    """Parâmetros de busca FTS5."""
+    """Parâmetros de busca textual."""
 
     workspace_id: str | None = None
     project_id: str | None = None
@@ -137,15 +137,6 @@ class ItemSearchResult(BaseModel):
     uses: int = 0  # quantas vezes o item foi devolvido de propósito (busca, foco do contexto)
     tags: list[str] = []
     labels: list[str] = []
-
-
-def _has_value(item: Item) -> bool:
-    """`has_value` (EXISTS) expira só logo depois do INSERT, quando ainda não há valor."""
-    from sqlalchemy import inspect
-
-    if "has_value" in inspect(item).unloaded:
-        return False
-    return bool(item.has_value)
 
 
 class ItemResponse(BaseModel):
@@ -181,7 +172,7 @@ class ItemResponse(BaseModel):
 
     @classmethod
     def from_item(cls, item: Item) -> ItemResponse:
-        """Converte um Item ORM (com tags/labels carregados) em resposta."""
+        """Converte um item dos services (`brain.Item`) em resposta."""
         return cls(
             id=item.id,
             workspace_id=item.workspace_id,
@@ -192,8 +183,8 @@ class ItemResponse(BaseModel):
             title=item.title,
             summary=item.summary,
             content=item.content,
-            tags=sorted(t.name for t in item.tags),
-            labels=sorted(lb.name for lb in item.labels),
+            tags=sorted(item.tags),
+            labels=sorted(item.labels),
             confidence=item.confidence,
             importance=item.importance,
             ttl_days=item.ttl_days,
@@ -202,10 +193,10 @@ class ItemResponse(BaseModel):
             keywords=item.keywords,
             source=item.source,
             status=item.status or "active",
-            scope_paths=decode_paths(item.scope_paths),
+            scope_paths=list(item.scope_paths),
             created_at=item.created_at,
             updated_at=item.updated_at,
             last_accessed=item.last_accessed,
             access_count=item.access_count or 0,
-            has_value=_has_value(item) if item.type == "secret" else None,
+            has_value=bool(item.has_value) if item.type == "secret" else None,
         )

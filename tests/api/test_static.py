@@ -83,7 +83,7 @@ SECRET_CLOSE = "<!-- /Segredo · valor -->"
 
 
 def test_campo_de_senha_so_no_valor_do_segredo():
-    # Conexões não têm mais senha (repositório git, não banco): o único campo de senha
+    # Conexões não têm senha (são pastas/repositórios git): o único campo de senha
     # que resta na UI é o valor do segredo.
     html = (STATIC / "index.html").read_text(encoding="utf-8")
     assert CONN_OPEN in html and CONN_CLOSE in html
@@ -115,17 +115,15 @@ def test_view_de_conexoes_tem_as_acoes_pedidas():
     inside = html[html.index(CONN_OPEN) : html.index(CONN_CLOSE)]
     for needle in (
         "connectionsView",
-        "Test",
-        "Save and test",
-        "Set as default",
-        "Danger zone",
-        "Default",
-        "Repository folder",
-        "Browse…",
+        "Testar",
+        "Salvar e testar",
+        "Definir como padrão",
+        "Zona de perigo",
+        "Padrão",
     ):
         assert needle in inside, needle
     conn = _js("views/connections.js")
-    for needle in ("'PATCH'", "'POST'", "'PUT'", "'DELETE'", "/test", "/fs/browse"):
+    for needle in ("'PATCH'", "'POST'", "'PUT'", "'DELETE'", "/test"):
         assert needle in conn, needle
     assert "confirmName" in conn
 

@@ -157,6 +157,38 @@ class TestPublishPr:
         ).stdout
         assert "origin/item/item-x" in branches
 
+    def test_volta_para_a_branch_principal_depois_do_pr(self, tmp_path, bare_repo):
+        """A pasta é a fonte de leitura: o que está em revisão não aparece nela até o merge."""
+        clone_path = _clone_path(tmp_path)
+        svc = GitRepoService(clone_path=clone_path, remote_url=str(bare_repo), review_mode="pr")
+        svc.ensure_clone()
+
+        with (
+            patch.object(gh_cli, "has_push_access", return_value=None),
+            patch.object(gh_cli, "pr_create", return_value="https://example.invalid/pr/1"),
+        ):
+            svc.publish({"item.md": "conteudo"}, "adiciona item", branch_hint="item-y")
+
+        head = _git(clone_path, "symbolic-ref", "--short", "HEAD").stdout.strip()
+        assert head == "main"
+        assert not (clone_path / "item.md").exists()
+
+
+class TestWriteFiles:
+    def test_grava_com_lf_e_remove_arquivo_e_pasta_vazia(self, tmp_path):
+        clone_path = _clone_path(tmp_path)
+        svc = GitRepoService(clone_path=clone_path)
+        svc.ensure_clone()
+        svc.publish({"a/b/item.md": "linha 1\nlinha 2\n"}, "cria")
+        assert (clone_path / "a" / "b" / "item.md").read_bytes() == b"linha 1\nlinha 2\n"
+
+        svc.publish({"a/b/item.md": None, "nunca-existiu.md": None}, "remove")
+        assert not (clone_path / "a").exists()
+        tracked = _git(clone_path, "ls-files").stdout
+        assert "item.md" not in tracked
+
+
+class TestPublishPrIssue:
     def test_sem_permissao_de_push_abre_issue(self, tmp_path, bare_repo):
         clone_path = _clone_path(tmp_path)
         # remote_url "github" só para o parse de owner/repo; o git real aponta pro bare local.

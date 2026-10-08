@@ -9,82 +9,87 @@ Agente (Claude Code, Cursor)          Hook de início de sessão      Navegador
    │ MCP stdio                           │ knowledge-mcp context      │ knowledge-mcp ui
    ▼                                     ▼                            ▼
 knowledge_os/main.py  FastMCP         knowledge_os/cli.py (sem fastmcp)   knowledge_os/api  FastAPI + static
- └─ mcp/tools.py  14 ferramentas         context · recent ·          conexões, teste de remote,
-    (sempre registradas, sem perfil)     pending · link              sincronização do índice
+ └─ mcp/tools.py  ferramentas            context · recent ·          itens, conexões (listar,
+    (sempre registradas, sem perfil)     pending · link · run        editar, testar, padrão, apagar)
    │                                     │                            │
    └──────────────────────┬──────────────┴────────────────────────────┘
                           ▼
-knowledge_os/services/   ItemService (save, search, similar, publish) · ContextService
-                RepoService · GitRepoService (clone/pull/publish/sync) · item_file (serialização)
-                secret_service/secret_guard · RelationService · ImportExport
+knowledge_os/services/   Brain (Snapshot/Draft/commit) · ItemService · ContextService
+                RepoService · ConnectionService · GitRepoService (clone/pull/publish/sync)
+                item_file (serialização) · secret_service/secret_guard · RelationService
                           ▼
-knowledge_os/db/         models (SQLAlchemy 2) · search_query (PT-BR) · schema_sync · rename_v2
+knowledge_os/storage/    access (qual conexão, travas) · files (FileStore) · search (busca em
+                         memória) · local_state (repos.json, usage/)
                           ▼
-            Por connection: repositório git clonado (`<home>/repos/<id>`) +
-            índice SQLite + FTS5 derivado dele (`<home>/indexes/<id>.db`)
+            Por conexão: uma pasta local que é um repositório git (a única fonte de verdade)
 ```
 
 Ferramentas são finas: resolvem nomes e projeto para ids, chamam um service e devolvem JSON
-enxuto. As regras de negócio (idempotência, transação do lote, TTL, supersedes, guarda de
+enxuto. As regras de negócio (idempotência, lote numa publicação só, TTL, supersedes, guarda de
 segredo, publicação git) ficam nos services, e por isso CLI, MCP e UI se comportam igual.
 
-## O storage é git, o SQLite é cache
+## O armazenamento são os arquivos da conexão
 
-Cada `Connection` (`ConnectionConfig` em `config.py`) é um repositório git: com `remote_url`,
-um clone de verdade (GitHub ou outro remote); sem `remote_url`, um repositório git só local
-(`git init`). O índice SQLite de cada connection é **derivado** desse repositório — existe só
-para a busca (FTS5) ser rápida, e é inteiramente reconstruível a partir dos arquivos `.md`: não
-guarda nada que não possa ser recalculado.
+Cada conexão (`ConnectionConfig` em `config.py`, cadastrada em `<home>/connections.json`) é uma
+pasta local que é um repositório git: com `remote_url`, um clone de verdade (GitHub ou outro
+remote); sem `remote_url`, um repositório só local (`git init`). Não há conexão implícita nem
+padrão automática: sem nenhuma cadastrada, toda operação levanta `NoConnectionError` dizendo
+para criar uma com `connection_create(name, path[, remote_url])` — a única porta de criação
+(a API e a UI só listam, editam, testam, definem a padrão e apagam).
 
 - Cada item vira um arquivo Markdown com frontmatter YAML em
   `<workspace-slug>/<project-slug>/<key>.md` (sem key: `.../_sem-key/<id>.md`) — serialização em
-  `services/item_file.py` (`serialize_item`/`parse_item_file`).
+  `services/item_file.py` (`serialize_item`/`parse_item_file`). Workspaces, projects, subjects,
+  tags e labels sem item ficam em arquivos `.knowledge.yaml`.
+- `storage/files.py` (`FileStore`) lê a pasta e guarda um cache por arquivo (data e tamanho);
+  `refresh()` só re-lê o que mudou, então mudanças feitas por fora (editor, `git pull`) valem.
+- `services/brain.py`: `Snapshot` é a leitura de um momento; `Draft` acumula mudanças em
+  memória e `Brain.commit` grava o conjunto de arquivos e publica pelo git numa publicação só.
 - `services/git_repo_service.py` (`GitRepoService`) é o único lugar (com `gh_cli.py`) que chama
   `git`/`gh`, sempre via lista de argumentos (nunca `shell=True`): `ensure_clone` (clona ou
-  `git init` na primeira vez), `pull`, `sync` (compara `ls-remote` com o HEAD local sem baixar
-  objetos; só puxa se mudou), `publish` (escreve, comita e — em modo `pr` — abre PR ou Issue),
-  `ensure_workflow` (grava `.github/workflows/validate-items.yml` + script de validação:
-  sem segredo, sem key duplicada, roda em cada PR) e `ensure_codeowners`.
-- `review_mode`, por connection: `direct` comita (e empurra, se há remote) na branch principal
+  `git init` na primeira vez), `pull`, `sync` (compara `ls-remote` com o HEAD local; só puxa se
+  mudou), `publish` (escreve, comita e — em modo `pr` — abre PR ou Issue), `ensure_workflow`
+  (grava `.github/workflows/validate-items.yml` + script de validação: sem segredo, sem key
+  duplicada, roda em cada PR) e `ensure_codeowners`.
+- `review_mode`, por conexão: `direct` comita (e empurra, se há remote) na branch principal
   na mesma chamada de `item_save`/`item_delete`/`relation_delete`; `pr` escreve numa branch nova
-  e abre um Pull Request (ou uma Issue, sem permissão de push) — o índice só reflete a mudança
-  depois que o PR for mergeado e `repo(action="sync")` (ou o hook de início de sessão) rodar.
-- O catálogo (connection reservada `default`) é sempre um repositório git só local, sem UI de
-  connection — guarda o que não está em nenhuma connection cadastrada.
+  e abre um Pull Request (ou uma Issue, sem permissão de push) — a mudança aparece depois que o
+  PR for mergeado e `repo(action="sync")` (ou o hook de início de sessão) rodar.
+- Escritas concorrentes: `storage/access.py` dá uma trava por conexão dentro do processo (UI e
+  MCP dividem o mesmo `FileStore`) e uma trava entre processos por pasta, em `<home>/locks/`.
 
-Segredos (`type == "secret"`) nunca viram arquivo: `item_file.serialize_item` recusa com
-`ValidationError`. O valor cifrado mora em `<clone-da-connection>/.secrets/<item_id>.enc`,
-coberto por um `.gitignore` gerenciado (`secret_service.py`) — nunca entra no git nem no índice;
-só `has_value` é rastreável.
+Segredos (`type == "secret"`) entram no arquivo só com metadados: `item_file.serialize_item`
+recusa um secret com valor. O valor cifrado mora em `<pasta-da-conexão>/.secrets/<item_id>.enc`,
+coberto por um `.gitignore` gerenciado (`secret_service.py`) — nunca entra no git; só
+`has_value` é rastreável.
+
+O home (`KNOWLEDGE_OS_HOME`, padrão `~/.knowledge-os`) guarda só estado desta máquina:
+`connections.json`, `repos.json`, `usage/`, `locks/`, `pending.jsonl` e marcas pequenas.
 
 ## Peças que importam
 
 | Peça | Como funciona | Por quê |
 |---|---|---|
-| `action=` em vez de uma ferramenta por verbo (`knowledge_os/mcp/tools.py`) | `workspace`/`project`/`subject`/`repo`/`artifact`/`backup` agrupam list/create/rename/merge/delete (ou link/list/unlink/sync, attach/get, export/import) numa única ferramenta cada | menos ferramentas registradas, nomes mais claros — a mesma ideia que `vocabulary` já usava para tags/labels |
-| `item_save` (`ItemService.save`) | lote atômico; `key` → upsert, `id` → update, sem nenhum → create + `similar`; `id` + `workspace`/`project`/`subject` novos → move o item; relações por id ou key; numa connection com repositório git, também serializa e publica cada item (`GitRepoService.publish`) | o fechamento de uma mudança grava tudo numa chamada, sem duplicar, e já fica versionado |
-| Busca (`search_query.py`) | sem acento, sem stopwords, radical PT-BR, prefixo; AND e, se vazio, OR; pesos BM25 título 6, keywords 4, resumo 3, conteúdo 1 | acerto sem embeddings e sem custo de modelo |
+| Uma ferramenta por verbo (`knowledge_os/mcp/tools.py`) | `workspace_*`, `project_*`, `subject_*`, `tag_*`, `label_*`, `connection_*`; só `repo` agrupa link/list/unlink/sync em `action=` | nomes claros e argumentos pequenos por ferramenta |
+| `item_save` (`ItemService.save`) | lote atômico; `key` → upsert, `id` → update, sem nenhum → create + `similar`; `id` + `workspace`/`project`/`subject` novos → move o item; relações por id ou key; tudo vira uma publicação git | o fechamento de uma mudança grava tudo numa chamada, sem duplicar, e já fica versionado |
+| Busca (`storage/search.py`) | índice invertido em memória, mantido pelo `FileStore`; sem acento, radical PT-BR, prefixo; AND e, se vazio, OR; BM25 com pesos por campo | acerto sem embeddings, sem custo de modelo e sem nada para reconstruir |
 | Pacote de contexto (`ContextService`) | project do repositório + `Geral` do workspace + `Global/Geral`; seções por tipo; regras com `scope_paths` só quando os paths casam; corta no orçamento e lista o omitido | o agente começa sabendo o essencial gastando ~1–1,5 mil tokens |
-| Ligação de repositório de código (`RepoService`) | chave = remote do git normalizado (ou `path:` + raiz) → workspace/project; `candidate_match` recusa criar workspace/project novo quando o nome parece (mas não é igual a) um já existente — exige `confirm_new=True` ou o nome exato | o mesmo repositório em qualquer pasta ou máquina acha o mesmo conhecimento, sem workspace/project duplicado por erro de grafia |
-| Repositório git da connection (`GitRepoService`) | `ensure_clone`/`pull`/`sync`/`publish`, `direct` ou `pr`, `ensure_workflow`/`ensure_codeowners` | o cérebro vira um repositório git de verdade: histórico, revisão por PR quando quiser, auditável fora do servidor |
-| Serialização item↔arquivo (`item_file.py`) | `Item` (ORM ou dict) ↔ Markdown com frontmatter YAML; recusa serializar `secret`; campos de telemetria (`access_count`, `last_accessed`, `expires_at`) nunca vão para o arquivo | o arquivo versionado é só o que faz sentido revisar num diff |
-| Ciclo de vida | `ephemeral` expira (`expires_at`); classe só sobe; `supersedes` marca o alvo `superseded`; `deprecated` sai da busca | o contexto não acumula lixo nem conselho velho |
-| `secret_guard` / `secret_service` | `secret_guard`: padrões de chaves, tokens, JWT, `password=`, URL com senha (placeholders passam) recusam itens comuns; `secret_service`: segredo vira item sem valor, preenchido só pela UI local, cifrado em arquivo fora do git | o cérebro é lido em toda sessão e publicado em git; segredo ali vaza para todo agente e para o histórico do repositório |
+| Ligação de repositório de código (`RepoService`, `repos.json`) | chave = remote do git normalizado (ou `path:` + raiz) → conexão/workspace/project; `candidate_match` recusa criar workspace/project novo quando o nome parece (mas não é igual a) um já existente — exige `confirm_new=True` ou o nome exato | o mesmo repositório em qualquer pasta ou máquina acha o mesmo conhecimento, sem duplicar por erro de grafia |
+| Serialização item↔arquivo (`item_file.py`) | item ↔ Markdown com frontmatter YAML; recusa serializar `secret` com valor; telemetria de uso fica em `<home>/usage/`, nunca no arquivo | o arquivo versionado é só o que faz sentido revisar num diff |
+| Ciclo de vida | `ephemeral` expira (`ttl_days`); `supersedes` marca o alvo `superseded`; `deprecated` sai da busca | o contexto não acumula lixo nem conselho velho |
+| `secret_guard` / `secret_service` | `secret_guard`: padrões de chaves, tokens, JWT, `password=`, URL com senha (placeholders passam) recusam itens comuns; `secret_service`: segredo vira item sem valor, preenchido só pela UI local, cifrado em arquivo fora do git | o cérebro é lido em toda sessão e publicado em git; segredo ali vaza para todo agente e para o histórico |
 | CLI leve (`knowledge_os/cli.py`) | subcomandos do cérebro não importam fastmcp; erro vira aviso; grava a fila offline `<home>/pending.jsonl` (entradas com `repo`) | o hook roda em toda sessão e nunca pode travá-la |
-| Manutenção (`knowledge_os/services/maintenance.py`) | backup do SQLite do catálogo (`backup`) e manutenção diária (`run_daily`: backup, remoção de ephemeral vencidos há mais de 7 dias, checkpoint do WAL) | o banco local se cuida sem ação do usuário |
-| Retentativa de escrita (`run_with_retry`, `knowledge_os/db/session.py`) | reexecuta a unidade de trabalho inteira enquanto o banco estiver travado (espera crescente até um orçamento; opcionalmente também em conflito de integridade) e, no fim, vira `DatabaseError` legível | vários processos (agentes, CLI, UI) escrevem no mesmo SQLite sem falhar por lock |
-| `schema_sync` | adiciona colunas e índices novos no índice SQLite de cada connection e recria o FTS quando a definição muda (aditivo, roda sempre no startup) | atualizar o pacote não exige migração manual do índice |
-| `rename_v2` | migração one-shot (`knowledge-mcp --migrate-v2`), separada do `schema_sync`: renomeia as tabelas e colunas de um banco criado antes da renomeação Project/Repo para o schema atual; faz backup do SQLite antes de mexer; nunca roda sozinha | mudança de schema que não é aditiva (rename) não pode acontecer sem o operador pedir |
+| Manutenção diária (`services/maintenance.py`) | no máximo uma vez por dia, apaga os `ephemeral` vencidos de cada conexão ativa e publica | o histórico é o do git: cada remoção é um commit, sem cópia de segurança à parte |
 
 ## Modelo de dados
 
-`Workspace` 1─N `Project` 1─N `Subject` (opcional) 1─N `Item` (N─N `Tag`, `Label`; 1─N
-`Artifact`; `Relation` entre itens). `RepoLink` liga a chave do repositório de código (do
-usuário) a workspace/project — não confundir com a `Connection`, que é o repositório git onde o
-conhecimento é publicado. `Item` tem `item_key` (único por project, nunca por subject), `type`,
-`memory_class`, `status`, `scope_paths` (JSON), `keywords`, `source`, `expires_at`,
-`importance`, `confidence`, `access_count`. `items_fts` é uma tabela FTS5 de conteúdo externo
-mantida por triggers, no índice SQLite de cada connection.
+`Workspace` 1─N `Project` 1─N `Subject` (opcional) 1─N `Item` (N─N `Tag`, `Label`; `Relation`
+entre itens, guardada no frontmatter do item de origem). Workspace, project e subject têm como id
+o slug do nome (que é também o nome da pasta); itens mantêm o UUID do frontmatter. Um vínculo em
+`repos.json` liga a chave do repositório de código (do usuário) a conexão/workspace/project —
+não confundir com a conexão, que é o repositório git onde o conhecimento é publicado. `Item` tem
+`key` (única por project, nunca por subject), `type`, `memory_class`, `status`, `scope_paths`,
+`keywords`, `source`, `ttl_days`, `importance` e `confidence`.
 
 ## Estrutura
 
@@ -92,13 +97,13 @@ mantida por triggers, no índice SQLite de cada connection.
 src/
 └── knowledge_os/     pacote instalável (src layout)
     ├── cli.py            ponto de entrada `knowledge-mcp`
-    ├── main.py           servidor FastMCP, --bootstrap, --check-db, --migrate-v2, ui
-    ├── config.py         home, connections.json (ConnectionConfig: remote_url, review_mode)
-    ├── mcp/              tools.py (14 ferramentas), INSTRUCTIONS.md
-    ├── services/         regras de negócio, inclusive git_repo_service.py, item_file.py,
-    │                     secret_service.py, gh_cli.py
+    ├── main.py           servidor FastMCP e `ui`
+    ├── config.py         home, connections.json (ConnectionConfig: path, remote_url, review_mode)
+    ├── mcp/              tools.py, INSTRUCTIONS.md
+    ├── services/         regras de negócio: brain.py, item_service.py, git_repo_service.py,
+    │                     item_file.py, secret_service.py, gh_cli.py...
+    ├── storage/          access.py, files.py, search.py, local_state.py
     ├── schemas/          Pydantic v2
-    ├── db/               models, session, search_query, schema_sync, rename_v2 — índice SQLite
-    └── api/              FastAPI da UI (rotas + static do front React)
+    └── api/              FastAPI da UI (rotas + front estático Alpine.js, sem build)
 tests/                unitários, serviços, ferramentas via Client em memória, stdio e CLI
 ```

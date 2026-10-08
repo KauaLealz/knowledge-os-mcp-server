@@ -1,18 +1,17 @@
-"""Testes do ItemService (CRUD), schemas e tools MCP de item."""
-
+"""Testes do ItemService (CRUD) e dos schemas de item."""
 
 import pytest
 from pydantic import ValidationError as PydanticValidationError
-from sqlalchemy import Engine, text
 
 from knowledge_os.exceptions import NotFoundError, ValidationError
 from knowledge_os.schemas.item_schemas import ItemCreate, ItemSearchRequest
 from knowledge_os.services.item_service import ItemService
+from knowledge_os.services.tag_service import TagService
 
 
 @pytest.fixture
-def svc(test_engine: Engine) -> ItemService:
-    return ItemService(test_engine)
+def svc(conn) -> ItemService:
+    return ItemService()
 
 
 def _kw(ws, dm, **over):
@@ -25,23 +24,22 @@ def _kw(ws, dm, **over):
 
 
 class TestService:
-    def test_create_com_tags_e_labels_reusa_existentes(
-        self, svc, test_engine, sample_workspace, sample_project
-    ):
+    def test_create_com_tags_e_labels(self, svc, sample_workspace, sample_project):
         a = svc.create(
             **_kw(sample_workspace, sample_project, tags=["x", "y"], labels=["official"])
         )
         b = svc.create(**_kw(sample_workspace, sample_project, tags=["x"], labels=["official"]))
-        assert sorted(t.name for t in a.tags) == ["x", "y"]
-        assert [lb.name for lb in b.labels] == ["official"]
-        with test_engine.connect() as c:
-            assert c.execute(text("SELECT count(*) FROM tags")).scalar() == 2
-            assert c.execute(text("SELECT count(*) FROM labels")).scalar() == 1
-            assert c.execute(text("SELECT count(*) FROM item_tags")).scalar() == 3
+        assert a.tags == ["x", "y"]
+        assert b.labels == ["official"]
+        assert [t.name for t in TagService().list()] == ["x", "y"]
 
     def test_create_dedup_tags_repetidas(self, svc, sample_workspace, sample_project):
-        it = svc.create(**_kw(sample_workspace, sample_project, tags=["x", "x"]))
-        assert [t.name for t in it.tags] == ["x"]
+        it = svc.create(**_kw(sample_workspace, sample_project, tags=["x", "x", " x "]))
+        assert it.tags == ["x"]
+
+    def test_create_sem_key_vai_para_sem_key(self, svc, sample_workspace, sample_project):
+        it = svc.create(**_kw(sample_workspace, sample_project))
+        assert it.path == f"testworkspace/testproject/_sem-key/{it.id}.md"
 
     def test_ephemeral_exige_ttl(self, svc, sample_workspace, sample_project):
         with pytest.raises(ValidationError):
@@ -67,7 +65,7 @@ class TestService:
         it = svc.create(**_kw(sample_workspace, sample_project, tags=["t"]))
         got = svc.get(it.id)
         assert got.content == "Conteudo longo"
-        assert [t.name for t in got.tags] == ["t"]
+        assert got.tags == ["t"]
         with pytest.raises(NotFoundError):
             svc.get("nope")
 
@@ -91,16 +89,22 @@ class TestService:
         with pytest.raises(NotFoundError):
             svc.update("nope", summary="x")
 
-    def test_delete(self, svc, test_engine, sample_workspace, sample_project):
+    def test_delete(self, svc, sample_workspace, sample_project, data_dir):
         it = svc.create(**_kw(sample_workspace, sample_project, tags=["t"], labels=["l"]))
         assert svc.delete(it.id) is True
         with pytest.raises(NotFoundError):
             svc.get(it.id)
-        with test_engine.connect() as c:
-            assert c.execute(text("SELECT count(*) FROM item_tags")).scalar() == 0
-            assert c.execute(text("SELECT count(*) FROM item_labels")).scalar() == 0
+        assert not (data_dir / it.path).exists()
         with pytest.raises(NotFoundError):
             svc.delete(it.id)
+
+    def test_sem_conexao_da_erro_claro(self, _isolated_home):
+        from knowledge_os.config import NO_CONNECTION_MESSAGE
+
+        with pytest.raises(ValidationError) as exc:
+            ItemService().search(None, None, "x")
+        assert str(exc.value) == NO_CONNECTION_MESSAGE
+        assert not (_isolated_home / "connections.json").exists()  # nada é criado
 
 
 class TestSchemas:
@@ -114,5 +118,3 @@ class TestSchemas:
             ItemCreate(workspace_id="w", project_id="d", type="rule", memory_class="longterm",
                        title="t", summary="s", content="c", confidence=101)
         assert ItemSearchRequest(workspace_id="w", query="q").limit == 10
-
-

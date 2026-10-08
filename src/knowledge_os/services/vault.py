@@ -1,7 +1,7 @@
-"""Cifra dos valores de segredo: Fernet com uma chave mestra que nunca vai para o banco.
+"""Cifra dos valores de segredo: Fernet com uma chave mestra que nunca vai para o disco.
 
 A chave vem de KNOWLEDGE_OS_VAULT_KEY ou do keyring do sistema (no Windows, o Gerenciador de
-Credenciais). Sem ela, o arquivo do banco (e os backups) guardam só texto cifrado.
+Credenciais). Sem ela, os arquivos `.secrets/<item_id>.enc` guardam só texto cifrado.
 """
 
 import os
@@ -16,7 +16,7 @@ ENV_KEY = "KNOWLEDGE_OS_VAULT_KEY"
 KEYRING_SERVICE = "knowledge-os"
 KEYRING_NAME = "vault-master-key"
 # Marca, no home, que uma chave já foi criada: a chave vale para todas as conexões, então a
-# ausência de valores num banco não prova que nenhuma chave existiu.
+# ausência de valores numa conexão não prova que nenhuma chave existiu.
 MARKER_NAME = "vault.created"
 WAIT_OTHER_S = 5.0
 
@@ -119,7 +119,7 @@ def decrypt(token: str, bound_to: str) -> str:
     owner, sep, value = plain.partition("\0")
     if not sep or owner != bound_to:
         raise ValidationError(
-            "Este valor cifrado pertence a outro segredo (linha trocada no banco). Preencha o "
+            "Este valor cifrado pertence a outro segredo (arquivo trocado). Preencha o "
             "segredo de novo pela UI."
         )
     return value

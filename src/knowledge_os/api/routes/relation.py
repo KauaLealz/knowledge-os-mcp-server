@@ -1,16 +1,13 @@
-"""Rotas de relations."""
+"""Rotas de relations (guardadas no frontmatter do item de origem)."""
 
 from collections import defaultdict
 
 from fastapi import APIRouter, Depends, Response, status
-from sqlalchemy import or_, select
-from sqlalchemy.orm import Session
 
-from knowledge_os.api.deps import get_session_dep
-from knowledge_os.api.routes._helpers import get_or_404
+from knowledge_os.api.deps import get_connection_id
 from knowledge_os.api.schemas.requests import RelationCreate
 from knowledge_os.api.schemas.responses import RelationResponse
-from knowledge_os.db.models import Item, Relation
+from knowledge_os.services.brain import Brain, Relation
 from knowledge_os.services.relation_service import RelationService
 
 router = APIRouter()
@@ -20,35 +17,28 @@ router = APIRouter()
 def list_relations(
     item_id: str | None = None,
     type: str | None = None,
-    session: Session = Depends(get_session_dep),
+    cid: str = Depends(get_connection_id),
 ):
-    stmt = select(Relation).order_by(Relation.created_at, Relation.id)
-    if item_id:
-        stmt = stmt.where(
-            or_(Relation.source_item_id == item_id, Relation.target_item_id == item_id)
-        )
-    if type:
-        stmt = stmt.where(Relation.relation_type == type)
-    return list(session.scalars(stmt))
+    return RelationService(cid).list_all(item_id, type)
 
 
 @router.post("/relations", status_code=status.HTTP_201_CREATED, response_model=RelationResponse)
-def create_relation(req: RelationCreate, session: Session = Depends(get_session_dep)):
-    return RelationService(session).create(
-        req.source_item_id, req.target_item_id, req.relation_type
-    )
+def create_relation(req: RelationCreate, cid: str = Depends(get_connection_id)):
+    return RelationService(cid).create(req.source_item_id, req.target_item_id, req.relation_type)
 
 
 @router.delete("/relations/{id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_relation(id: str, session: Session = Depends(get_session_dep)) -> Response:
-    RelationService(session).delete(id)
+def delete_relation(id: str, cid: str = Depends(get_connection_id)) -> Response:
+    RelationService(cid).delete(id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/items/{id}/relations", response_model=dict[str, list[RelationResponse]])
-def item_relations(id: str, session: Session = Depends(get_session_dep)):
-    get_or_404(session, Item, id, "Item")
+def item_relations(id: str, cid: str = Depends(get_connection_id)):
+    snap = Brain(cid).snapshot
+    snap.require(id)
     grouped: dict[str, list[Relation]] = defaultdict(list)
-    for rel in RelationService(session).list(id):
-        grouped[rel.relation_type].append(rel)
+    for rel in snap.relations():
+        if id in (rel.source_item_id, rel.target_item_id):
+            grouped[rel.relation_type].append(rel)
     return grouped

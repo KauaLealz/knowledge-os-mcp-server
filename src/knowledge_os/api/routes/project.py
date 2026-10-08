@@ -1,64 +1,59 @@
-"""Rotas de projects."""
+"""Rotas de projects (id = slug do nome, único dentro do workspace).
+
+Nas rotas por id, `workspace_id` (query) desfaz a ambiguidade quando o mesmo project existe em
+mais de um workspace (ex.: `geral`).
+"""
 
 from fastapi import APIRouter, Depends, Response, status
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
 
-from knowledge_os.api.deps import get_session_dep
-from knowledge_os.api.routes._helpers import get_or_404
+from knowledge_os.api.deps import get_connection_id
 from knowledge_os.api.schemas.requests import ProjectCreate, ProjectUpdate
 from knowledge_os.api.schemas.responses import ProjectResponse, ProjectStats
-from knowledge_os.db.models import Item, Project
-from knowledge_os.exceptions import ValidationError
+from knowledge_os.services.brain import Brain
 from knowledge_os.services.project_service import ProjectService
 
 router = APIRouter()
 
 
 @router.get("/projects", response_model=list[ProjectResponse])
-def list_projects(workspace_id: str | None = None, session: Session = Depends(get_session_dep)):
-    if workspace_id:
-        return ProjectService(session).list(workspace_id)
-    return list(session.scalars(select(Project).order_by(Project.created_at, Project.name)))
+def list_projects(workspace_id: str | None = None, cid: str = Depends(get_connection_id)):
+    svc = ProjectService(cid)
+    return svc.list(workspace_id) if workspace_id else svc.list_all()
 
 
 @router.post("/projects", status_code=status.HTTP_201_CREATED, response_model=ProjectResponse)
-def create_project(req: ProjectCreate, session: Session = Depends(get_session_dep)):
-    return ProjectService(session).create(req.workspace_id, req.name, req.description)
+def create_project(req: ProjectCreate, cid: str = Depends(get_connection_id)):
+    return ProjectService(cid).create(req.workspace_id, req.name, req.description)
 
 
 @router.get("/projects/{id}", response_model=ProjectResponse)
-def get_project(id: str, session: Session = Depends(get_session_dep)):
-    return get_or_404(session, Project, id, "Project")
+def get_project(id: str, workspace_id: str | None = None, cid: str = Depends(get_connection_id)):
+    return ProjectService(cid).find_by_id(id, workspace_id)
 
 
 @router.put("/projects/{id}", response_model=ProjectResponse)
-def update_project(id: str, req: ProjectUpdate, session: Session = Depends(get_session_dep)):
-    pj = get_or_404(session, Project, id, "Project")
-    clash = session.scalar(
-        select(Project.id).where(
-            Project.workspace_id == pj.workspace_id, Project.name == req.name, Project.id != id
-        )
-    )
-    if clash is not None:
-        raise ValidationError(f"Project já existe no workspace: {req.name}")
-    pj.name = req.name
-    if req.description is not None:
-        pj.description = req.description
-    session.commit()
-    session.refresh(pj)
-    return pj
+def update_project(
+    id: str, req: ProjectUpdate, workspace_id: str | None = None,
+    cid: str = Depends(get_connection_id),
+):
+    svc = ProjectService(cid)
+    pj = svc.find_by_id(id, workspace_id)
+    return svc.update(pj.workspace_id, pj.id, req.name, req.description)
 
 
 @router.delete("/projects/{id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_project(id: str, session: Session = Depends(get_session_dep)) -> Response:
-    pj = get_or_404(session, Project, id, "Project")
-    ProjectService(session).delete(pj.workspace_id, pj.name)
+def delete_project(
+    id: str, workspace_id: str | None = None, cid: str = Depends(get_connection_id)
+) -> Response:
+    svc = ProjectService(cid)
+    pj = svc.find_by_id(id, workspace_id)
+    svc.delete(pj.workspace_id, pj.id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/projects/{id}/stats", response_model=ProjectStats)
-def project_stats(id: str, session: Session = Depends(get_session_dep)):
-    get_or_404(session, Project, id, "Project")
-    items = session.scalar(select(func.count()).select_from(Item).where(Item.project_id == id))
-    return ProjectStats(items=items or 0)
+def project_stats(
+    id: str, workspace_id: str | None = None, cid: str = Depends(get_connection_id)
+):
+    pj = ProjectService(cid).find_by_id(id, workspace_id)
+    return ProjectStats(items=len(Brain(cid).snapshot.items_in(pj.workspace_id, pj.id)))

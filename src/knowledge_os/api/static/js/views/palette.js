@@ -48,7 +48,7 @@ export function register(Alpine) {
             const res = await api('GET', '/items/search', { query: { query: q, limit: REMOTE_LIMIT } });
             if (mine === seq) this.remote = res.results;
           } catch {
-            if (mine === seq) this.remote = []; // FTS pode recusar a consulta: a busca local segue valendo
+            if (mine === seq) this.remote = []; // a busca remota pode falhar: a busca local segue valendo
           } finally {
             if (mine === seq) this.searching = false;
           }
