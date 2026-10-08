@@ -79,6 +79,12 @@ def is_expired(record: ItemRecord, now: datetime | None = None) -> bool:
     return end is not None and end <= (now or utcnow())
 
 
+def is_published(result: PublishResult | None) -> bool:
+    """A mudança já vale na pasta? (direto, ou nada a publicar). Em PR/Issue, só depois do
+    merge: estado local (`.secrets/*.enc`, `repos.json`) não pode mudar antes disso."""
+    return result is None or result.status == "published"
+
+
 def check_name(name: str | None, what: str) -> str:
     """Nome de workspace/project/subject: não vazio e com slug (vira nome de pasta)."""
     name = (name or "").strip()

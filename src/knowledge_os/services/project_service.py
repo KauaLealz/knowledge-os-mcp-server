@@ -23,6 +23,7 @@ from knowledge_os.services.brain import (
     Project,
     Workspace,
     check_name,
+    is_published,
     meta_location,
     utcnow,
 )
@@ -141,7 +142,11 @@ class ProjectService:
             if description is not None:
                 meta["description"] = description
             d.set_meta(meta_location(ws.id, new_id), meta)
-            brain.commit(d, f"knowledge-os: atualiza project {ws.name}/{name}")
+            result = brain.commit(d, f"knowledge-os: atualiza project {ws.name}/{name}")
+        if not is_published(result):
+            # Em revisão: a pasta e a ligação dos repositórios só mudam depois do merge.
+            return Project(new_id, ws.id, name, meta.get("description"), pj.created_at,
+                           pj.updated_at)
         relink(brain.cid, ws.id, pj.id, workspace=ws.name, project=name)
         logger.info("Project atualizado: %s -> %s (workspace %s)", ref, name, workspace_id)
         return brain.snapshot.project(ws.id, new_id)
@@ -159,8 +164,11 @@ class ProjectService:
             if src.id == tgt.id:
                 raise ValidationError("source e target são o mesmo project")
             result = merge_project_in(d, ws, src, ws, tgt)
-            brain.commit(d, f"knowledge-os: mescla project {src.name} em {tgt.name}")
-        relink(brain.cid, ws.id, src.id, workspace=ws.name, project=tgt.name)
+            published = is_published(
+                brain.commit(d, f"knowledge-os: mescla project {src.name} em {tgt.name}")
+            )
+        if published:
+            relink(brain.cid, ws.id, src.id, workspace=ws.name, project=tgt.name)
         logger.info("Project mesclado: %s -> %s", source, target)
         return result
 
@@ -177,10 +185,12 @@ class ProjectService:
             for record_id in removed:
                 d.remove(record_id)
             d.set_meta(meta_location(ws.id, pj.id), None)
-            brain.commit(d, f"knowledge-os: remove project {ws.name}/{pj.name}")
-        for record_id in removed:
-            brain.secret_path(record_id).unlink(missing_ok=True)
-        relink(brain.cid, ws.id, pj.id, workspace=None)
+            result = brain.commit(d, f"knowledge-os: remove project {ws.name}/{pj.name}")
+        if is_published(result):
+            # Em revisão (PR/Issue) o project continua na pasta: valor e ligação ficam.
+            for record_id in removed:
+                brain.secret_path(record_id).unlink(missing_ok=True)
+            relink(brain.cid, ws.id, pj.id, workspace=None)
         logger.info("Project removido: %s", name)
         return True
 

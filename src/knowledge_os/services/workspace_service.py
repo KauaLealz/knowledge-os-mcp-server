@@ -24,6 +24,7 @@ from knowledge_os.services.brain import (
     Draft,
     Workspace,
     check_name,
+    is_published,
     meta_location,
     utcnow,
 )
@@ -116,7 +117,10 @@ class WorkspaceService:
             if description is not None:
                 rel = meta_location(slugify(new))
                 d.set_meta(rel, {**d.meta(rel), "name": new, "description": description})
-            brain.commit(d, f"knowledge-os: atualiza workspace {new}")
+            result = brain.commit(d, f"knowledge-os: atualiza workspace {new}")
+        if not is_published(result):
+            return Workspace(slugify(new), new, description or ws.description, ws.created_at,
+                             ws.updated_at)
         relink(brain.cid, ws.id, None, workspace=new)
         return brain.snapshot.workspace(slugify(new))
 
@@ -127,7 +131,13 @@ class WorkspaceService:
         with brain.editing() as d:
             ws = d.workspace(name)
             self._rename_in(d, ws, new_name)
-            brain.commit(d, f"knowledge-os: renomeia workspace {ws.name} -> {new_name}")
+            result = brain.commit(
+                d, f"knowledge-os: renomeia workspace {ws.name} -> {new_name}"
+            )
+        if not is_published(result):
+            # Em revisão: a pasta e a ligação dos repositórios só mudam depois do merge.
+            return Workspace(slugify(new_name), new_name, ws.description, ws.created_at,
+                             ws.updated_at)
         relink(brain.cid, ws.id, None, workspace=new_name)
         logger.info("Workspace renomeado: %s -> %s", name, new_name)
         return brain.snapshot.workspace(slugify(new_name))
@@ -173,8 +183,9 @@ class WorkspaceService:
                 merged_projects += 1
             move_project_metas(d, src.id, tgt.id)
             d.set_meta(meta_location(src.id), None)
-            brain.commit(d, f"knowledge-os: mescla workspace {src.name} em {tgt.name}")
-        relink(brain.cid, src.id, None, workspace=tgt.name)
+            result = brain.commit(d, f"knowledge-os: mescla workspace {src.name} em {tgt.name}")
+        if is_published(result):
+            relink(brain.cid, src.id, None, workspace=tgt.name)
         logger.info("Workspace mesclado: %s -> %s", source, target)
         return {"merged_projects": merged_projects, "renamed_collisions": renamed_collisions}
 
@@ -191,10 +202,12 @@ class WorkspaceService:
                 d.remove(record_id)
             for rel in [r for r in d.metas if r.startswith(f"{ws.id}/")]:
                 d.set_meta(rel, None)
-            brain.commit(d, f"knowledge-os: remove workspace {ws.name}")
-        for record_id in removed:
-            brain.secret_path(record_id).unlink(missing_ok=True)
-        relink(brain.cid, ws.id, None, workspace=None)
+            result = brain.commit(d, f"knowledge-os: remove workspace {ws.name}")
+        if is_published(result):
+            # Em revisão (PR/Issue) o workspace continua na pasta: valor e ligação ficam.
+            for record_id in removed:
+                brain.secret_path(record_id).unlink(missing_ok=True)
+            relink(brain.cid, ws.id, None, workspace=None)
         logger.info("Workspace removido: %s", name)
         return True
 
