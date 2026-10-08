@@ -11,8 +11,9 @@ ORM. `tags`, `labels` e `relations` são sempre parâmetros à parte: no ORM ele
 carregadas separadamente, e `relations` já chega resolvido (pela key do alvo quando ele tem
 uma, senão pelo id) — este módulo não decide essa resolução, só serializa o que recebe.
 
-Segredos (`type == "secret"`) nunca são serializados para arquivo versionável: `serialize_item`
-recusa com `ValidationError`. O valor do segredo vive à parte (fora do git), noutro lote.
+Segredos (`type == "secret"`) entram no arquivo só com metadados (título, resumo, key...): o
+valor vive à parte, fora do git. `serialize_item` recusa com `ValidationError` um item secret que
+traga algum campo de valor (`_SECRET_VALUE_FIELDS`).
 """
 
 from __future__ import annotations
@@ -40,6 +41,9 @@ _REQUIRED_FIELDS = (
     "created_at",
     "updated_at",
 )
+
+# Campos que carregariam o valor de um segredo: nunca podem chegar ao arquivo versionável.
+_SECRET_VALUE_FIELDS = ("value", "valor", "secret_value", "ciphertext")
 
 _FRONTMATTER_RE = re.compile(r"\A---\n(.*?\n)---\n(.*)\Z", re.DOTALL)
 
@@ -136,16 +140,19 @@ def serialize_item(
     """Serializa um item (Item do SQLAlchemy ou dict equivalente) em conteúdo de arquivo
     Markdown com frontmatter YAML.
 
-    Recusa (`ValidationError`) serializar um item `type == "secret"`: segredo nunca vai pro
-    git. Campos de telemetria (`access_count`, `last_accessed`) e `expires_at` (sempre
-    recalculado a partir de `updated_at` + `ttl_days`) nunca são persistidos no arquivo.
+    Item `type == "secret"` é serializado só com metadados; recusa (`ValidationError`) se ele
+    trouxer algum campo de valor — o valor do segredo nunca vai pro git. Campos de telemetria
+    (`access_count`, `last_accessed`) e `expires_at` (sempre recalculado a partir de
+    `updated_at` + `ttl_days`) nunca são persistidos no arquivo.
     """
     item_type = _field(item, "type")
     if item_type == "secret":
-        raise ValidationError(
-            "Item do tipo 'secret' não pode ser serializado para arquivo versionável "
-            "(segredos nunca vão para o git)"
-        )
+        found = [f for f in _SECRET_VALUE_FIELDS if _field(item, f) is not None]
+        if found:
+            raise ValidationError(
+                f"Item do tipo 'secret' com campo de valor ({', '.join(found)}) não pode ser "
+                "serializado para arquivo versionável (o valor nunca vai para o git)"
+            )
 
     memory_class = _field(item, "memory_class")
     key = _field(item, "key")

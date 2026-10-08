@@ -234,9 +234,28 @@ def test_serialize_aceita_item_sqlalchemy_alem_de_dict():
 # --------------------------------------------------------------------------- segredo recusado
 
 
-def test_serialize_recusa_item_secret():
+def test_serialize_aceita_item_secret_so_com_metadados():
     item = _minimal_item()
     item["type"] = "secret"
+    item["key"] = "segredo/token"
+    raw = serialize_item(
+        item,
+        workspace_name="Polara",
+        project_name="app",
+        subject_name=None,
+        relations=[],
+        tags=[],
+        labels=[],
+    )
+    parsed = parse_item_file(raw)
+    assert parsed["type"] == "secret" and parsed["key"] == "segredo/token"
+
+
+@pytest.mark.parametrize("campo", ["value", "valor", "secret_value", "ciphertext"])
+def test_serialize_recusa_secret_com_valor(campo):
+    item = _minimal_item()
+    item["type"] = "secret"
+    item[campo] = "s3nh4"
     with pytest.raises(ValidationError, match="secret"):
         serialize_item(
             item,
