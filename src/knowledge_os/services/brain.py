@@ -695,13 +695,17 @@ class Brain:
                 finally:
                     held.discard(self.cid)
 
-    def commit(self, draft: Draft, message: str) -> PublishResult | None:
-        """Publica o rascunho numa publicação só (None se nada mudou) e relê a pasta."""
+    def commit(self, draft: Draft, message: str,
+               branch_hint: str | None = None) -> PublishResult | None:
+        """Publica o rascunho numa publicação só (None se nada mudou) e relê a pasta.
+
+        `branch_hint`: nome da branch do PR (modo `pr`); sem ele, sai da mensagem.
+        """
         files = draft.files()
         if not files:
             return None
         with self.lock:
-            result = git_for(self.conn).publish(files, message)
+            result = git_for(self.conn).publish(files, message, branch_hint=branch_hint)
             self.refresh()
         return result
 
