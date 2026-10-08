@@ -511,12 +511,12 @@ class ItemService:
         (qualquer scope, 1.0) + os globais de fora (0.7); senão `scope.reach(viewpoint)`.
         Padrão exclui `archived` e vencidos (`status=["expired"]` os mostra); `review` entra,
         com peso menor e marcado. `paths` sobe quem casa `scope_paths` (com `excerpt`) e, sem
-        consulta, tira quem tem `scope_paths` de outro lugar. Com `queries` (até 5): `{groups: [{query,
-        results}]}`. Sem consulta, de um repositório ligado e sem filtros: o essencial em
-        `{groups: [{group, results}]}` (`seguranca`, `regras`, `contexto`, `specs`). Pasta não
-        ligada leva `suggestion`. Soma `shown` em cada resultado devolvido; consulta que volta
-        vazia vai para `searches/<conn>.jsonl`. `content_head=N` inclui os N primeiros
-        caracteres do `content` em cada resultado (para o pacote do hook).
+        consulta, tira quem tem `scope_paths` de outro lugar. Com `queries` (até 5):
+        `{groups: [{query, results}]}`. Sem consulta, de um repositório ligado e sem filtros: o
+        essencial em `{groups: [{group, results}]}` (`seguranca`, `regras`, `contexto`, `specs`).
+        Pasta não ligada leva `suggestion`. Soma `shown` em cada resultado devolvido;
+        consulta que volta vazia vai para `searches/<conn>.jsonl`. `content_head=N` inclui os
+        N primeiros caracteres do `content` em cada resultado (para o pacote do hook).
         """
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= MAX_LIMIT:
             raise ValidationError(f"limit deve ser inteiro de 1 a {MAX_LIMIT}: {limit!r}")
