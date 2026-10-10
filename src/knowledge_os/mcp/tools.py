@@ -399,7 +399,7 @@ def item_search(
     **Use quando:** Procurar algo que pode já estar guardado (regra, decisão, como fazer) antes
         de agir ou de gravar; `paths` = os arquivos em que você vai mexer.
     **Retorna:** {results: [{id, key, type, subtype, title, summary, scope, where, status, score,
-        matched_in, snippet}]} (com `paths`, também `excerpt` e `scope_paths`); com `queries`
+        matched_in, snippet, url}]} (com `paths`, também `excerpt` e `scope_paths`); com `queries`
         → {groups: [{query, results}]}; sem consulta, de um repositório ligado → o essencial
         em {groups: [{group, results}]} (seguranca, regras, contexto, specs). Pasta não ligada:
         só os globais e `suggestion` com a chamada que liga.
@@ -447,7 +447,7 @@ def item_get(
     **Retorna:** Na ordem pedida (keys, depois ids): [{id, key, workspace, project, subject,
         where, type, subtype, scope, scope_explicit, title, summary, content, status, tags,
         links, scope_paths, ttl_days, expires_at, keywords, source, origin, verified_at,
-        verified_commit, created_at, updated_at, relations: [{type, target, target_id}]}]; o
+        verified_commit, created_at, updated_at, url, relations: [{type, target, target_id}]}]; o
         que não se acha vem como {key|id, missing: true}, sem derrubar os outros.
     **Exemplo:** item_get(keys=["rule/money", "howto/deploy"], repo=".")
     **Erro comum:** key que vem `missing` sem `repo` — sem repositório só os globais se
@@ -469,7 +469,8 @@ def item_save(
     **Use quando:** Guardar o que vale para depois — uma regra que o usuário enunciou, as
         decisões e aprendizados ao fechar uma mudança, a correção de um item.
     **Retorna:** [{index, id, key, scope, action: created|updated|unchanged, warnings,
-        similar?, has_value?, fill_url?}] — `warnings` traz o modelo do `content` que faltou,
+        similar?, url, has_value?, fill_url?}] — `url` é o link da UI local do item; `warnings`
+        traz o modelo do `content` que faltou,
         key fora do padrão e tag nova (com sugestão parecida); em modo PR, {index, id, key,
         status: pending_review|issue_opened, pr_url|issue_url}.
     **Modo, por entrada:** `key` → upsert no project (o preferido: regrava sem duplicar); `id` →

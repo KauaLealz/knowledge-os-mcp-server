@@ -21,11 +21,14 @@ MAX_VALUE_CHARS = 32768
 EXCLUDE_LINE = f"{SECRETS_DIRNAME}/"
 
 
-def fill_url(item: Any, connection_id: str) -> str:
-    """Link da UI local direto no item, onde o usuário preenche o valor."""
+def item_url(item: Any, connection_id: str) -> str:
+    """Link da UI local direto no item (o `url` de toda resposta de item)."""
     conn = quote(connection_id, safe="")
     return (f"http://127.0.0.1:{UI_DEFAULT_PORT}/ui/#/c/{conn}/w/{item.workspace_id}"
             f"/p/{item.project_id}/i/{item.id}")
+
+
+fill_url = item_url  # o link do segredo é o mesmo: é onde o usuário preenche o valor
 
 
 class SecretService:

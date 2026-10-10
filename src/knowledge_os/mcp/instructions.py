@@ -49,6 +49,12 @@ Não é item: bug, andamento, medição datada, id de tarefa. `summary` de 1–2
 Destrutivos (`item_delete`, `*_delete`, `tag_delete`) devolvem prévia sem `confirm`; só passe
 `confirm=True` com pedido explícito. Tudo é commit no git da conexão: dá para voltar.
 
+**Link e resumo:** toda resposta de item traz `url` (link da UI local); cole-o ao usuário ao
+criar ou atualizar uma spec e na entrega. A spec leva `summary` no padrão
+`<estado> · <fase n/total> · <branch> · <worktree> · <agente>`. Tags: vocabulário curto e
+reaproveitado — `tag_list` antes de criar; 1 a 3 de área/tema, mais as de estado da spec
+(`aguardando-aprovacao`, `em-andamento`, `parada`).
+
 **Segredos:** item `secret` (`secret/<nome>`) sem valor; passe ao usuário o `fill_url` da
 resposta (ele preenche na UI local). Nunca peça nem grave o valor no chat. Usar:
 `knowledge-mcp run --env VAR=secret/<nome> -- <comando>`.

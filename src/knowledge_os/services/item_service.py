@@ -14,7 +14,7 @@ Superfície pública (o que MCP, CLI/hook e API consomem):
 - `save(items, default_location=None) -> list[dict]` — lote atômico de até 20 entradas
   (campos `model.ITEM_FIELDS` + `workspace, project, subject`). Por entrada:
   `{index, id, key, scope (efetivo), action: created|updated|unchanged, warnings, similar?,
-  has_value?, fill_url?}`; em modo PR, `{index, id, key, status, pr_url|issue_url}`.
+  url, has_value?, fill_url?}`; em modo PR, `{index, id, key, status, pr_url|issue_url}`.
   `default_location` = (nome do workspace, nome do project) do repositório ligado.
 - `get_many(keys=None, ids=None, viewpoint=None, workspace=None, project=None) -> list[dict]`
   — até 20; o item completo (com `content`, `where`, `scope` efetivo, `relations`) ou
@@ -42,6 +42,7 @@ import subprocess
 import uuid
 from collections.abc import Callable, Iterable
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 from typing import Any
 
 from knowledge_os.exceptions import NotFoundError, ValidationError
@@ -75,7 +76,7 @@ from knowledge_os.services.brain import (
 from knowledge_os.services.item_file import slugify
 from knowledge_os.services.relation_service import review_fields
 from knowledge_os.services.secret_guard import ensure_no_secrets, find_secret
-from knowledge_os.services.secret_service import fill_url
+from knowledge_os.services.secret_service import item_url
 from knowledge_os.services.tag_service import TagService
 from knowledge_os.storage import local_state
 from knowledge_os.storage.files import ItemRecord
@@ -296,10 +297,11 @@ class ItemService:
                      **review_fields(publish)} for r in rows]
         for row in rows:
             record = brain.snapshot.get(row["id"])
-            if record is not None and record.type == "secret":
-                item = brain.view(record)
-                row["has_value"] = item.has_value
-                row["fill_url"] = fill_url(item, brain.cid)
+            if record is not None:
+                row["url"] = record_url(brain, record)
+                if record.type == "secret":
+                    row["has_value"] = brain.view(record).has_value
+                    row["fill_url"] = row["url"]
         return rows
 
     def _save_one(self, brain: Brain, d: Draft, raw: dict[str, Any],
@@ -587,7 +589,7 @@ class ItemService:
             if text and not hits:
                 local_state.log_empty_search(brain.cid, text)
             shown.extend(h.record.id for h in hits)
-            return [result_dict(snap, h, now, paths, content_head) for h in hits]
+            return [result_dict(brain, h, now, paths, content_head) for h in hits]
 
         filtered = any(v is not None for v in (paths, type_set, subtype_set, status_set,
                                                 origin_set, scope_set, tag_list))
@@ -892,15 +894,23 @@ def cleanup_reason(record: ItemRecord, use: dict[str, Any] | None, now: datetime
     return None
 
 
-def result_dict(snap: Snapshot, hit: Hit, now: datetime, paths: list[str] | None,
+def record_url(brain: Brain, record: ItemRecord) -> str:
+    """O `url` da UI local do item (mesmo formato do `fill_url` do segredo)."""
+    ref = SimpleNamespace(workspace_id=slugify(record.workspace or ""),
+                          project_id=slugify(record.project or ""), id=record.id)
+    return item_url(ref, brain.cid)
+
+
+def result_dict(brain: Brain, hit: Hit, now: datetime, paths: list[str] | None,
                 content_head: int | None) -> dict[str, Any]:
     """Resultado de busca: resumo explicado, nunca o `content` inteiro."""
-    r = hit.record
+    r, snap = hit.record, brain.snapshot
     row: dict[str, Any] = {
         "id": r.id, "key": r.key, "type": r.type, "subtype": r.subtype, "title": r.title,
         "summary": r.summary, "scope": snap.effective_scope(r), "where": scope_mod.where(r),
         "status": EXPIRED if is_expired(r, now) else r.status, "score": float(hit.score),
         "matched_in": list(hit.matched_in), "snippet": hit.snippet,
+        "url": record_url(brain, r),
     }
     if paths:
         row["excerpt"] = hit.excerpt
@@ -931,9 +941,10 @@ def full_dict(brain: Brain, record: ItemRecord, now: datetime | None = None) -> 
         "verified_commit": item.verified_commit, "created_at": _iso(item.created_at),
         "updated_at": _iso(item.updated_at), "relations": relations,
     }
+    row["url"] = item_url(item, brain.cid)
     if item.type == "secret":
         row["has_value"] = item.has_value
-        row["fill_url"] = fill_url(item, brain.cid)
+        row["fill_url"] = row["url"]
     return row
 
 

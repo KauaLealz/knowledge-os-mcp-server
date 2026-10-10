@@ -154,7 +154,7 @@ verified}}` (lê também o formato antigo `{uses, last_used}`: `uses` vira `open
   `key` → upsert no project (onde o item mora), `id` → atualiza (e, com `workspace`/`project`/
   `subject` novos, move), sem nenhum → cria e devolve `similar`. Campos aceitos: `ITEM_FIELDS` do
   `model.py` + `workspace, project, subject`. Retorno por entrada: `{index, id, key, scope, action:
-  created|updated|unchanged, warnings, similar?, has_value?, fill_url?}`. Avisos: modelo do `content`,
+  created|updated|unchanged, warnings, similar?, url, has_value?, fill_url?}`. `url` (em `save`, `get_many` e em cada resultado da busca) é o link da UI local do item: `http://127.0.0.1:<porta>/ui/#/c/<conexão>/w/<workspace_id>/p/<project_id>/i/<id>`; `fill_url` é o mesmo link, só em `secret`. Avisos: modelo do `content`,
   key válida fora do padrão `<tipo>/<nome>`, tag nova (com sugestão parecida). Limites: no máximo 20
   entradas por chamada; `keywords` é texto (lista dá erro); key com espaço ou caractere fora de
   letras, números, `.`, `_`, `-` e `/` é **erro de gravação**, não aviso (maiúscula e `_` só avisam). Segredos como hoje (item `secret` sem valor,

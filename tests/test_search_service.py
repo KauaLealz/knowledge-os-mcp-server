@@ -160,7 +160,7 @@ def test_resultado_explicado_sem_content(svc):
     _save(svc, "W", "P", key="rule/x", subtype="code")
     (row,) = svc.search("kubernetes", viewpoint=VP)["results"]
     assert set(row) == {"id", "key", "type", "subtype", "title", "summary", "scope", "where",
-                        "status", "score", "matched_in", "snippet"}
+                        "status", "score", "matched_in", "snippet", "url"}
     assert row["matched_in"] == ["title"] and "Kubernetes" in row["snippet"]
     assert isinstance(row["score"], float)
 

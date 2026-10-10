@@ -100,3 +100,42 @@ def test_search_query_vazia_com_filtro_lista_tudo(svc):
 def test_search_aspas_sao_texto_comum(svc):
     it = _mk(svc, title="aberta")
     assert _ids(svc.search('"aberta', viewpoint=VP)) == [it.id]
+
+
+# ---- url da UI em todo item -------------------------------------------------------------
+
+
+def _url(row):
+    return f"http://127.0.0.1:8765/ui/#/c/teste/w/w/p/p/i/{row['id']}"
+
+
+@pytest.mark.parametrize("type_", ["rule", "howto", "context", "spec"])
+def test_save_devolve_url_em_item_de_qualquer_tipo_sem_fill_url(svc, type_):
+    (row,) = svc.save([{"type": type_, "title": "t", "summary": "s", "content": "c"}],
+                      default_location=("W", "P"))
+    assert row["url"] == _url(row)
+    assert "fill_url" not in row
+
+
+def test_save_de_segredo_traz_url_e_fill_url_iguais(svc):
+    (row,) = svc.save([{"key": "secret/tok", "type": "secret", "title": "t", "summary": "s"}],
+                      default_location=("W", "P"))
+    assert row["url"] == row["fill_url"] == _url(row)
+
+
+def test_get_many_e_search_devolvem_url_por_resultado(svc):
+    it = _mk(svc, content="grafana")
+    (got,) = svc.get_many(ids=[it.id])
+    assert got["url"] == _url(got)
+    (hit,) = svc.search("grafana", viewpoint=VP)["results"]
+    assert hit["url"] == _url(hit)
+    (grp,) = svc.search(queries=["grafana"], viewpoint=VP)["groups"]
+    assert grp["results"][0]["url"] == _url(hit)
+
+
+def test_url_codifica_o_id_da_conexao():
+    from knowledge_os.services.secret_service import item_url
+
+    class _It:
+        workspace_id, project_id, id = "w", "p", "abc"
+    assert item_url(_It(), "a b/c") == "http://127.0.0.1:8765/ui/#/c/a%20b%2Fc/w/w/p/p/i/abc"
