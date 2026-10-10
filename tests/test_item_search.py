@@ -139,3 +139,11 @@ def test_url_codifica_o_id_da_conexao():
     class _It:
         workspace_id, project_id, id = "w", "p", "abc"
     assert item_url(_It(), "a b/c") == "http://127.0.0.1:8765/ui/#/c/a%20b%2Fc/w/w/p/p/i/abc"
+
+
+def test_url_usa_o_slug_do_workspace_e_do_project(svc):
+    it = _mk(svc, ws="Minha Empresa", pj="Meu App", content="grafana")
+    (got,) = svc.get_many(ids=[it.id])
+    assert "/w/minha-empresa/p/meu-app/i/" in got["url"]
+    (hit,) = svc.search("grafana", viewpoint=("minha-empresa", "meu-app"))["results"]
+    assert "/w/minha-empresa/p/meu-app/i/" in hit["url"]

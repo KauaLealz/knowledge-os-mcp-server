@@ -27,6 +27,14 @@ def test_instrucoes_explicam_onde_mora_e_onde_vale():
         assert gone not in text, gone
 
 
+def test_instrucoes_citam_url_resumo_da_spec_e_tags_de_estado():
+    text = mcp.instructions
+    assert "`url`" in text
+    assert "<estado> · <fase n/total> · <branch> · <worktree> · <agente>" in text
+    for tag in ("aguardando-aprovacao", "em-andamento", "parada"):
+        assert tag in text, tag
+
+
 def test_register_all_tools_registra_as_32():
     register_all_tools()
     assert len(asyncio.run(mcp.list_tools())) == 32
