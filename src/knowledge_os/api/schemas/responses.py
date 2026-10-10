@@ -4,7 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-from knowledge_os.schemas.item_schemas import ItemListResponse, ItemResponse
+from knowledge_os.schemas.item_schemas import ItemListResponse, ItemResponse, UtcDatetime
 from knowledge_os.schemas.project_schemas import ProjectRow, SubjectRow
 from knowledge_os.schemas.relation_schemas import RelationRow
 from knowledge_os.schemas.tag_schemas import TagRow
@@ -40,7 +40,8 @@ class TreeItem(BaseModel):
     subtype: str | None
     status: str
     scope: str
-    updated_at: datetime | None
+    updated_at: UtcDatetime | None
+    expired: bool = False
 
 
 class TreeSubject(BaseModel):

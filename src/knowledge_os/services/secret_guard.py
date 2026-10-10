@@ -51,6 +51,6 @@ def ensure_no_secrets(**fields: str | None) -> None:
         if kind:
             raise ValidationError(
                 f"'{name}' parece conter um segredo ({kind}). O valor não entra em itens: "
-                "grave um item type secret (key segredo/<nome>) sem valor e passe ao usuário "
+                "grave um item type secret (key secret/<nome>) sem valor e passe ao usuário "
                 "o fill_url da resposta, para ele preencher na UI local."
             )

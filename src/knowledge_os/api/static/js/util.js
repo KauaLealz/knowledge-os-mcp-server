@@ -152,10 +152,13 @@ export function isFaded(it) {
  * The scope badge, only when the effective scope is not the default `scoped`:
  * solid when set on the object itself, dashed when inherited (tooltip says from where).
  * Returns a list (0 or 1 badge) so every template renders it with the same `x-for`.
+ * `context` is the effective scope of the page/container the list sits in: an INHERITED scope
+ * equal to it says nothing new (every row would repeat it), so that badge is left out.
  */
-export function scopeBadges(effective, explicit, inheritedFrom) {
+export function scopeBadges(effective, explicit, inheritedFrom, context = null) {
   if (!effective || effective === 'scoped') return [];
   const inherited = !explicit && !!inheritedFrom;
+  if (inherited && context && effective === context) return [];
   const valid = `Valid in ${SCOPE_HINTS[effective] || effective}`;
   return [{
     key: 'scope',
@@ -170,12 +173,14 @@ export function scopeBadges(effective, explicit, inheritedFrom) {
  * Single source of every item badge, in a fixed order: type, state, scope.
  * Each badge is `{ key, cls, label, title, icon?, dot? }`; templates only loop over it.
  * Works with every API shape: the full item (`effective_scope` + explicit `scope` +
- * `scope_inherited_from`), a listing row, a search result or a tree/graph node (`scope` is
- * already the effective one there and where it came from is unknown: shown solid).
+ * `scope_inherited_from`), a listing row, a search result (`scope` is the effective one, plus
+ * `scope_explicit` and `scope_inherited_from`) or a tree/graph node (`scope` is already the
+ * effective one there and where it came from is unknown: shown solid).
  * Options turn a group off: `{ type: false }`, `{ review: false }` (the item page shows the
- * review banner instead), `{ scope: false }`.
+ * review banner instead), `{ scope: false }`. `{ context }` is the effective scope of the
+ * container of the list (see `scopeBadges`); lists without a container pass nothing.
  */
-export function itemBadges(it, { type = true, review = true, scope = true } = {}) {
+export function itemBadges(it, { type = true, review = true, scope = true, context = null } = {}) {
   if (!it) return [];
   const out = [];
   if (type && it.type) {
@@ -188,7 +193,8 @@ export function itemBadges(it, { type = true, review = true, scope = true } = {}
       ? { key: 'state', cls: 'badge alert', icon: 'alert', label: m.label, title: m.title }
       : { key: 'state', cls: 'badge neutral', label: m.label, title: m.title });
   }
-  if (scope && 'effective_scope' in it) out.push(...scopeBadges(it.effective_scope, it.scope, it.scope_inherited_from));
+  if (scope && 'effective_scope' in it) out.push(...scopeBadges(it.effective_scope, it.scope, it.scope_inherited_from, context));
+  else if (scope && 'scope_explicit' in it) out.push(...scopeBadges(it.scope, it.scope_explicit, it.scope_inherited_from, context));
   else if (scope) out.push(...scopeBadges(it.scope, it.scope, null));
   return out;
 }

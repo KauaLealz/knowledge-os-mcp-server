@@ -59,7 +59,9 @@ Ordem dos campos: `key, id, workspace, project, subject?, type, subtype?, scope?
 tags, links, scope_paths, ttl_days?, keywords, source, origin, verified_at?, verified_commit?,
 created_at, updated_at, relations, summary`. Obrigatórios para ler: `id, type, title, summary,
 status, created_at, updated_at`. `links` = `[{title, url}]`. Saem `memory_class`, `importance`,
-`confidence`, `labels`. Path: `<workspace-slug>/<project-slug>/<key>.md` (sem key:
+`confidence`, `labels`. Datas: gravadas em UTC com `Z`; na leitura aceita `Z`, offset (`+03:00`,
+convertido para UTC) e só data (`2020-01-01`); data inválida é erro daquele arquivo (`parse_errors`),
+nunca derruba o resto. Path: `<workspace-slug>/<project-slug>/<key>.md` (sem key:
 `.../_sem-key/<id>.md`), como hoje. `ItemRecord` (em `storage/files.py`) e `Item` (em
 `services/brain.py`) ganham `subtype, scope, links, origin, verified_at, verified_commit` e perdem
 os campos removidos.
@@ -115,7 +117,12 @@ verified}}` (lê também o formato antigo `{uses, last_used}`: `uses` vira `open
 
 ## 5. Busca (`storage/search.py` + `services/item_service.py`)
 
-- Campos indexados e pesos BM25: `title 6, keywords 4, summary 3, tags 3, subtype 2, content 1`.
+- Campos indexados e pesos BM25: `title 6, keywords 4, key 3, summary 3, tags 3, subtype 2,
+  content 1`. A `key` é tokenizada pelas partes separadas por `/` e `-` (`howto/erro-schema-velho`
+  → `howto`, `erro`, `schema`, `velho`), então `item_search("gotcha")` acha `gotcha/windows-which`.
+- **Pasta não ligada:** `repo` informado e não ligado na busca vale como sem `repo` (só os globais
+  + `suggestion` com `repo(action="link", repo="<o que foi passado>")`); as demais ferramentas
+  dão erro com a chamada que resolve.
 - **Identificadores**: o tokenizador, além do token inteiro em minúsculas, indexa as partes de
   camelCase, snake_case e pontos (`ItemService.saveBatch` → `itemservice`, `item`, `service`,
   `savebatch`, `save`, `batch`); código de erro (`ERR_CONN_42`) é achado como está. A consulta
@@ -124,8 +131,8 @@ verified}}` (lê também o formato antigo `{uses, last_used}`: `uses` vira `open
   `review`) × (1 + 0.1·ln(1 + helped + opened)) × (1 − 0.3·taxa_irrelevant)`; para `origin=user` o
   último fator nunca fica abaixo de 1. `taxa_irrelevant = irrelevant / max(1, shown)`.
 - **Resultado** (resumos, nunca o `content` completo): `id, key, type, subtype, title, summary, scope`
-  (efetivo), `where`, `status`, `score`, `matched_in` (lista de `title|keywords|summary|tags|subtype|
-  content|path`), `snippet`; com `paths`, também `excerpt` (até 600 caracteres do `content`) e
+  (efetivo), `where`, `status`, `score`, `matched_in` (lista de `title|keywords|key|summary|tags|
+  subtype|content|path`), `snippet`; com `paths`, também `excerpt` (até 600 caracteres do `content`) e
   `scope_paths`. Itens fora do project do repositório levam `where` diferente do project ligado.
 - **Padrão:** exclui `archived` e vencidos (`ttl_days`); `status=["expired"]` os mostra (com
   `status: "expired"`); `review` entra, depois e marcado.
@@ -148,7 +155,9 @@ verified}}` (lê também o formato antigo `{uses, last_used}`: `uses` vira `open
   `subject` novos, move), sem nenhum → cria e devolve `similar`. Campos aceitos: `ITEM_FIELDS` do
   `model.py` + `workspace, project, subject`. Retorno por entrada: `{index, id, key, scope, action:
   created|updated|unchanged, warnings, similar?, has_value?, fill_url?}`. Avisos: modelo do `content`,
-  key fora do padrão, tag nova (com sugestão parecida). Segredos como hoje (item `secret` sem valor,
+  key válida fora do padrão `<tipo>/<nome>`, tag nova (com sugestão parecida). Limites: no máximo 20
+  entradas por chamada; `keywords` é texto (lista dá erro); key com espaço ou caractere fora de
+  letras, números, `.`, `_`, `-` e `/` é **erro de gravação**, não aviso (maiúscula e `_` só avisam). Segredos como hoje (item `secret` sem valor,
   `fill_url`; valor é recusado; detecção de segredo em item comum recusa).
 - `get_many(keys=None, ids=None, ...)`: até 20, key resolvida pela cadeia de alcance do repositório;
   faltando → `{key|id, missing: true}`; soma `opened`.

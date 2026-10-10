@@ -192,3 +192,24 @@ def test_rotas_antigas_de_ajuste_sumiram(client, mk):
                        ("labels", {"label_id": "x"})):
         assert client.put(f"/api/items/{it['id']}/{path}", json=body).status_code == 404
         assert client.get(f"/api/items/{it['id']}/{path}").status_code == 404
+
+
+def test_datas_saem_com_z_e_sem_campos_do_modelo_antigo(client, mk):
+    _, _, it = mk.tree()
+    for d in (it, client.get(f"/api/items/{it['id']}").json(),
+              client.get("/api/items").json()["items"][0]):
+        for name in ("created_at", "updated_at"):
+            assert d[name].endswith("Z") and len(d[name]) == len("2026-10-08T20:31:15Z"), d[name]
+        assert "last_accessed" not in d and "access_count" not in d
+
+
+def test_expires_e_verified_at_tambem_com_z(client, mk):
+    ws = mk.ws("Z")
+    pj = mk.project(ws["id"], "P")
+    d = mk.item(ws["id"], pj["id"], "Com ttl", ttl_days=3)
+    assert d["expires_at"].endswith("Z")
+
+
+def test_id_inexistente_diz_qual_item_nao_foi_achado(client):
+    r = client.get("/api/items/memory-class")
+    assert r.status_code == 404 and r.json()["detail"] == "Item não encontrado: memory-class"

@@ -59,11 +59,11 @@ def _parser() -> argparse.ArgumentParser:
 
     run = sub.add_parser(
         "run", help="roda um comando com segredos do cérebro, sem shell, com a saída redigida",
-        description="Ex.: knowledge-mcp run --env NPM_TOKEN=segredo/npm-token -- npm publish",
+        description="Ex.: knowledge-mcp run --env NPM_TOKEN=secret/npm-token -- npm publish",
     )
-    run.add_argument("--env", action="append", default=[], metavar="VAR=segredo/<nome>",
+    run.add_argument("--env", action="append", default=[], metavar="VAR=secret/<nome>",
                      help="variável de ambiente do comando com o valor do segredo (repetível)")
-    run.add_argument("--stdin", metavar="segredo/<nome>",
+    run.add_argument("--stdin", metavar="secret/<nome>",
                      help="entrega o valor no stdin (ex.: docker login --password-stdin)")
     run.add_argument("--repo", default=".", help="pasta do projeto (padrão: atual)")
     run.add_argument("cmd", nargs=argparse.REMAINDER, help="-- comando e argumentos")
@@ -490,11 +490,11 @@ def _run(args: argparse.Namespace) -> int:
     for spec in args.env:
         var, sep, key = spec.partition("=")
         if not sep or not var or not key:
-            print(f"Erro: --env espera VAR=segredo/<nome>, recebi {spec!r}", file=sys.stderr)
+            print(f"Erro: --env espera VAR=secret/<nome>, recebi {spec!r}", file=sys.stderr)
             return 1
         pairs.append((var, key))
     if not pairs and not args.stdin:
-        print("Erro: informe --env VAR=segredo/<nome> ou --stdin segredo/<nome>", file=sys.stderr)
+        print("Erro: informe --env VAR=secret/<nome> ou --stdin secret/<nome>", file=sys.stderr)
         return 1
     _init()
     from knowledge_os.services.secret_run import run

@@ -14,6 +14,10 @@ export function register(Alpine) {
           const p = this.app.route.params;
           return { workspace_id: p.ws, project_id: p.pj };
         },
+        /** Scope efetivo desta página: um scope herdado igual a ele não repete badge nas linhas. */
+        get contextScope() {
+          return this.app.project?.scope || null;
+        },
         init() {
           this.$watch(
             () => this.app.route.params.pj + '|' + this.app.treeVersion,

@@ -16,7 +16,7 @@ from knowledge_os.api.schemas.responses import (
     WorkspaceTree,
 )
 from knowledge_os.exceptions import NotFoundError
-from knowledge_os.services.brain import Brain
+from knowledge_os.services.brain import Brain, is_expired
 from knowledge_os.services.item_file import slugify
 from knowledge_os.services.workspace_service import WorkspaceService, effective
 
@@ -75,6 +75,7 @@ def workspace_tree(id: str, cid: str = Depends(get_connection_id)):
             tree_item = TreeItem(
                 id=r.id, key=r.key, title=r.title, type=r.type, subtype=r.subtype,
                 status=r.status, scope=snap.effective_scope(r), updated_at=r.updated_at,
+                expired=is_expired(r),
             )
             sj_id = slugify(r.subject) if r.subject else None
             (by_subject[sj_id] if sj_id in by_subject else loose).append(tree_item)

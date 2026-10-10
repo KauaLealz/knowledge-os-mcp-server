@@ -135,6 +135,19 @@ def test_helped_e_irrelevant_so_contam_sem_commit(svc, data_dir):
     assert _log(data_dir) == before
 
 
+def test_feedback_repetido_no_lote_conta_uma_vez_e_applied_reflete(svc, data_dir):
+    a = _save(svc, key="rule/a")
+    b = _save(svc, key="rule/b")
+    out = svc.feedback([{"key": "rule/a", "outcome": "helped"},
+                        {"key": "rule/a", "outcome": "helped"},
+                        {"id": a, "outcome": "helped"},
+                        {"key": "rule/a", "outcome": "irrelevant"},
+                        {"key": "rule/b", "outcome": "helped"}], viewpoint=VP)
+    assert out == {"applied": 3, "missing": []}
+    usage = local_state.get_usage("teste")
+    assert (usage[a]["helped"], usage[a]["irrelevant"], usage[b]["helped"]) == (1, 1, 1)
+
+
 @pytest.mark.parametrize("outcome", ["wrong", "outdated"])
 def test_wrong_e_outdated_poem_em_review_com_nota_e_commit(svc, data_dir, outcome):
     a = _save(svc, key="rule/a")

@@ -719,7 +719,8 @@ class ItemService:
         `note` ao `content` (`> Revisão <data>: <nota>`), com commit. `verified` grava
         `verified_at` (agora) e `verified_commit` (`git rev-parse HEAD` de `repo_path`; ausente
         se não houver), sem reativar item em `review`. Key/id que não se resolve vai para
-        `missing`. Retorno: `{applied, missing}` (+ `status`/`pr_url` em modo PR).
+        `missing`. O mesmo (item, outcome) repetido no lote vale uma vez (`applied` conta os
+        aplicados de fato). Retorno: `{applied, missing}` (+ `status`/`pr_url` em modo PR).
         """
         entries = _batch(items, "itens")
         for i, e in enumerate(entries):
@@ -737,6 +738,7 @@ class ItemService:
         applied = 0
         missing: list[str] = []
         counted: dict[str, list[str]] = {}
+        seen: set[tuple[str, str]] = set()  # (item, outcome): repetido no lote vale uma vez
         commit_sha: list[str | None] = []  # calculado uma vez, só se algum `verified` pedir
         now = utcnow()
         with brain.editing() as d:
@@ -747,8 +749,11 @@ class ItemService:
                 if record is None:
                     missing.append(ref)
                     continue
-                applied += 1
                 outcome = e["outcome"]
+                if (record.id, outcome) in seen:
+                    continue
+                seen.add((record.id, outcome))
+                applied += 1
                 counted.setdefault(outcome, []).append(record.id)
                 current = d.require(record.id)
                 if outcome in ("wrong", "outdated"):

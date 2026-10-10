@@ -493,3 +493,20 @@ def test_run_key_inexistente_nao_roda(cli_env):
                "print('rodou')")
     assert out.returncode == 1 and "rodou" not in out.stdout
     assert "não encontrado" in out.stderr
+
+
+def test_mensagens_citam_a_key_real_secret_e_nao_segredo(cli_env):
+    with pytest.raises(ValidationError) as exc:
+        ensure_no_secrets(content="token: ghp_" + "a" * 36)
+    assert "secret/<nome>" in str(exc.value) and "segredo/" not in str(exc.value)
+    env, project = cli_env
+    helped = subprocess.run(
+        [sys.executable, "-m", "knowledge_os.cli", "run", "--help"],
+        env=env, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", timeout=120)
+    assert "secret/<nome>" in helped.stdout and "segredo/" not in helped.stdout
+    bad = _run(env, project, "--env", "SEM_IGUAL", "--", sys.executable, "-c", "pass")
+    assert "secret/<nome>" in bad.stderr and "segredo/" not in bad.stderr
+    missing = _run(env, project, "--env", "X=secret/nao-existe", "--", sys.executable, "-c",
+                   "pass")
+    assert "Segredo não encontrado: secret/nao-existe" in missing.stderr
+    assert "secret/<nome>" in missing.stderr and "segredo/" not in missing.stderr

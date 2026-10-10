@@ -10,7 +10,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response,
 from fastapi.concurrency import run_in_threadpool
 
 from knowledge_os.api.deps import get_connection_id
-from knowledge_os.api.routes._common import check_query, item_by_id, item_out, split
+from knowledge_os.api.routes._common import (
+    check_query,
+    item_by_id,
+    item_out,
+    scope_source,
+    split,
+)
 from knowledge_os.api.schemas.requests import FeedbackRequest, ItemCreate, ItemUpdate
 from knowledge_os.api.schemas.responses import ItemListResponse, ItemResponse
 from knowledge_os.exceptions import NotFoundError, ValidationError
@@ -158,7 +164,8 @@ def search_items(
         if subjects is not None and sj not in subjects:
             continue
         results.append({**row, "workspace_id": slugify(record.workspace or ""),
-                        "project_id": pj, "subject_id": sj})
+                        "project_id": pj, "subject_id": sj, "scope_explicit": record.scope,
+                        "scope_inherited_from": scope_source(snap, record)})
     return {**out, "results": results[:limit]}
 
 

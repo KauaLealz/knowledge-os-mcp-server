@@ -142,6 +142,16 @@ def test_item_search_pasta_nao_ligada_so_globais_com_sugestao(chain):
     assert 'repo(action="link"' in out["suggestion"]
 
 
+def test_item_search_repo_nao_ligado_vale_como_sem_repo(chain):
+    out = call(chain, "item_search", query="pagamentos", repo="path:/tmp/ai8-repo-x")
+    assert {r["key"] for r in out["results"]} == {"rule/global-e"}
+    assert 'repo="path:/tmp/ai8-repo-x"' in out["suggestion"]
+    assert 'repo(action="link"' in out["suggestion"]
+    # as outras ferramentas continuam dando erro com a chamada que resolve
+    msg = fails(chain, "item_save", repo="path:/tmp/ai8-repo-x", items=[{"key": "rule/a", **RULE}])
+    assert "não ligado" in msg and 'repo(action="link"' in msg
+
+
 def test_item_search_sem_repo_usa_a_pasta_ligada(chain, monkeypatch):
     from knowledge_os.services.repo_service import RepoService
 
@@ -386,7 +396,9 @@ def test_repo_nao_ligado_diz_a_chamada_que_resolve(server):
     rel = {"source": "rule/x", "type": "related_to", "target": "rule/y"}
     assert hint in fails(server, "relation_create", repo="github.com/o/n", items=[rel])
     assert hint in fails(server, "relation_delete", repo="github.com/o/n", items=[rel])
-    assert hint in fails(server, "item_search", repo="github.com/o/n", query="x")
+    # item_search é a exceção: repo não ligado vale como pasta não ligada (globais + sugestão)
+    sugestao = call(server, "item_search", repo="github.com/o/n", query="x")["suggestion"]
+    assert hint.removesuffix(")") in sugestao
     assert "repo" in fails(server, "item_save", items=[entry])  # sem lugar: pede repo
 
 

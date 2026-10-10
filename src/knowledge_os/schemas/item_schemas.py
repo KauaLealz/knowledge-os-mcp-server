@@ -12,10 +12,10 @@ o item não define o seu: `subject`, `project`, `workspace`, ou None se nada na 
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Annotated, Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, PlainSerializer
 
 if TYPE_CHECKING:
     from knowledge_os.services.brain import Item
@@ -23,6 +23,16 @@ if TYPE_CHECKING:
 LOCATION_IDS = {"workspace_id": "workspace", "project_id": "project", "subject_id": "subject"}
 # Do corpo, nunca prevalecem sobre a rota (o id vem da URL; o lugar, dos `*_id`).
 BODY_IGNORED = ("id", "workspace", "project", "subject")
+
+
+def _utc_z(value: datetime) -> str:
+    if value.tzinfo is not None:
+        value = value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value.replace(microsecond=0).isoformat() + "Z"
+
+
+# Data de saída: sempre UTC com `Z` ("2026-10-08T20:31:15Z"), igual ao arquivo e ao MCP.
+UtcDatetime = Annotated[datetime, PlainSerializer(_utc_z, return_type=str, when_used="json")]
 
 
 class _Entry(BaseModel):
@@ -131,16 +141,14 @@ class ItemResponse(BaseModel):
     links: list[dict[str, str]]
     scope_paths: list[str] = []
     ttl_days: int | None = None
-    expires_at: datetime | None = None
+    expires_at: UtcDatetime | None = None
     keywords: str | None = None
     source: str | None = None
     origin: str
-    verified_at: datetime | None = None
+    verified_at: UtcDatetime | None = None
     verified_commit: str | None = None
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
-    last_accessed: datetime | None = None
-    access_count: int = 0
+    created_at: UtcDatetime | None = None
+    updated_at: UtcDatetime | None = None
     has_value: bool | None = None  # só em `secret`: se o valor foi preenchido (nunca o valor)
 
     @classmethod
@@ -160,8 +168,7 @@ class ItemResponse(BaseModel):
             expires_at=item.expires_at, keywords=item.keywords, source=item.source,
             origin=item.origin, verified_at=item.verified_at,
             verified_commit=item.verified_commit, created_at=item.created_at,
-            updated_at=item.updated_at, last_accessed=item.last_accessed,
-            access_count=item.access_count or 0,
+            updated_at=item.updated_at,
             has_value=bool(item.has_value) if item.type == "secret" else None,
         )
 

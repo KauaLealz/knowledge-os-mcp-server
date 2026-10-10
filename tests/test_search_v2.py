@@ -71,6 +71,22 @@ def test_termo_em_mais_da_metade_do_acervo_ainda_ranqueia_pelos_campos():
     assert hits[0].score > hits[1].score > 0.01
 
 
+def test_key_e_indexada_com_as_partes_separadas_por_barra_e_hifen():
+    alvo = _rec("a", key="howto/erro-schema-velho", title="Titulo X", content="nada")
+    for termo in ("howto", "erro", "schema", "velho", "erro schema"):
+        hits = search(_c(alvo, _rec("b")), termo, 10)
+        assert _ids(hits) == ["a"], termo
+        assert hits[0].matched_in == ["key"], termo
+
+
+def test_key_pesa_menos_que_titulo_e_mais_que_content():
+    titulo = _rec("titulo", title="Windows", key="x/y", content="nada")
+    key = _rec("key", title="Outra", key="gotcha/windows", content="nada")
+    corpo = _rec("corpo", title="Outra", key="x/z", content="windows")
+    hits = search(_c(corpo, key, titulo), "windows", 10)
+    assert _ids(hits) == ["titulo", "key", "corpo"]
+
+
 def test_tag_e_subtipo_achados_por_texto():
     tag = _rec("tag", tags=["lgpd"])
     sub = _rec("sub", type="rule", subtype="decision")

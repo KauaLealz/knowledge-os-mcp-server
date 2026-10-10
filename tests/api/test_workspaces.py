@@ -114,7 +114,8 @@ def test_tree_v2(client, mk):
     zeta_items = projects[2]["items"]
     assert [i["title"] for i in zeta_items] == ["A item", "B item"]
     assert set(zeta_items[0]) == {"id", "key", "title", "type", "subtype", "status", "scope",
-                                  "updated_at"}
+                                  "updated_at", "expired"}
+    assert zeta_items[0]["expired"] is False and zeta_items[0]["updated_at"].endswith("Z")
     assert (zeta_items[0]["subtype"], zeta_items[0]["status"]) == ("procedure", "review")
     assert zeta_items[0]["scope"] == "workspace"
     assert projects[1]["items"] == []
@@ -188,3 +189,18 @@ def test_graph_ignora_relacao_para_fora_do_workspace(client, mk):
     item2 = mk.item(ws2["id"], mk.project(ws2["id"], "P2")["id"], "Other item")
     _rel(client, item1, item2)
     assert client.get(f"/api/workspaces/{ws1['id']}/graph").json()["edges"] == []
+
+
+def test_tree_marca_item_vencido(client, mk, monkeypatch):
+    from datetime import timedelta
+
+    from knowledge_os.services import brain
+
+    ws = mk.ws("Venc")
+    pj = mk.project(ws["id"], "P")
+    mk.item(ws["id"], pj["id"], "Efemero", ttl_days=1)
+    mk.item(ws["id"], pj["id"], "Eterno")
+    real = brain.utcnow
+    monkeypatch.setattr(brain, "utcnow", lambda: real() + timedelta(days=5))
+    items = client.get(f"/api/workspaces/{ws['id']}/tree").json()["projects"][0]["items"]
+    assert {i["title"]: i["expired"] for i in items} == {"Efemero": True, "Eterno": False}

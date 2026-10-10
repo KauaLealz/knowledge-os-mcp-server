@@ -233,6 +233,30 @@ def test_health_md_quebrado_aparece_em_parse_errors(svc):
     assert row["parse_errors"][0]["error"]
 
 
+def test_data_invalida_vai_para_parse_errors_e_offset_nao_derruba(svc):
+    from datetime import datetime
+
+    from knowledge_os.services.item_file import serialize_item
+
+    conn = svc.create("Local", test=False)
+    folder = Path(conn.path)
+    (folder / "w" / "p").mkdir(parents=True)
+    item = {"id": "8f3e2c0a-0000-0000-0000-000000000001", "type": "rule", "title": "T",
+            "summary": "S", "content": "c", "status": "active", "origin": "agent",
+            "created_at": datetime(2026, 1, 1), "updated_at": datetime(2026, 1, 1)}
+    raw = serialize_item(item, workspace_name="w", project_name="p", subject_name=None,
+                         relations=[], tags=[])
+    ok = raw.replace("created_at: '2026-01-01T00:00:00Z'",
+                     "created_at: '2020-01-01T00:00:00+03:00'")
+    assert ok != raw
+    (folder / "w" / "p" / "ok.md").write_text(ok, encoding="utf-8")
+    bad = raw.replace("created_at: '2026-01-01T00:00:00Z'", "created_at: lixo").replace(
+        "8f3e2c0a-0000-0000-0000-000000000001", "8f3e2c0a-0000-0000-0000-000000000002")
+    (folder / "w" / "p" / "ruim.md").write_text(bad, encoding="utf-8")
+    [row] = svc.health()
+    assert [e["path"] for e in row["parse_errors"]] == ["w/p/ruim.md"]
+
+
 def test_health_pasta_sumida_ou_sem_git_nao_esta_ok(svc, tmp_path):
     a = svc.create("A", test=False)
     b = svc.create("B", test=False)

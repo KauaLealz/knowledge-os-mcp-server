@@ -7,8 +7,13 @@
 - todo `import` relativo resolve para um arquivo existente (import quebrado = tela branca).
 """
 
+import json
 import re
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 STATIC = Path(__file__).resolve().parent.parent / "src" / "knowledge_os" / "api" / "static"
 OURS = [STATIC / "index.html", *sorted((STATIC / "js").rglob("*.js")),
@@ -220,7 +225,7 @@ def test_linhas_usam_badges_e_meta_e_where_so_onde_mistura_projects():
     rows = re.findall(r'<a class="item-row".*?</a>', html, re.S)
     assert len(rows) == 3
     for row in rows:
-        assert row.count('x-for="b in $badges(it)"') == 1
+        assert row.count('x-for="b in $badges(it, { context: contextScope })"') == 1
         assert "$meta(it" in row and "$origin(" not in row and "$ago(" not in row
     ws = html[html.index("<!-- Workspace -->") : html.index("<!-- Grafo")]
     pj = html[html.index("<!-- Project -->") : html.index("<!-- Item -->")]
@@ -304,3 +309,61 @@ def test_texto_secundario_tem_contraste_aa_nos_dois_temas():
             for bg in ("bg", "bg-soft", "bg-hover"):
                 ratio = _contrast(tok(block, fg), tok(block, bg))
                 assert ratio >= 4.5, f"{fg} sobre {bg}: {ratio:.2f}"
+
+
+# ---- badge de scope herdado: só quando difere do contêiner da lista ----
+
+
+def _node(code: str):
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node não instalado")
+    util = (STATIC / "js" / "util.js").as_uri()
+    script = f"import * as u from {json.dumps(util)};\n{code}"
+    out = subprocess.run([node, "--input-type=module", "-e", script], capture_output=True,
+                         text=True, encoding="utf-8", timeout=60, check=True)
+    return json.loads(out.stdout)
+
+
+def test_scope_herdado_igual_ao_do_conteiner_nao_repete_badge():
+    got = _node("""
+const inh = (eff, ctx) => u.itemBadges({ type: 'rule', scope: null, effective_scope: eff,
+  scope_inherited_from: 'workspace' }, { type: false, context: ctx }).map((b) => b.cls);
+const exp = (eff, ctx) => u.itemBadges({ type: 'rule', scope: eff, effective_scope: eff,
+  scope_inherited_from: null }, { type: false, context: ctx }).map((b) => b.cls);
+// busca/palette: o resultado traz scope (efetivo) + scope_explicit + scope_inherited_from
+const hit = (explicit, from) => u.itemBadges({ type: 'rule', scope: 'workspace',
+  scope_explicit: explicit, scope_inherited_from: from }, { type: false }).map((b) => b.cls);
+console.log(JSON.stringify({
+  igual: inh('workspace', 'workspace'),
+  difere: inh('global', 'workspace'),
+  semContexto: inh('workspace', undefined),
+  explicitoIgual: exp('workspace', 'workspace'),
+  buscaHerdado: hit(null, 'workspace'),
+  buscaExplicito: hit('workspace', null),
+}));
+""")
+    assert got["igual"] == []  # herdado e igual ao contêiner: some
+    assert got["difere"] == ["badge scope inherited"]
+    assert got["semContexto"] == ["badge scope inherited"]  # lista sem contêiner
+    assert got["explicitoIgual"] == ["badge scope"]  # explícito (sólido) sempre aparece
+    assert got["buscaHerdado"] == ["badge scope inherited"]
+    assert got["buscaExplicito"] == ["badge scope"]
+
+
+def test_item_vencido_da_arvore_fica_esmaecido():
+    got = _node("""
+console.log(JSON.stringify([u.isFaded({ status: 'active', expired: true }),
+  u.isFaded({ status: 'active', expired: false }), u.isFaded({ status: 'active' })]));
+""")
+    assert got == [True, False, False]
+    html = _text(STATIC / "index.html")
+    tree = re.findall(r'<a class="tree-item"[^>]*>', html)
+    assert len(tree) == 2 and all("faded: $faded(it)" in a for a in tree)
+
+
+def test_listagens_passam_o_scope_do_conteiner_como_contexto():
+    for view, source in (("workspace", "this.app.workspace"), ("project", "this.app.project"),
+                         ("subject", "this.app.subject")):
+        src = _text(STATIC / "js" / "views" / f"{view}.js")
+        assert "get contextScope()" in src and f"{source}?.scope" in src, view

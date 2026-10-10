@@ -35,8 +35,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from knowledge_os.storage.files import ItemRecord
 
-FIELDS = ("title", "keywords", "summary", "tags", "subtype", "content")
-FIELD_WEIGHTS = (6.0, 4.0, 3.0, 3.0, 2.0, 1.0)
+FIELDS = ("title", "keywords", "key", "summary", "tags", "subtype", "content")
+FIELD_WEIGHTS = (6.0, 4.0, 3.0, 3.0, 3.0, 2.0, 1.0)
 PATH_FACTOR = 1.5
 REVIEW_FACTOR = 0.6
 SNIPPET_MAX = 160

@@ -23,7 +23,7 @@ from __future__ import annotations
 import os
 import re
 import unicodedata
-from datetime import datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -196,18 +196,27 @@ def _field(item: Any, name: str, default: Any = None) -> Any:
 def _fmt_dt(value: datetime) -> str:
     """Formata um datetime (naive ou aware, assumido UTC) como "YYYY-MM-DDTHH:MM:SSZ"."""
     if value.tzinfo is not None:
-        value = value.astimezone().replace(tzinfo=None)
+        value = _utc_naive(value)
     return value.replace(microsecond=0).isoformat() + "Z"
+
+
+def _utc_naive(value: datetime) -> datetime:
+    """Qualquer offset (ou `Z`) vira UTC sem tzinfo, o formato interno."""
+    if value.tzinfo is not None:
+        value = value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
 
 
 def _parse_dt(raw: Any, field: str) -> datetime:
     if isinstance(raw, datetime):
-        return raw.replace(tzinfo=None)
+        return _utc_naive(raw)
+    if isinstance(raw, date):  # YAML lê `2020-01-01` sem aspas como data
+        return datetime(raw.year, raw.month, raw.day)
     if not isinstance(raw, str) or not raw:
         raise ValidationError(f"Frontmatter com {field!r} inválido ou ausente: {_s(raw)}")
-    text = raw[:-1] if raw.endswith("Z") else raw
+    text = raw[:-1] + "+00:00" if raw.endswith(("Z", "z")) else raw
     try:
-        return datetime.fromisoformat(text)
+        return _utc_naive(datetime.fromisoformat(text))
     except ValueError as exc:
         raise ValidationError(f"Frontmatter com {field!r} em formato inválido: {_s(raw)}") from exc
 

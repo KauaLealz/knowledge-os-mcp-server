@@ -747,7 +747,7 @@ def test_linhas_de_item_nao_usam_icone_de_tipo():
     for row in rows:
         # os únicos ícones da linha são os do badge (alerta, scope) e o da origem, todos
         # vindos do gerador: o tipo é bolinha + texto, nunca ícone
-        assert row.count('x-for="b in $badges(it)"') == 1
+        assert row.count('x-for="b in $badges(it, { context: contextScope })"') == 1
         assert "<use href=" not in row
     util = (STATIC / "js" / "util.js").read_text(encoding="utf-8")
     type_badge = next(line for line in util.splitlines() if "key: 'type'" in line)

@@ -94,3 +94,16 @@ def test_search_limit_ate_50(client):
 def test_search_unknown_workspace_is_404(client):
     r = client.get("/api/items/search", params={"query": "x", "workspace_id": "nope"})
     assert r.status_code == 404
+
+
+def test_search_traz_scope_explicit_e_scope_inherited_from(client, mk):
+    ws = mk.ws("Esc", scope="workspace")
+    pj = mk.project(ws["id"], "P")
+    mk.item(ws["id"], pj["id"], "Herdado conditional")
+    mk.item(ws["id"], pj["id"], "Explicito conditional", scope="global")
+    by_title = {h["title"]: h for h in _search(client, query="conditional")["results"]}
+    herdado, explicito = by_title["Herdado conditional"], by_title["Explicito conditional"]
+    assert (herdado["scope"], herdado["scope_explicit"], herdado["scope_inherited_from"]) == (
+        "workspace", None, "workspace")
+    assert (explicito["scope"], explicito["scope_explicit"],
+            explicito["scope_inherited_from"]) == ("global", "global", None)

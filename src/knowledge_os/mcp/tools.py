@@ -9,7 +9,8 @@ Repositório e alcance: `repo` (caminho, normalmente ".", remote ou chave) vira,
 cadeia de alcance (`services.scope`) é `(workspace_id, project_id)`; o `default_location` do
 `item_save` é `(workspace, project)`. Repositório informado e não ligado é erro com a chamada
 que resolve. Só `item_search` tenta a pasta atual sozinho (sem `repo`, `workspace` nem
-`everywhere`): ligada, vale o project dela; senão só os globais, com `suggestion`.
+`everywhere`): ligada, vale o project dela; senão só os globais, com `suggestion`. `repo`
+informado e não ligado vale como sem `repo` (só nas buscas; as demais ferramentas dão erro).
 
 Todas aceitam `connection_id` (a conexão; sem ele, a padrão), menos `connection_*` e
 `health_check`. `repo` agrupa link/list/unlink/sync por `action=`: é a chamada que o hook de
@@ -27,7 +28,7 @@ from knowledge_os.config import NO_CONNECTION_MESSAGE
 from knowledge_os.exceptions import ConfigError, NotFoundError, ValidationError
 from knowledge_os.services.connection_service import ConnectionService
 from knowledge_os.services.graph import GraphService
-from knowledge_os.services.item_service import ItemService
+from knowledge_os.services.item_service import SUGGESTION, ItemService
 from knowledge_os.services.project_service import ProjectService
 from knowledge_os.services.relation_service import RelationService
 from knowledge_os.services.repo_service import RepoService, repo_key
@@ -415,16 +416,21 @@ def item_search(
         <<SCOPES>>; tags (todas precisam bater). limit 1–100.
     """
     viewpoint: Viewpoint = None
-    if repo:
-        viewpoint = _viewpoint(repo, connection_id)
-    elif not workspace and not everywhere:
-        here = RepoService(connection_id=connection_id).resolve(".")
-        viewpoint = (here["workspace_id"], here["project_id"]) if here else None
-    return ItemService(connection_id=connection_id).search(
+    unlinked: str | None = None
+    found = RepoService(connection_id=connection_id).resolve(repo or ".") if (
+        repo or (not workspace and not everywhere)) else None
+    if found:
+        viewpoint = (found["workspace_id"], found["project_id"])
+    elif repo:
+        unlinked = repo  # pasta não ligada: como sem repo (só os globais + suggestion)
+    out = ItemService(connection_id=connection_id).search(
         query=query, queries=queries, viewpoint=viewpoint, workspace=workspace,
         everywhere=everywhere, paths=paths, types=types, subtypes=subtypes, status=status,
         tags=tags, origin=origin, scope=scope, limit=limit,
     )
+    if unlinked and "suggestion" in out:
+        out["suggestion"] = SUGGESTION.replace('repo="."', f'repo="{unlinked}"')
+    return out
 
 
 def item_get(

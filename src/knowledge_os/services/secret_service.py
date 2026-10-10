@@ -119,8 +119,9 @@ class SecretService:
         item = brain.view(closest[0]) if closest else None
         if item is None:
             raise NotFoundError(
-                f"Segredo não encontrado: {key}. O agente cria o item (type secret, sem "
-                "valor) com item_save e passa ao usuário o link para preencher na UI."
+                f"Segredo não encontrado: {key}. A key de um segredo é secret/<nome>. O agente "
+                "cria o item (type secret, sem valor) com item_save e passa ao usuário o "
+                "link para preencher na UI."
             )
         if not item.has_value:
             raise ValidationError(

@@ -405,7 +405,7 @@
                         <div class="ir-title" x-text="it.title"></div>
                         <div class="ir-sum" x-text="it.summary"></div>
                         <div class="ir-meta">
-                          <span class="badges"><template x-for="b in $badges(it)" :key="b.key"><span :class="b.cls" :title="b.title"><span class="tdot" x-show="b.dot" aria-hidden="true"></span><svg class="ic" x-show="b.icon" aria-hidden="true"><use :href="b.icon ? '#i-' + b.icon : ''"/></svg><span x-text="b.label"></span></span></template></span>
+                          <span class="badges"><template x-for="b in $badges(it, { context: contextScope })" :key="b.key"><span :class="b.cls" :title="b.title"><span class="tdot" x-show="b.dot" aria-hidden="true"></span><svg class="ic" x-show="b.icon" aria-hidden="true"><use :href="b.icon ? '#i-' + b.icon : ''"/></svg><span x-text="b.label"></span></span></template></span>
                           <span class="meta"><template x-for="m in $meta(it, { where: where(it) })" :key="m.key"><span class="meta-part" :title="m.title"><svg class="ic" x-show="m.icon" aria-hidden="true"><use :href="m.icon ? '#i-' + m.icon : ''"/></svg><span :class="{ 'sr-only': m.icon }" x-text="m.label"></span></span></template></span>
                         </div>
                       </a>
@@ -639,7 +639,7 @@
                         <div class="ir-title" x-text="it.title"></div>
                         <div class="ir-sum" x-text="it.summary"></div>
                         <div class="ir-meta">
-                          <span class="badges"><template x-for="b in $badges(it)" :key="b.key"><span :class="b.cls" :title="b.title"><span class="tdot" x-show="b.dot" aria-hidden="true"></span><svg class="ic" x-show="b.icon" aria-hidden="true"><use :href="b.icon ? '#i-' + b.icon : ''"/></svg><span x-text="b.label"></span></span></template></span>
+                          <span class="badges"><template x-for="b in $badges(it, { context: contextScope })" :key="b.key"><span :class="b.cls" :title="b.title"><span class="tdot" x-show="b.dot" aria-hidden="true"></span><svg class="ic" x-show="b.icon" aria-hidden="true"><use :href="b.icon ? '#i-' + b.icon : ''"/></svg><span x-text="b.label"></span></span></template></span>
                           <span class="meta"><template x-for="m in $meta(it)" :key="m.key"><span class="meta-part" :title="m.title"><svg class="ic" x-show="m.icon" aria-hidden="true"><use :href="m.icon ? '#i-' + m.icon : ''"/></svg><span :class="{ 'sr-only': m.icon }" x-text="m.label"></span></span></template></span>
                         </div>
                       </a>
@@ -780,7 +780,7 @@
                         <div class="ir-title" x-text="it.title"></div>
                         <div class="ir-sum" x-text="it.summary"></div>
                         <div class="ir-meta">
-                          <span class="badges"><template x-for="b in $badges(it)" :key="b.key"><span :class="b.cls" :title="b.title"><span class="tdot" x-show="b.dot" aria-hidden="true"></span><svg class="ic" x-show="b.icon" aria-hidden="true"><use :href="b.icon ? '#i-' + b.icon : ''"/></svg><span x-text="b.label"></span></span></template></span>
+                          <span class="badges"><template x-for="b in $badges(it, { context: contextScope })" :key="b.key"><span :class="b.cls" :title="b.title"><span class="tdot" x-show="b.dot" aria-hidden="true"></span><svg class="ic" x-show="b.icon" aria-hidden="true"><use :href="b.icon ? '#i-' + b.icon : ''"/></svg><span x-text="b.label"></span></span></template></span>
                           <span class="meta"><template x-for="m in $meta(it)" :key="m.key"><span class="meta-part" :title="m.title"><svg class="ic" x-show="m.icon" aria-hidden="true"><use :href="m.icon ? '#i-' + m.icon : ''"/></svg><span :class="{ 'sr-only': m.icon }" x-text="m.label"></span></span></template></span>
                         </div>
                       </a>

@@ -124,6 +124,10 @@ item_save(repo=".", items=[
   nova (com sugestão de uma parecida).
 - `origin: "user"` para o que o usuário ditou; sem ele, `agent`.
 - Aposentar: `item_save(repo=".", items=[{"key": "rule/x", "status": "archived"}])`.
+- Limites e erros: no máximo 20 entradas por chamada; `keywords` é texto (uma lista dá erro);
+  key com espaço (ou outro caractere fora de letras, números, `.`, `_`, `-` e `/`) é **erro de
+  gravação**, não aviso. O aviso `warnings` é só para key válida fora do padrão `<tipo>/<nome>`
+  (por exemplo com maiúscula ou `_`): grava assim mesmo.
 - Conteúdo com cara de segredo (chave de nuvem, token, `password=...`) é recusado.
 
 ## Relacionar e ver o grafo

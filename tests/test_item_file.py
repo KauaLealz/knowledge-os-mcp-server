@@ -210,6 +210,39 @@ def test_serialize_recusa_secret_com_valor(campo):
         _serialize(item)
 
 
+# --------------------------------------------------------------------------- datas com offset
+
+
+def _with_date(value: str) -> str:
+    raw = _serialize(_minimal_item())
+    lines = [f"created_at: {value}" if ln.startswith("created_at:") else ln
+             for ln in raw.split("\n")]
+    return "\n".join(lines)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("'2020-01-01T00:00:00+00:00'", datetime(2020, 1, 1)),
+     ("'2020-01-01T10:00:00+03:00'", datetime(2020, 1, 1, 7)),
+     ("'2020-01-01T10:00:00-03:00'", datetime(2020, 1, 1, 13)),
+     ("2020-01-01T10:00:00+03:00", datetime(2020, 1, 1, 7)),
+     ("'2020-01-01T00:00:00Z'", datetime(2020, 1, 1)),
+     ("2020-01-01T00:00:00Z", datetime(2020, 1, 1)),
+     ("'2020-01-01T00:00:00'", datetime(2020, 1, 1)),
+     ("2020-01-01", datetime(2020, 1, 1)),
+     ("'2020-01-01'", datetime(2020, 1, 1))],
+)
+def test_data_com_offset_ou_so_data_vira_utc_naive(value, expected):
+    parsed = parse_item_file(_with_date(value))
+    assert parsed["created_at"] == expected and parsed["created_at"].tzinfo is None
+
+
+@pytest.mark.parametrize("value", ["lixo", "'2020-13-45'", "'ontem'", "[1, 2]"])
+def test_data_invalida_e_erro_do_arquivo(value):
+    with pytest.raises(ValidationError, match="created_at"):
+        parse_item_file(_with_date(value))
+
+
 # --------------------------------------------------------------------------- arquivo antigo → v2
 
 
@@ -341,7 +374,6 @@ def _troca(raw: str, campo: str, valor: str) -> str:
         ("relations", "[{type: 1, target: x}]"),
         ("relations", "{type: a, target: b}"),
         ("ttl_days", "sete"),
-        ("created_at", "2024-01-01"),
         ("updated_at", "12"),
     ],
 )
