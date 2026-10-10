@@ -10,7 +10,7 @@
 // DOMPurify).
 import { api } from '../api.js';
 import { go, hrefs } from '../router.js';
-import { typeClass } from '../util.js';
+import { kindLabel, scopeLabel, typeClass } from '../util.js';
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, forceX, forceY } from '../../vendor/d3-force.esm.js';
 import { select } from '../../vendor/d3-selection.esm.js';
 import { drag } from '../../vendor/d3-drag.esm.js';
@@ -80,8 +80,10 @@ export function register(Alpine) {
       this.sim?.stop();
       try {
         const data = await api('GET', `/workspaces/${wsId}/graph`, { query: this.scopeQuery });
+        // Formato do `item_graph`: nós {key, id, type, subtype, title, summary, scope, status}
+        // (+ onde moram) e arestas {from, type, to} — aqui com os ids dos itens nas pontas.
         this.nodes = (data.nodes || []).map((n) => ({ ...n }));
-        this.edges = (data.edges || []).map((e) => ({ ...e }));
+        this.edges = (data.edges || []).map((e) => ({ source: e.from, target: e.to, relation_type: e.type }));
       } catch (e) {
         this.nodes = [];
         this.edges = [];
@@ -107,6 +109,13 @@ export function register(Alpine) {
      * `label` vazio (string vazia é falsy) — por isso checa `undefined`, não truthiness. */
     textOf(n) {
       return n.label !== undefined ? n.label : n.title;
+    },
+
+    /** Dica do nó: título, tipo · subtipo e ⚠ quando em revisão (item); nome (project/assunto). */
+    tooltipOf(n) {
+      if (n.kind !== 'item') return this.textOf(n);
+      const review = n.status === 'review' ? ' ⚠ review' : '';
+      return `${n.title} — ${kindLabel(n.type, n.subtype)} · ${scopeLabel(n.scope)}${review}`;
     },
 
     label(title) {
@@ -242,7 +251,7 @@ export function register(Alpine) {
         g.setAttribute('class', this.nodeClass(n));
         const r = radius(n);
         const title = document.createElementNS(SVG_NS, 'title');
-        title.textContent = this.textOf(n);
+        title.textContent = this.tooltipOf(n);
 
         // `r` (usado pro layout: collide, link, posição do rótulo) não muda — só o desenho
         // encolhe pra compensar que, no mesmo raio nominal, um quadrado tem área bem maior

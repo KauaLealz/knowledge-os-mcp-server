@@ -1,30 +1,34 @@
-"""Schemas Pydantic de Workspace."""
+"""Schemas Pydantic de workspace (v2): nome, descrição e `scope` explícito.
 
-from datetime import datetime
+`scope` segue a convenção dos serviços: ausente/None = não define (create) ou não muda
+(update); um de `model.SCOPES` = grava explícito; `""` (só no update) = volta a herdar. O
+serviço valida e lista os valores válidos.
+"""
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel
+from pydantic import BaseModel
 
 
 class WorkspaceCreate(BaseModel):
-    """Entrada para criação de workspace."""
-
-    name: str = Field(min_length=1, max_length=255)
+    name: str
     description: str | None = None
+    scope: str | None = None
 
 
-class WorkspaceResponse(BaseModel):
-    """Workspace retornado pelas tools."""
+class WorkspaceUpdate(BaseModel):
+    """`PUT /workspaces/{id}`: só o que vier muda (`name` renomeia)."""
 
-    model_config = ConfigDict(from_attributes=True)
+    name: str | None = None
+    description: str | None = None
+    scope: str | None = None
+
+
+class WorkspaceRow(BaseModel):
+    """`WorkspaceService.rows()`: `scope` = o que vale; `scope_explicit` = o gravado."""
 
     id: str
     name: str
-    description: str | None
-    created_at: datetime | None
-    updated_at: datetime | None
-
-
-class WorkspaceListResponse(RootModel[list[WorkspaceResponse]]):
-    """Lista de workspaces."""
-
-    root: list[WorkspaceResponse]
+    description: str | None = None
+    scope: str
+    scope_explicit: str | None = None
+    items: int
+    projects: int

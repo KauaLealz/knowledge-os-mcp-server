@@ -1,4 +1,4 @@
-// Store global (Alpine.store('app')): conexão, workspaces, árvore, rota, tema e toasts.
+// Store global (Alpine.store('app')): conexão, workspaces, árvore, tags, rota, tema e toasts.
 import { api, setConnection } from './api.js';
 import { parseHash, hrefs, go } from './router.js';
 import { lsGet, lsSet } from './util.js';
@@ -50,8 +50,13 @@ export const appStore = {
   // Filtros das listas (workspace e project): ficam no store para não se perderem ao navegar.
   // projectIds/subjectIds filtram no servidor (não só a página carregada, como types) —
   // só aparecem na UI de quem tem a árvore pra oferecer as opções (workspace e project).
-  filters: { q: '', types: [], projectIds: [], subjectIds: [] },
+  filters: { q: '', types: [], subtypes: [], projectIds: [], subjectIds: [] },
   filtersWs: null,
+
+  // Tags gerenciadas da conexão: [{ name, count }] (count 0 = só no vocabulário).
+  tags: [],
+  tagsLoading: false,
+  tagsError: null,
 
   trees: {}, // cache por workspace: { [wsId]: treeData }
   treeWs: null, // último workspace carregado (só informativo — não serve de gatilho de $watch,
@@ -155,7 +160,7 @@ export const appStore = {
     if (conn && conn !== this.connId) await this.selectConnection(conn);
     if (r.params.ws !== this.filtersWs) {
       this.filtersWs = r.params.ws || null;
-      this.filters = { q: '', types: [], projectIds: [], subjectIds: [] };
+      this.filters = { q: '', types: [], subtypes: [], projectIds: [], subjectIds: [] };
     }
     if (r.params.ws && !this.trees[r.params.ws] && this.workspaces.length) {
       await this.loadTree(r.params.ws);
@@ -170,6 +175,7 @@ export const appStore = {
     else if (this.route.name === 'project' && this.project) t = this.project.name + ' · ' + t;
     else if (this.route.name === 'workspace' && this.workspace) t = this.workspace.name + ' · ' + t;
     else if (this.route.name === 'connections') t = 'Connections · ' + t;
+    else if (this.route.name === 'tags') t = 'Tags · ' + t;
     document.title = t;
   },
 
@@ -182,7 +188,21 @@ export const appStore = {
     this.treeLoadingWs = {};
     this.treeErrorWs = {};
     this.itemIndex = {};
+    this.tags = [];
     await this.loadWorkspaces();
+  },
+
+  /** Tags com contagem (`GET /tags`): a tela de tags e as sugestões do editor usam. */
+  async loadTags() {
+    this.tagsLoading = true;
+    this.tagsError = null;
+    try {
+      this.tags = await api('GET', '/tags');
+    } catch (e) {
+      this.tagsError = e.message;
+    } finally {
+      this.tagsLoading = false;
+    }
   },
 
   async loadWorkspaces() {
@@ -190,13 +210,10 @@ export const appStore = {
     this.wsLoading = true;
     this.wsError = null;
     try {
+      // As linhas já trazem scope (efetivo e explícito) e as contagens (projects, items).
       const list = await api('GET', '/workspaces');
-      const stats = await Promise.allSettled(list.map((w) => api('GET', `/workspaces/${w.id}/stats`)));
       if (seq !== this.wsSeq) return;
-      this.workspaces = list.map((w, i) => ({
-        ...w,
-        stats: stats[i].status === 'fulfilled' ? stats[i].value : null,
-      }));
+      this.workspaces = list.map((w) => ({ ...w, stats: { projects: w.projects, items: w.items } }));
     } catch (e) {
       if (seq !== this.wsSeq) return;
       this.workspaces = [];
@@ -314,6 +331,9 @@ export const appStore = {
     return it ? hrefs.item(this.connId, this.route.params.ws, it.project_id, itemId) : null;
   },
   hConnections: (sub) => hrefs.connections(sub),
+  hTags() {
+    return hrefs.tags(this.connId);
+  },
 
   // ---- árvore ----
   isOpen(pjId) {
@@ -347,6 +367,7 @@ export const appStore = {
       id: item.id,
       title: item.title,
       type: item.type,
+      subtype: item.subtype || null,
       conn: this.connId,
       ws: item.workspace_id,
       pj: item.project_id,

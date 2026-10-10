@@ -1,16 +1,22 @@
-"""Escrita do segundo cérebro: upsert, lote, similares, segredos, ciclo de vida (plumb-brain T4)."""
+"""Escrita do segundo cérebro pelo ItemService: arquivo no caminho da key, lote, similares,
+segredos, supersedes, ttl, nomes de workspace/project e itens duplicados na pasta.
+
+O contrato do `save` v2 (validação, avisos, upsert, mover) está em test_items_v2.py.
+"""
+
+from datetime import timedelta
 
 import pytest
 
-from knowledge_os.exceptions import ValidationError
+from knowledge_os.exceptions import NotFoundError, ValidationError
+from knowledge_os.services.brain import utcnow
 from knowledge_os.services.item_service import ItemService
-from knowledge_os.services.memory_service import MemoryService
 from knowledge_os.services.relation_service import RelationService
 from knowledge_os.services.secret_guard import find_secret
 from knowledge_os.services.workspace_service import WorkspaceService
 
-FIELDS = dict(type="rule", memory_class="working", title="Money em pagamentos",
-              summary="Valores sempre em Money", content="Use Money, nunca double.")
+FIELDS = dict(type="rule", title="Money em pagamentos", summary="Valores sempre em Money",
+              content="Use Money, nunca double.")
 
 
 @pytest.fixture
@@ -18,73 +24,42 @@ def svc(conn) -> ItemService:
     return ItemService()
 
 
+@pytest.fixture
+def sample_item(sample_workspace, sample_project):
+    return ItemService().create(workspace_id=sample_workspace.id, project_id=sample_project.id,
+                                type="howto", title="Test Item", summary="Test summary",
+                                content="Spring beans and conditional logic")
+
+
 def _md_files(data_dir):
     return sorted(p.relative_to(data_dir).as_posix() for p in data_dir.rglob("*.md")
                   if ".git" not in p.parts)
 
 
-def test_upsert_cria_atualiza_e_reconhece_sem_mudanca(svc, sample_workspace, sample_project):
-    ws, dm = sample_workspace.id, sample_project.id
-    a, act = svc.upsert(ws, dm, "regra/money", **FIELDS)
-    assert act == "created" and a.key == "regra/money"
-    b, act = svc.upsert(ws, dm, "regra/money", summary="Valores em Money (centavos)")
-    assert act == "updated" and b.id == a.id and b.summary.endswith("(centavos)")
-    _, act = svc.upsert(ws, dm, "regra/money", summary="Valores em Money (centavos)")
-    assert act == "unchanged"
-
-
 def test_upsert_grava_o_arquivo_no_caminho_da_key(svc, sample_workspace, sample_project,
                                                     data_dir):
-    svc.upsert(sample_workspace.id, sample_project.id, "regra/money", **FIELDS)
-    text = (data_dir / "testworkspace" / "testproject" / "regra" / "money.md").read_text(
+    svc.save([{"key": "rule/money", **FIELDS}],
+             default_location=(sample_workspace.id, sample_project.id))
+    text = (data_dir / "testworkspace" / "testproject" / "rule" / "money.md").read_text(
         encoding="utf-8")
     assert "workspace: TestWorkspace" in text and "Use Money, nunca double." in text
 
 
-def test_upsert_so_sobe_classe(svc, sample_workspace, sample_project):
-    ws, dm = sample_workspace.id, sample_project.id
-    svc.upsert(ws, dm, "k", **{**FIELDS, "memory_class": "longterm"})
-    item, act = svc.upsert(ws, dm, "k", memory_class="working")
-    assert item.memory_class == "longterm" and act == "unchanged"
-    item, act = svc.upsert(ws, dm, "k", memory_class="canonical")
-    assert item.memory_class == "canonical" and act == "updated"
-
-
-def test_key_duplicada_no_create_falha(svc, sample_workspace, sample_project):
-    kw = dict(workspace_id=sample_workspace.id, project_id=sample_project.id, key="dup", **FIELDS)
-    svc.create(**kw)
-    with pytest.raises(ValidationError, match="upsert"):
-        svc.create(**kw)
-
-
-def test_key_invalida(svc, sample_workspace, sample_project):
-    with pytest.raises(ValidationError):
-        svc.upsert(sample_workspace.id, sample_project.id, "Com Espaço", **FIELDS)
-
-
 def test_lote_cria_local_e_atualiza_numa_publicacao(svc, data_dir):
-    rows = svc.batch_upsert([
-        {"workspace": "Polara", "project": "projpro", "key": "a", **FIELDS},
-        {"workspace": "Polara", "project": "projpro", "key": "b", **FIELDS, "title": "Outra"},
+    rows = svc.save([
+        {"workspace": "Polara", "project": "projpro", "key": "rule/a", **FIELDS},
+        {"workspace": "Polara", "project": "projpro", "key": "rule/b", **FIELDS,
+         "title": "Outra"},
     ])
     assert [r["action"] for r in rows] == ["created", "created"]
-    rows = svc.batch_upsert([
-        {"workspace": "Polara", "project": "projpro", "key": "a", "summary": "nova"},
-        {"workspace": "Polara", "project": "projpro", "key": "c", **FIELDS},
+    rows = svc.save([
+        {"workspace": "Polara", "project": "projpro", "key": "rule/a", "summary": "nova"},
+        {"workspace": "Polara", "project": "projpro", "key": "rule/c", **FIELDS},
     ])
     assert [r["action"] for r in rows] == ["updated", "created"]
     assert [w.name for w in WorkspaceService().list()] == ["Polara"]
-    assert _md_files(data_dir) == ["polara/projpro/a.md", "polara/projpro/b.md",
-                                   "polara/projpro/c.md"]
-
-
-def test_lote_com_erro_nao_grava_nada(svc, data_dir):
-    with pytest.raises(ValidationError, match="Entrada 1"):
-        svc.batch_upsert([
-            {"workspace": "W", "project": "D", "key": "ok", **FIELDS},
-            {"workspace": "W", "project": "D", "key": "ruim", **FIELDS, "type": "inexistente"},
-        ])
-    assert _md_files(data_dir) == []
+    assert _md_files(data_dir) == ["polara/projpro/rule/a.md", "polara/projpro/rule/b.md",
+                                   "polara/projpro/rule/c.md"]
 
 
 def test_similar_avisa_titulo_parecido(svc, sample_workspace, sample_project):
@@ -93,12 +68,11 @@ def test_similar_avisa_titulo_parecido(svc, sample_workspace, sample_project):
     assert found and found[0]["title"] == FIELDS["title"]
 
 
-def test_tags_e_labels_editaveis(svc, sample_workspace, sample_project):
+def test_tags_editaveis(svc, sample_workspace, sample_project):
     it = svc.create(workspace_id=sample_workspace.id, project_id=sample_project.id,
                     tags=["a"], **FIELDS)
-    it = svc.update(it.id, tags=["b", "c"], labels=["official"])
+    it = svc.update(it.id, tags=["c", "b"])
     assert it.tags == ["b", "c"]
-    assert it.labels == ["official"]
 
 
 @pytest.mark.parametrize("texto", [
@@ -124,37 +98,41 @@ def test_placeholder_nao_e_segredo(texto):
     assert find_secret(texto) is None
 
 
-def test_supersedes_marca_o_antigo(svc, sample_workspace, sample_project):
-    ws, dm = sample_workspace.id, sample_project.id
-    velho = svc.create(workspace_id=ws, project_id=dm, **{**FIELDS, "title": "Deploy manual"})
-    novo = svc.create(workspace_id=ws, project_id=dm, **{**FIELDS, "title": "Deploy no CI"})
-    RelationService().create(novo.id, velho.id, "supersedes")
-    assert svc.get(velho.id).status == "superseded"
-    assert [r["id"] for r in svc.search(ws, None, "deploy")] == [novo.id]
+def test_supersedes_arquiva_o_antigo(svc, sample_workspace, sample_project):
+    loc = (sample_workspace.id, sample_project.id)
+    velho, novo = svc.save([{**FIELDS, "key": "howto/deploy", "type": "howto",
+                             "title": "Deploy manual"},
+                            {**FIELDS, "key": "howto/deploy-ci", "type": "howto",
+                             "title": "Deploy no CI"}], default_location=loc)
+    RelationService().create([{"source": "howto/deploy-ci", "type": "supersedes",
+                               "target": "howto/deploy"}], viewpoint=loc)
+    assert svc.get(velho["id"]).status == "archived"
+    found = svc.search("deploy", viewpoint=loc)["results"]
+    assert [r["id"] for r in found] == [novo["id"]]
 
 
-def test_renew_recalcula_expires_e_promote_limpa(svc, sample_workspace, sample_project):
-    eph = svc.create(workspace_id=sample_workspace.id, project_id=sample_project.id,
-                     **{**FIELDS, "memory_class": "ephemeral", "ttl_days": 1})
-    mem = MemoryService()
-    renewed = mem.renew(eph.id, 30)
-    assert renewed.expires_at > eph.expires_at
-    promoted = mem.promote(eph.id, "working")
-    assert promoted.expires_at is None and promoted.ttl_days is None
+def test_ttl_renovado_conta_de_novo(svc, sample_workspace, sample_project):
+    item = svc.create(workspace_id=sample_workspace.id, project_id=sample_project.id,
+                      ttl_days=1, **FIELDS)
+    assert item.expires_at == item.updated_at + timedelta(days=1)
+    renewed = svc.update(item.id, ttl_days=30)
+    assert renewed.expires_at > item.expires_at
+    assert timedelta(days=29) < renewed.expires_at - utcnow() <= timedelta(days=30)
+    assert svc.update(item.id, ttl_days=None).expires_at is None
 
 
 def test_project_e_workspace_do_lote_reaproveitados(svc, sample_workspace, sample_project):
-    svc.batch_upsert([{"workspace": sample_workspace.name, "project": sample_project.name,
-                       "key": "x", **FIELDS}])
+    svc.save([{"workspace": sample_workspace.name, "project": sample_project.name,
+               "key": "rule/x", **FIELDS}])
     assert [p.name for p in svc.brain().snapshot.projects(sample_workspace.id)] == [
         sample_project.name]
 
 
 def test_nome_que_difere_so_na_caixa_cai_no_mesmo_workspace(svc, sample_workspace,
                                                             sample_project):
-    svc.batch_upsert([{"workspace": "testworkspace", "project": "TESTPROJECT", "key": "x",
-                       **FIELDS}])
-    item = svc.get_by_key(sample_workspace.id, sample_project.id, "x")
+    svc.save([{"workspace": "testworkspace", "project": "TESTPROJECT", "key": "rule/x",
+               **FIELDS}])
+    item = svc.get_by_key(sample_workspace.id, sample_project.id, "rule/x")
     assert (item.workspace, item.project) == ("TestWorkspace", "TestProject")
 
 
@@ -163,32 +141,16 @@ def test_apagar_workspace_e_project_com_tags_relacoes_e_link(conn, data_dir):
     from knowledge_os.services.repo_service import RepoService
 
     svc = ItemService()
-    svc.batch_upsert([{"workspace": "W", "project": "D", "key": "a", **FIELDS, "tags": ["t"]}])
-    svc.save([{"workspace": "W", "project": "D2", "key": "b", **FIELDS,
-               "relations": [{"type": "related_to", "target": "b2"}]},
-              {"workspace": "W", "project": "D2", "key": "b2", **FIELDS}])
+    svc.save([{"workspace": "W", "project": "D", "key": "rule/a", **FIELDS, "tags": ["t"]}])
+    svc.save([{"workspace": "W", "project": "D2", "key": "rule/b", **FIELDS},
+              {"workspace": "W", "project": "D2", "key": "rule/b2", **FIELDS}])
+    RelationService().create([{"source": "rule/b", "type": "related_to",
+                               "target": "rule/b2"}], viewpoint=("w", "d2"))
     RepoService().link("github.com/o/r", "W", "D")
     assert ProjectService().delete("w", "D2") is True
     assert WorkspaceService().delete("W") is True
     assert _md_files(data_dir) == []
     assert RepoService().resolve("github.com/o/r") is None
-
-
-def test_save_sem_memory_class_grava_longterm(svc, sample_workspace, sample_project):
-    fields = {k: v for k, v in FIELDS.items() if k != "memory_class"}
-    out = svc.save([{"key": "regra/sem-classe", **fields}],
-                   default_location=(sample_workspace.id, sample_project.id))
-    assert svc.get(out[0]["id"]).memory_class == "longterm"
-
-
-def test_cada_lote_e_um_commit(svc, data_dir):
-    import subprocess
-
-    svc.save([{"workspace": "W", "project": "D", "key": "a", **FIELDS},
-              {"workspace": "W", "project": "D", "key": "b", **FIELDS}])
-    log = subprocess.run(["git", "log", "--oneline"], cwd=data_dir, capture_output=True,
-                         text=True, check=True).stdout.splitlines()
-    assert len(log) == 1 and "2 item(ns)" in log[0]
 
 
 def _duplica(data_dir, item_id: str, svc: ItemService, delta_ns: int = 2_000_000_000):
@@ -206,10 +168,8 @@ def _duplica(data_dir, item_id: str, svc: ItemService, delta_ns: int = 2_000_000
 def test_apagar_item_duplicado_remove_todos_os_arquivos_do_id(svc, sample_item, data_dir):
     original, copia = _duplica(data_dir, sample_item.id, svc)
     assert svc.get(sample_item.id).path.endswith("copia.md")
-    svc.delete(sample_item.id)
+    svc.remove(sample_item.id)
     assert not original.exists() and not copia.exists()
-    from knowledge_os.exceptions import NotFoundError
-
     with pytest.raises(NotFoundError):
         svc.get(sample_item.id)  # não "volta" pelo outro arquivo
 

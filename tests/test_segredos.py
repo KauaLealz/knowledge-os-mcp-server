@@ -15,18 +15,41 @@ from fastmcp.exceptions import ToolError
 
 from knowledge_os.exceptions import ValidationError
 from knowledge_os.services import vault
-from knowledge_os.services.context_service import ContextService
 from knowledge_os.services.item_service import ItemService
 from knowledge_os.services.repo_service import RepoService
 from knowledge_os.services.secret_guard import ensure_no_secrets
 from knowledge_os.services.secret_service import SecretService
-from tests.test_tools_mcp import call, server  # noqa: F401
 
 ROOT = Path(__file__).resolve().parent.parent
 VALUE = "npm_Zx81kQ2pL0aVb7Yt3Rw9Mn4C"  # não casa com nenhum padrão do secret_guard
 PROJECT = "github.com/org/app"
 SECRET = {"key": "segredo/npm-token", "type": "secret", "title": "Token do npm",
           "summary": "Publicar pacotes no npm"}
+
+
+@pytest.fixture
+def server(conn):
+    """Servidor MCP em memória (importado aqui: o MCP é da fase 6)."""
+    from fastmcp import FastMCP
+
+    from knowledge_os.mcp import tools
+
+    m = FastMCP(name="t")
+    tools.register(m)
+    return m
+
+
+def call(server, tool, /, **args):
+    from tests.test_tools_mcp import call as _call
+
+    return _call(server, tool, **args)
+
+
+def _context(repo):
+    """Pacote do hook (importado aqui: é da fase 5)."""
+    from knowledge_os.services.context_service import ContextService
+
+    return ContextService().build(repo)
 
 
 @pytest.fixture
@@ -99,19 +122,27 @@ def test_nenhuma_leitura_devolve_o_valor(linked):
     item_id = _secret()
     SecretService().set_value(item_id, VALUE)
     items = ItemService()
-    from knowledge_os.schemas.item_schemas import ItemResponse
-
-    got = ItemResponse.from_item(items.get(item_id)).model_dump(mode="json")
+    (got,) = items.get_many(ids=[item_id])
     assert got["has_value"] is True and VALUE not in json.dumps(got)
-    assert VALUE not in json.dumps(items.search(None, None, "npm", limit=5), default=str)
-    md = ContextService().build(PROJECT)["markdown"]
+    assert items.get(item_id).has_value is True
+    assert VALUE not in json.dumps(items.search("npm", everywhere=True, limit=5), default=str)
+
+
+def test_rota_e_pacote_nao_devolvem_o_valor(linked):
+    from knowledge_os.schemas.item_schemas import ItemResponse  # API: fase 7
+
+    item_id = _secret()
+    SecretService().set_value(item_id, VALUE)
+    got = ItemResponse.from_item(ItemService().get(item_id)).model_dump(mode="json")
+    assert got["has_value"] is True and VALUE not in json.dumps(got)
+    md = _context(PROJECT)["markdown"]
     assert "Token do npm" in md and VALUE not in md
     assert "knowledge-mcp run --env" in md and "segredo/npm-token" in md
 
 
 def test_contexto_mostra_o_link_quando_falta_o_valor(linked):
     _secret()
-    md = ContextService().build(PROJECT)["markdown"]
+    md = _context(PROJECT)["markdown"]
     assert "sem valor" in md and "http://127.0.0.1:8765/ui/#/c/" in md
 
 
@@ -119,7 +150,7 @@ def test_apagar_o_item_apaga_o_valor(linked):
     item_id = _secret()
     SecretService().set_value(item_id, VALUE)
     assert _enc(linked, item_id).is_file()
-    ItemService().delete(item_id)
+    ItemService().delete(ids=[item_id], confirm=True)
     assert not _enc(linked, item_id).exists()
 
 
@@ -138,7 +169,7 @@ def test_segredo_com_valor_nao_vira_outro_tipo(linked):
     item_id = _secret()
     SecretService().set_value(item_id, VALUE)
     with pytest.raises(ValidationError, match="Apague o valor"):
-        ItemService().update(item_id, type="knowledge")
+        ItemService().update(item_id, type="rule")
 
 
 def test_valor_so_em_item_secret(linked):
@@ -152,7 +183,8 @@ def test_valor_so_em_item_secret(linked):
 
 def test_resolve_procura_no_repo_no_geral_e_no_global(linked):
     items = ItemService()
-    out = items.save([{**SECRET, "workspace": "Global", "project": "Geral"}])
+    out = items.save([{**SECRET, "workspace": "Global", "project": "Geral",
+                       "scope": "global"}])
     SecretService().set_value(out[0]["id"], VALUE)
     item, value = SecretService().resolve(PROJECT, "segredo/npm-token")
     assert value == VALUE and item.id == out[0]["id"]
@@ -311,7 +343,8 @@ def test_valor_trocado_de_linha_no_arquivo_nao_vira_outro_segredo(linked):
 
 def test_resolve_prefere_o_repo_ao_global(linked):
     items = ItemService()
-    glob = items.save([{**SECRET, "workspace": "Global", "project": "Geral"}])[0]["id"]
+    glob = items.save([{**SECRET, "workspace": "Global", "project": "Geral",
+                        "scope": "global"}])[0]["id"]
     SecretService().set_value(glob, "global-" + VALUE)
     repo = _secret()
     SecretService().set_value(repo, "repo-" + VALUE)
@@ -460,3 +493,20 @@ def test_run_key_inexistente_nao_roda(cli_env):
                "print('rodou')")
     assert out.returncode == 1 and "rodou" not in out.stdout
     assert "não encontrado" in out.stderr
+
+
+def test_mensagens_citam_a_key_real_secret_e_nao_segredo(cli_env):
+    with pytest.raises(ValidationError) as exc:
+        ensure_no_secrets(content="token: ghp_" + "a" * 36)
+    assert "secret/<nome>" in str(exc.value) and "segredo/" not in str(exc.value)
+    env, project = cli_env
+    helped = subprocess.run(
+        [sys.executable, "-m", "knowledge_os.cli", "run", "--help"],
+        env=env, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", timeout=120)
+    assert "secret/<nome>" in helped.stdout and "segredo/" not in helped.stdout
+    bad = _run(env, project, "--env", "SEM_IGUAL", "--", sys.executable, "-c", "pass")
+    assert "secret/<nome>" in bad.stderr and "segredo/" not in bad.stderr
+    missing = _run(env, project, "--env", "X=secret/nao-existe", "--", sys.executable, "-c",
+                   "pass")
+    assert "Segredo não encontrado: secret/nao-existe" in missing.stderr
+    assert "secret/<nome>" in missing.stderr and "segredo/" not in missing.stderr

@@ -1,34 +1,27 @@
-"""Schemas Pydantic para relações."""
+"""Schemas Pydantic de relações (v2): o lote do `RelationService` (`{source, type, target}`).
 
-from datetime import datetime
-from typing import Literal
+`source`/`target` são key ou id; o tipo é validado pelo serviço (que lista os válidos).
+"""
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel
+from typing import Any
 
-RelationType = Literal[
-    "related_to", "depends_on", "implements", "references", "supersedes", "derived_from"
-]
+from pydantic import BaseModel
 
 
-class RelationCreate(BaseModel):
-    """Entrada de relation_create."""
+class RelationBatch(BaseModel):
+    """Corpo de `POST /relations` e `DELETE /relations`: até 20 entradas, atômico."""
 
-    source_item_id: str = Field(min_length=1)
-    target_item_id: str = Field(min_length=1)
-    relation_type: RelationType
+    items: list[dict[str, Any]]
 
 
-class RelationResponse(BaseModel):
-    """Relação serializada."""
+class RelationRow(BaseModel):
+    """Resultado por entrada: `created|unchanged` (criar) ou `deleted|missing` (apagar)."""
 
-    model_config = ConfigDict(from_attributes=True)
-
-    id: str
-    source_item_id: str
-    target_item_id: str
-    relation_type: str
-    created_at: datetime | None = None
-
-
-class RelationListResponse(RootModel[list[RelationResponse]]):
-    """Lista de relações."""
+    index: int
+    source: str
+    type: str
+    target: str
+    action: str
+    status: str | None = None  # em modo PR
+    pr_url: str | None = None
+    issue_url: str | None = None

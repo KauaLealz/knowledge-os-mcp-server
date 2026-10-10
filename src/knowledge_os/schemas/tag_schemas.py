@@ -1,22 +1,22 @@
-"""Schemas Pydantic para tags."""
+"""Schemas Pydantic de tags gerenciadas (v2): lista com contagem, criar, renomear/mesclar."""
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel
+from pydantic import BaseModel
+
+
+class TagRow(BaseModel):
+    """Uma tag e quantos itens a usam (`count: 0` = só no vocabulário)."""
+
+    name: str
+    count: int
 
 
 class TagCreate(BaseModel):
-    """Entrada de tag_create."""
+    """`POST /tags`: nomes (normalizados para kebab-case pelo serviço)."""
 
-    name: str = Field(min_length=1, max_length=100)
-
-
-class TagResponse(BaseModel):
-    """Tag serializada."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: str
-    name: str
+    names: list[str]
 
 
-class TagListResponse(RootModel[list[TagResponse]]):
-    """Lista de tags."""
+class TagUpdate(BaseModel):
+    """`PUT /tags/{name}`: renomeia em todos os itens; se `new_name` já existe, mescla."""
+
+    new_name: str

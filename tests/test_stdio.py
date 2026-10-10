@@ -14,7 +14,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 ROOT = Path(__file__).resolve().parent.parent
-EXPECTED_TOOLS = 33
+EXPECTED_TOOLS = 32
 
 
 @pytest.fixture
@@ -53,8 +53,9 @@ def test_handshake_stdio_initialize_list_tools_health_check(server_env):
     assert not health.is_error
     report = json.loads(health.content[0].text)
     # Sem conexão: o servidor sobe, mas diz que falta criar uma (nada é criado sozinho).
-    assert (report["status"], report["connection"]) == ("error", None)
+    assert (report["status"], report["connections"]) == ("error", [])
     assert "connection_create" in report["message"] and report["version"]
+    assert isinstance(report["gh_authenticated"], bool)
     assert list(cwd.iterdir()) == []  # nada criado no cwd
     assert not (home / "connections.json").exists()
 
@@ -81,8 +82,8 @@ def test_health_check_com_conexao_padrao(server_env, tmp_path):
     health = asyncio.run(asyncio.wait_for(scenario(), timeout=60))
     report = json.loads(health.content[0].text)
     assert report["status"] == "ok"
-    assert report["connection"] == {"id": "d", "name": "Dados", "path": str(data),
-                                    "exists": True, "is_git_repo": True}
+    assert report["connections"] == [{"id": "d", "name": "Dados", "path": str(data),
+                                      "ok": True, "parse_errors": []}]
 
 
 def test_stdout_so_tem_protocolo(server_env):

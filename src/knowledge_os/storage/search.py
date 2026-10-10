@@ -5,10 +5,18 @@ cada termo e casada por PREFIXO contra os tokens do item (minúsculos, sem acent
 "migração", "migrações" e "migrar" acham uns aos outros. Não há sintaxe de consulta: aspas,
 asteriscos e "OR" são texto como qualquer outro.
 
-Relevância: BM25 com pesos por campo (`FIELD_WEIGHTS`, na ordem de `FIELDS`), na mesma forma
-da que o projeto já usava — a frequência de cada termo é a soma ponderada por campo e o
-comprimento do documento é o total de tokens de todos os campos. Primeiro exige todos os
-termos (AND); se nada casar e houver mais de um termo, aceita qualquer um (OR).
+Identificadores: além do token inteiro, o tokenizador gera as partes de camelCase, snake_case
+e números (`ItemService.saveBatch` → `itemservice item service savebatch save batch`;
+`ERR_CONN_42` → `err_conn_42 err conn 42`). A consulta recebe o mesmo tratamento, então
+"save batch" e "saveBatch" acham o mesmo item, e um código de erro é achado como está.
+
+Relevância: BM25 com pesos por campo (`FIELD_WEIGHTS`, na ordem de `FIELDS`) — a frequência de
+cada termo é a soma ponderada por campo e o comprimento do documento é o total de tokens de
+todos os campos. Primeiro exige todos os termos (AND); se nada casar e houver mais de um
+termo, aceita qualquer um (OR). O score final multiplica o BM25 pelos fatores que quem chama
+já calculou (`Candidate.distance`, `Candidate.boost`) e pelos daqui: `paths` casando
+`scope_paths` (×1.5) e status `review` (×0.6). Alcance, filtros e sinais são do `ItemService`;
+este módulo só ranqueia e explica (`Hit.matched_in`, `snippet`, `excerpt`).
 
 `SearchIndex` é o índice invertido, mantido incrementalmente (`add`/`remove` por item) pelo
 `FileStore`, para não tokenizar tudo a cada busca.
@@ -20,20 +28,25 @@ import bisect
 import math
 import re
 import unicodedata
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from knowledge_os.storage.files import ItemRecord
 
-FIELDS = ("title", "summary", "keywords", "content")
-FIELD_WEIGHTS = (6.0, 3.0, 4.0, 1.0)
+FIELDS = ("title", "keywords", "key", "summary", "tags", "subtype", "content")
+FIELD_WEIGHTS = (6.0, 4.0, 3.0, 3.0, 3.0, 2.0, 1.0)
+PATH_FACTOR = 1.5
+REVIEW_FACTOR = 0.6
+SNIPPET_MAX = 160
+EXCERPT_MAX = 600
 _K1 = 1.2
 _B = 0.75
-# IDF mínimo: termo presente em quase todos os itens ainda conta um pouco (nunca negativo).
-_MIN_IDF = 1e-6
 
-_WORD = re.compile(r"[a-z0-9_]+")
+# Palavra crua (com caixa, já sem acento) e as partes de um identificador dentro dela.
+_RAW = re.compile(r"[A-Za-z0-9_]+")
+_PART = re.compile(r"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|[0-9]+")
 _MIN_STEM = 4
 _STOPWORDS = frozenset(
     "a o e de da do das dos em no na nos nas um uma uns umas para por com sem que como "
@@ -65,18 +78,32 @@ def stem(term: str) -> str:
     return term
 
 
+def _words(text: str) -> list[list[str]]:
+    """Cada palavra do texto como [inteiro, partes...], minúsculos e sem acento."""
+    out = []
+    for raw in _RAW.findall(strip_accents(text)):
+        whole = raw.lower()
+        group = [whole]
+        for part in _PART.findall(raw):
+            part = part.lower()
+            if part not in group:
+                group.append(part)
+        out.append(group)
+    return out
+
+
 def tokenize(text: str | None) -> list[str]:
-    """Tokens de um texto do item: minúsculos e sem acento (sem radical: o prefixo cobre)."""
+    """Tokens de um texto do item: minúsculos, sem acento, com as partes dos identificadores
+    (sem radical: o prefixo da consulta cobre)."""
     if not text:
         return []
-    return _WORD.findall(strip_accents(text.lower()))
+    return [token for group in _words(text) for token in group]
 
 
 def terms(query: str) -> list[str]:
     """Termos úteis da consulta: minúsculos, sem acento, sem stopwords, com radical."""
-    words = _WORD.findall(strip_accents(query.lower()))
     seen: dict[str, None] = {}
-    for word in words:
+    for word in tokenize(query):
         if len(word) >= 2 and word not in _STOPWORDS:
             seen.setdefault(stem(word), None)
     return list(seen)
@@ -91,7 +118,7 @@ def query_terms(query: str) -> list[str]:
     query = query.strip()
     if not query:
         return []
-    return terms(query) or list(dict.fromkeys(_WORD.findall(strip_accents(query.lower()))))
+    return terms(query) or list(dict.fromkeys(tokenize(query)))
 
 
 def _field_text(record: Any, field: str) -> str | None:
@@ -99,6 +126,104 @@ def _field_text(record: Any, field: str) -> str | None:
     if isinstance(value, list):
         return " ".join(str(v) for v in value)
     return value
+
+
+# --------------------------------------------------------------------------- paths
+
+
+def _norm_path(path: str) -> str:
+    path = path.strip().replace("\\", "/")
+    while path.startswith("./"):
+        path = path[2:]
+    return path.lstrip("/")
+
+
+# Tokens do glob: `**/` (nada ou pastas inteiras), `/**` no fim (a própria pasta ou o que está
+# dentro), `**` (qualquer coisa, cruzando pastas), `*` e `?` (dentro de um segmento), literal.
+_DIRS, _TAIL, _ANY, _STAR, _ONE = "dirs", "tail", "any", "star", "one"
+# Teto de passos de um casamento (tokens × caracteres): acima disso, "não casa". Os limites do
+# `item_save` (200 caracteres, 8 curingas) ficam muito abaixo; o teto protege itens vindos de um
+# remote que não passaram por eles.
+MAX_GLOB_STEPS = 200_000
+
+
+def _glob_tokens(glob: str) -> list[tuple[str, str]]:
+    out: list[tuple[str, str]] = []
+    i = 0
+    while i < len(glob):
+        if glob.startswith("**/", i):
+            out.append((_DIRS, ""))
+            i += 3
+        elif glob.startswith("/**", i) and i + 3 == len(glob):
+            out.append((_TAIL, ""))
+            i += 3
+        elif glob.startswith("**", i):
+            out.append((_ANY, ""))
+            i += 2
+        elif glob[i] == "*":
+            out.append((_STAR, ""))
+            i += 1
+        elif glob[i] == "?":
+            out.append((_ONE, ""))
+            i += 1
+        else:
+            out.append(("lit", glob[i]))
+            i += 1
+    return out
+
+
+def glob_match(glob: str, path: str) -> bool:
+    """O caminho inteiro casa o glob? Programação dinâmica (tokens × posições), sem regex:
+    custo linear no produto dos tamanhos, nunca o backtracking exponencial de uma regex com
+    `[^/]*` repetido (um `scope_paths` como `**/*?*?*?*?#` travava a busca)."""
+    tokens = _glob_tokens(glob)
+    n = len(path)
+    if len(tokens) * (n + 1) > MAX_GLOB_STEPS:
+        return False
+    # nxt[j]: os tokens a partir do seguinte casam path[j:]; começa pelo fim (nenhum token).
+    nxt = [False] * n + [True]
+    for kind, char in reversed(tokens):
+        cur = [False] * (n + 1)
+        if kind == _TAIL:
+            for j in range(n + 1):
+                cur[j] = j == n or path[j] == "/"
+        elif kind == _ANY:
+            cur[n] = nxt[n]
+            for j in range(n - 1, -1, -1):
+                cur[j] = nxt[j] or cur[j + 1]
+        elif kind == _STAR:
+            cur[n] = nxt[n]
+            for j in range(n - 1, -1, -1):
+                cur[j] = nxt[j] or (path[j] != "/" and cur[j + 1])
+        elif kind == _DIRS:
+            # nada, ou qualquer trecho terminado em "/": `ends[j]` = existe k ≥ j com
+            # path[k] == "/" e nxt[k + 1].
+            ends = False
+            for j in range(n - 1, -1, -1):
+                ends = ends or (path[j] == "/" and nxt[j + 1])
+                cur[j] = nxt[j] or ends
+            cur[n] = nxt[n]
+        elif kind == _ONE:
+            for j in range(n):
+                cur[j] = path[j] != "/" and nxt[j + 1]
+        else:
+            for j in range(n):
+                cur[j] = path[j] == char and nxt[j + 1]
+        nxt = cur
+    return nxt[0]
+
+
+def paths_match(record: ItemRecord, paths: Sequence[str]) -> bool:
+    """Algum dos `paths` casa algum glob de `record.scope_paths` (ou, se o path dado for ele
+    mesmo um glob, casa um `scope_paths` literal). Seguro para qualquer padrão gravado, mesmo
+    fora dos limites do `item_save` (`glob_match` tem teto de passos)."""
+    scopes = [_norm_path(s) for s in (record.scope_paths or []) if isinstance(s, str) and s.strip()]
+    given = [_norm_path(p) for p in paths if p and p.strip()]
+    for scope in scopes:
+        for path in given:
+            if glob_match(scope, path) or glob_match(path, scope):
+                return True
+    return False
 
 
 # --------------------------------------------------------------------------- índice
@@ -180,75 +305,180 @@ class SearchIndex:
             ids |= self._postings[token]
         return ids
 
+    def field_hits(self, item_id: str, prefix: str) -> list[int]:
+        """Frequência de `prefix` em cada campo do item (na ordem de `FIELDS`)."""
+        doc = self._docs.get(item_id, {})
+        totals = [0] * len(FIELDS)
+        for token in self.tokens_with_prefix(prefix):
+            tf = doc.get(token)
+            if tf:
+                totals = [a + b for a, b in zip(totals, tf, strict=True)]
+        return totals
+
     def score(self, item_id: str, prefixes: list[str], matched: dict[str, set[str]]) -> float:
         """BM25 do item para os prefixos (só os que casaram contam)."""
         n_docs = len(self._docs)
         avg_length = (self._total_length / n_docs) if n_docs else 0.0
-        doc = self._docs[item_id]
         length = self._lengths[item_id]
         norm = _K1 * (1 - _B + _B * (length / avg_length if avg_length else 0.0))
         total = 0.0
         for prefix in prefixes:
             if item_id not in matched[prefix]:
                 continue
-            freq = 0.0
-            for token in self.tokens_with_prefix(prefix):
-                tf = doc.get(token)
-                if tf:
-                    freq += sum(w * f for w, f in zip(FIELD_WEIGHTS, tf, strict=True))
+            tf = self.field_hits(item_id, prefix)
+            freq = sum(w * f for w, f in zip(FIELD_WEIGHTS, tf, strict=True))
             if not freq:
                 continue
             n = len(matched[prefix])
-            idf = math.log((n_docs - n + 0.5) / (n + 0.5))
-            total += max(idf, _MIN_IDF) * (freq * (_K1 + 1)) / (freq + norm)
+            idf = math.log(1 + (n_docs - n + 0.5) / (n + 0.5))  # variante do Lucene: sempre > 0
+            total += idf * (freq * (_K1 + 1)) / (freq + norm)
         return total
 
 
 # --------------------------------------------------------------------------- busca
 
 
+@dataclass(frozen=True)
+class Candidate:
+    """Item que pode aparecer na busca, com os fatores que quem chama já decidiu."""
+
+    record: ItemRecord
+    distance: float = 1.0  # alcance: 1.0 / 0.85 / 0.7 (services/scope.py)
+    boost: float = 1.0  # sinais (helped/opened/irrelevant), calculado por quem chama
+
+
+@dataclass
+class Hit:
+    """Resultado ranqueado e explicado."""
+
+    record: ItemRecord
+    score: float
+    matched_in: list[str]  # campos de FIELDS que casaram, mais "path"
+    snippet: str  # até SNIPPET_MAX caracteres do primeiro campo que casou
+    excerpt: str | None = None  # só com `paths` casando: começo do content
+
+
+def _snippet(text: str, prefixes: list[str]) -> str:
+    """Trecho de `text` com o primeiro prefixo que aparecer no meio."""
+    # Texto normalizado caractere a caractere, guardando a posição original de cada um.
+    norm: list[str] = []
+    where: list[int] = []
+    for i, ch in enumerate(text):
+        for c in strip_accents(ch).lower():
+            norm.append(c)
+            where.append(i)
+    flat = "".join(norm)
+    pos, size = 0, 0
+    for prefix in prefixes:
+        found = re.search(r"(?<![a-z0-9])" + re.escape(prefix), flat)
+        index = found.start() if found else flat.find(prefix)
+        if index >= 0:
+            pos, size = where[index], len(prefix)
+            break
+    start = max(0, pos - (SNIPPET_MAX - size) // 2)
+    end = min(len(text), start + SNIPPET_MAX)
+    start = max(0, end - SNIPPET_MAX)
+    return " ".join(text[start:end].split())[:SNIPPET_MAX]
+
+
+def _excerpt(content: str | None) -> str:
+    """Começo do content até EXCERPT_MAX caracteres, cortado em limite de palavra."""
+    text = (content or "").strip()
+    if len(text) <= EXCERPT_MAX:
+        return text
+    cut = text[:EXCERPT_MAX]
+    if not text[EXCERPT_MAX].isspace():
+        space = max(cut.rfind(" "), cut.rfind("\n"), cut.rfind("\t"))
+        if space > 0:
+            cut = cut[:space]
+    return cut.rstrip()
+
+
+def _factor(cand: Candidate, on_path: bool) -> float:
+    factor = cand.distance * cand.boost
+    if on_path:
+        factor *= PATH_FACTOR
+    if cand.record.status == "review":
+        factor *= REVIEW_FACTOR
+    return factor
+
+
 def search(
-    records: Iterable[ItemRecord],
+    candidates: Iterable[Candidate],
     query: str,
     limit: int,
     *,
-    key: Callable[[ItemRecord], Any] | None = None,
     index: SearchIndex | None = None,
-) -> list[tuple[ItemRecord, float]]:
-    """Busca `query` entre `records` e devolve até `limit` pares (item, score).
+    paths: Sequence[str] | None = None,
+) -> list[Hit]:
+    """Ranqueia `candidates` para `query` e devolve até `limit` resultados explicados.
 
-    Ordem: score decrescente; empate pelo valor de `key(item)`, também decrescente (ex.:
-    `lambda r: (r.importance or 0, r.confidence or 0, usos, r.updated_at)`); sem `key`, o
-    empate mantém a ordem de `records`. Sem consulta, devolve todos com score 0.0 na ordem de
-    `key`. `index` é o índice já mantido (o do `FileStore`); sem ele, um índice temporário é
-    montado só com `records`. Itens fora do índice não são encontrados.
+    Score: BM25 × distance × boost × (1.5 se `paths` casa `scope_paths`) × (0.6 se `review`);
+    sem consulta, o mesmo sem o BM25 (e todos entram). Empate: `updated_at` mais novo antes;
+    depois a ordem de `candidates`. `index` é o índice já mantido (o do `FileStore`); sem ele,
+    um índice temporário é montado só com os candidatos. Itens fora do índice não são
+    encontrados por texto.
     """
-    records = list(records)
-    tie = key or (lambda _r: 0)
+    unique: dict[str, Candidate] = {}
+    for cand in candidates:
+        unique.setdefault(cand.record.id, cand)
+    cands = list(unique.values())
+    limit = max(limit, 0)
+    on_path = {c.record.id: bool(paths) and paths_match(c.record, paths or ()) for c in cands}
+
+    def hit(cand: Candidate, score: float, matched: list[str], snippet: str) -> Hit:
+        hit_path = on_path[cand.record.id]
+        return Hit(
+            record=cand.record, score=score,
+            matched_in=matched + (["path"] if hit_path else []), snippet=snippet,
+            excerpt=_excerpt(cand.record.content) if hit_path else None,
+        )
+
     prefixes = query_terms(query)
     if not prefixes:
         if query.strip():
             return []
-        ordered = sorted(records, key=tie, reverse=True)
-        return [(r, 0.0) for r in ordered[: max(limit, 0)]]
+        hits = [hit(c, _factor(c, on_path[c.record.id]), [], "") for c in cands]
+        return _ordered(hits)[:limit]
 
     if index is None:
         index = SearchIndex()
-        for record in records:
-            index.add(record)
+        for cand in cands:
+            index.add(cand.record)
 
-    allowed = {r.id for r in records}
+    allowed = set(unique)
     matched = {p: index.docs_for(p) & allowed for p in prefixes}
-    candidates = set.intersection(*matched.values())
-    if not candidates and len(prefixes) > 1:
-        candidates = set.union(*matched.values())
-    if not candidates:
-        return []
+    found = set.intersection(*matched.values())
+    if not found and len(prefixes) > 1:
+        found = set.union(*matched.values())
 
-    by_id = {r.id: r for r in records}
-    scored = [(by_id[i], index.score(i, prefixes, matched)) for i in candidates]
-    # Ordem de entrada estável antes do sort: empate sem `key` segue `records`.
-    position = {r.id: n for n, r in enumerate(records)}
-    scored.sort(key=lambda pair: position[pair[0].id])
-    scored.sort(key=lambda pair: (pair[1], tie(pair[0])), reverse=True)
-    return scored[: max(limit, 0)]
+    hits = []
+    for cand in cands:
+        item_id = cand.record.id
+        if item_id not in found:
+            continue
+        per_field = [0] * len(FIELDS)
+        first_prefixes: dict[int, list[str]] = {}
+        for prefix in prefixes:
+            if item_id not in matched[prefix]:
+                continue
+            for pos, tf in enumerate(index.field_hits(item_id, prefix)):
+                if tf:
+                    per_field[pos] += tf
+                    first_prefixes.setdefault(pos, []).append(prefix)
+        fields = [f for pos, f in enumerate(FIELDS) if per_field[pos]]
+        snippet = ""
+        if fields:
+            first = FIELDS.index(fields[0])
+            text = _field_text(cand.record, fields[0]) or ""
+            snippet = _snippet(text, first_prefixes[first])
+        bm25 = index.score(item_id, prefixes, matched)
+        hits.append(hit(cand, bm25 * _factor(cand, on_path[item_id]), fields, snippet))
+    return _ordered(hits)[:limit]
+
+
+def _ordered(hits: list[Hit]) -> list[Hit]:
+    # Duas passadas estáveis: score decrescente e, no empate, updated_at mais novo.
+    hits.sort(key=lambda h: h.record.updated_at, reverse=True)
+    hits.sort(key=lambda h: h.score, reverse=True)
+    return hits

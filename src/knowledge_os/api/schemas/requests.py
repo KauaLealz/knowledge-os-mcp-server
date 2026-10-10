@@ -1,65 +1,35 @@
-"""Modelos de entrada da API (reaproveita os schemas das tools MCP)."""
+"""Modelos de entrada da API (os de itens, relações, tags e organização vêm de `schemas/`)."""
 
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from knowledge_os.schemas.item_schemas import ItemCreate, ItemUpdate
-from knowledge_os.schemas.label_schemas import LabelCreate
-from knowledge_os.schemas.memory_schemas import MemoryClass
-from knowledge_os.schemas.project_schemas import ProjectCreate
-from knowledge_os.schemas.relation_schemas import RelationCreate
-from knowledge_os.schemas.tag_schemas import TagCreate
-from knowledge_os.schemas.workspace_schemas import WorkspaceCreate
+from knowledge_os.schemas.item_schemas import FeedbackRequest, ItemCreate, ItemUpdate
+from knowledge_os.schemas.project_schemas import (
+    ProjectCreate,
+    ProjectUpdate,
+    SubjectCreate,
+    SubjectUpdate,
+)
+from knowledge_os.schemas.relation_schemas import RelationBatch
+from knowledge_os.schemas.tag_schemas import TagCreate, TagUpdate
+from knowledge_os.schemas.workspace_schemas import WorkspaceCreate, WorkspaceUpdate
 
 __all__ = [
-    "ConfidenceUpdate",
     "ConnectionUpdate",
-    "ImportanceUpdate",
+    "FeedbackRequest",
     "ItemCreate",
-    "ItemLabelAdd",
-    "ItemTagAdd",
     "ItemUpdate",
-    "LabelCreate",
-    "MemoryClassUpdate",
     "ProjectCreate",
     "ProjectUpdate",
-    "RelationCreate",
+    "RelationBatch",
+    "SubjectCreate",
+    "SubjectUpdate",
     "TagCreate",
+    "TagUpdate",
     "WorkspaceCreate",
     "WorkspaceUpdate",
 ]
-
-
-class WorkspaceUpdate(BaseModel):
-    """PUT /workspaces/{id}: name obrigatório; description só muda se informada."""
-
-    name: str = Field(min_length=1, max_length=255)
-    description: str | None = None
-
-
-class ProjectUpdate(WorkspaceUpdate):
-    """PUT /projects/{id}."""
-
-
-class ConfidenceUpdate(BaseModel):
-    value: int = Field(ge=0, le=100)
-
-
-class ImportanceUpdate(BaseModel):
-    value: int = Field(ge=0, le=10)
-
-
-class MemoryClassUpdate(BaseModel):
-    memory_class: MemoryClass
-
-
-class ItemTagAdd(BaseModel):
-    tag_id: str = Field(min_length=1)
-
-
-class ItemLabelAdd(BaseModel):
-    label_id: str = Field(min_length=1)
 
 
 class ConnectionUpdate(BaseModel):

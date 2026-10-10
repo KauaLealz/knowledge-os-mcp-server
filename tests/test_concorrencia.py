@@ -11,7 +11,6 @@ import pytest
 
 from knowledge_os.exceptions import StorageError
 from knowledge_os.services.brain import Brain
-from knowledge_os.services.context_service import ContextService
 from knowledge_os.services.item_service import ItemService
 from knowledge_os.services.repo_service import RepoService
 from knowledge_os.storage import access, local_state
@@ -24,8 +23,8 @@ WORKER = (
     "n = int(sys.argv[2])\n"
     "svc = ItemService()\n"
     "for i in range(8):\n"
-    "    svc.save([{'workspace': 'W', 'project': 'D', 'key': f'p{n}/{i}', 'type': 'knowledge',\n"
-    "               'memory_class': 'working', 'title': f't{n}-{i}', 'summary': 's',\n"
+    "    svc.save([{'workspace': 'W', 'project': 'D', 'key': f'p{n}/{i}', 'type': 'howto',\n"
+    "               'title': f't{n}-{i}', 'summary': 's',\n"
     "               'content': 'c'}])\n"
 )
 
@@ -70,11 +69,11 @@ WORKER_TAG = (
     "import pathlib, time\n"
     "n = int(sys.argv[2])\n"
     "while not pathlib.Path(sys.argv[3]).exists(): time.sleep(0.001)\n"
-    "ItemService().save([{'workspace': 'W', 'project': 'D', 'key': f'k{i}', 'type': 'knowledge',\n"
-    "    'memory_class': 'working', 'title': f't{n}-{i}', 'summary': 's', 'content': 'c',\n"
+    "ItemService().save([{'workspace': 'W', 'project': 'D', 'key': f'k{i}', 'type': 'howto',\n"
+    "    'title': f't{n}-{i}', 'summary': 's', 'content': 'c',\n"
     "    'tags': ['tag-nova-compartilhada']} for i in range(3)]\n"
-    "    + [{'workspace': 'W', 'project': 'D', 'key': f'p{n}', 'type': 'knowledge',\n"
-    "        'memory_class': 'working', 'title': 'u', 'summary': 's', 'content': 'c',\n"
+    "    + [{'workspace': 'W', 'project': 'D', 'key': f'p{n}', 'type': 'howto',\n"
+    "        'title': 'u', 'summary': 's', 'content': 'c',\n"
     "        'tags': ['tag-nova-compartilhada']}])\n"
 )
 
@@ -118,8 +117,10 @@ def test_editar_dentro_de_edicao_na_mesma_thread_nao_trava(conn):
 
 
 def test_contexto_nao_cai_quando_o_contador_nao_consegue_gravar(conn, monkeypatch):
+    from knowledge_os.services.context_service import ContextService  # pacote: fase 5
+
     RepoService().link("github.com/org/app", "W", "D")
-    ItemService().save([{"key": "k", "type": "knowledge", "title": "t", "summary": "s",
+    ItemService().save([{"key": "k", "type": "howto", "title": "t", "summary": "s",
                          "content": "c", "scope_paths": ["src/**"]}], default_location=("W", "D"))
 
     def boom(*_a, **_k):

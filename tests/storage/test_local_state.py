@@ -45,11 +45,11 @@ def test_usage_conta_e_le(_isolated_home):
     local_state.track("c1", ["a", "b"])
     local_state.track("c1", ["a"])
     uso = local_state.get_usage("c1")
-    assert uso["a"]["uses"] == 2 and uso["b"]["uses"] == 1
-    assert uso["a"]["last_used"]
+    assert uso["a"]["opened"] == 2 and uso["b"]["opened"] == 1
+    assert uso["a"]["last_used_at"]
     assert local_state.get_usage("c2") == {}
     dados = json.loads((_isolated_home / "usage" / "c1.json").read_text(encoding="utf-8"))
-    assert dados["a"]["uses"] == 2
+    assert dados["a"]["opened"] == 2
 
 
 def test_usage_corrompido_e_falha_nao_levantam(_isolated_home, monkeypatch):
@@ -88,7 +88,7 @@ def test_track_concorrente_nao_perde_uso(_isolated_home):
             local_state.track("c1", ["item-1"])
 
     _em_paralelo(usa)
-    assert local_state.get_usage("c1")["item-1"]["uses"] == 8 * 15
+    assert local_state.get_usage("c1")["item-1"]["opened"] == 8 * 15
 
 
 def test_set_repo_concorrente_nao_perde_ligacao(_isolated_home):

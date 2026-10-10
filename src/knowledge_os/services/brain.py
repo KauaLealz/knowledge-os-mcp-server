@@ -3,10 +3,15 @@
 Modelo em disco (a pasta é um repositório git):
 
 - Item: `<workspace>/<project>/<key>.md` (ou `_sem-key/<id>.md`), frontmatter YAML com os nomes
-  de workspace/project/subject, tags, labels e relações (`services.item_file`).
+  de workspace/project/subject, tags e relações (`services.item_file`, formato v2).
 - Workspace, project e subject existem pelos itens que os citam ou por um `.knowledge.yaml`:
-  na pasta do workspace (`name`, `description`), na do project (`name`, `description`,
-  `subjects: [...]`). Tags e labels criadas sem item ficam no `.knowledge.yaml` da raiz.
+  na pasta do workspace (`name`, `description`, `scope`), na do project (`name`,
+  `description`, `scope`, `subjects: [{name, description?, scope?}]`). O vocabulário de tags
+  (inclusive as criadas sem item) fica no `.knowledge.yaml` da raiz: `{tags: [...]}`.
+
+Alcance: o scope efetivo de um item é o primeiro explícito subindo item → subject → project →
+workspace (nada explícito = `scoped`), calculado aqui (`Snapshot.effective_scope`); quem
+decide o que um repositório enxerga é `services.scope`. O item mora onde foi salvo.
 
 Ids: workspace, project e subject têm como id o slug do nome (`item_file.slugify`), que é
 também o nome da pasta; o id do project vale dentro do workspace e o do subject dentro do
@@ -35,8 +40,9 @@ import yaml
 
 from knowledge_os.config import ConnectionConfig
 from knowledge_os.exceptions import NotFoundError, ValidationError
+from knowledge_os.model import DEFAULT_SCOPE, SCOPES, segment_problem, short_repr
 from knowledge_os.services.git_repo_service import PublishResult
-from knowledge_os.services.item_file import id_problem, safe_join, slugify
+from knowledge_os.services.item_file import id_problem, load_yaml_text, safe_join, slugify
 from knowledge_os.storage import local_state
 from knowledge_os.storage.access import (
     folder_lock,
@@ -51,7 +57,6 @@ logger = logging.getLogger(__name__)
 
 META_FILE = ".knowledge.yaml"
 SECRETS_DIRNAME = ".secrets"  # pasta da conexão onde o valor cifrado mora (fora do git)
-DEFAULT_LABELS = ("official", "critical", "experimental", "deprecated", "reference")
 _LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 _RELATION_NS = uuid.UUID("5b0f7a8e-3c1d-4f6a-9e2b-7d4c8a1f0e93")
 _editing = threading.local()  # conexões cuja trava entre processos esta thread já tem
@@ -68,8 +73,8 @@ def relation_id(source_id: str, relation_type: str, target_id: str) -> str:
 
 
 def expires_at(record: ItemRecord) -> datetime | None:
-    """Vencimento de um ephemeral: `updated_at` + `ttl_days` (None nas outras classes)."""
-    if record.memory_class != "ephemeral" or not record.ttl_days:
+    """Vencimento: `updated_at` + `ttl_days`, em qualquer tipo (None sem `ttl_days`)."""
+    if not record.ttl_days:
         return None
     return record.updated_at + timedelta(days=int(record.ttl_days))
 
@@ -86,12 +91,16 @@ def is_published(result: PublishResult | None) -> bool:
 
 
 def check_name(name: str | None, what: str) -> str:
-    """Nome de workspace/project/subject: não vazio e com slug (vira nome de pasta)."""
+    """Nome de workspace/project/subject: não vazio e com slug (vira nome de pasta) que o
+    Windows guarda (sem ponto final nem nome reservado: `model.segment_problem`)."""
     name = (name or "").strip()
     if not name or len(name) > 255:
         raise ValidationError(f"Nome de {what} deve ter de 1 a 255 caracteres")
     if not slugify(name) or slugify(name).startswith((".", "_")):
-        raise ValidationError(f"Nome de {what} inválido: {name!r}")
+        raise ValidationError(f"Nome de {what} inválido: {short_repr(name)}")
+    problem = segment_problem(slugify(name), f"Nome de {what}")
+    if problem:
+        raise ValidationError(problem)
     return name
 
 
@@ -105,6 +114,7 @@ class Workspace:
     description: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    scope: str | None = None  # explícito no `.knowledge.yaml` (None: não define)
 
 
 @dataclass
@@ -115,6 +125,7 @@ class Project:
     description: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    scope: str | None = None
 
 
 @dataclass
@@ -126,15 +137,13 @@ class Subject:
     description: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    scope: str | None = None
 
 
 @dataclass
 class Tag:
     id: str
     name: str
-
-
-Label = Tag
 
 
 @dataclass
@@ -148,7 +157,8 @@ class Relation:
 
 @dataclass
 class Item:
-    """Item como os serviços o devolvem: o arquivo + ids, vencimento, uso e `has_value`."""
+    """Item como os serviços o devolvem: o arquivo + ids, scope efetivo, vencimento, uso e
+    `has_value`. `scope` é o explícito do item; `effective_scope`, o que vale (herdado)."""
 
     id: str
     key: str | None
@@ -159,19 +169,22 @@ class Item:
     project: str
     subject: str | None
     type: str
+    subtype: str | None
+    scope: str | None
+    effective_scope: str
     title: str
     summary: str
     content: str
     status: str
-    memory_class: str
     tags: list[str]
-    labels: list[str]
+    links: list[dict[str, str]]
     scope_paths: list[str]
-    confidence: int | None
-    importance: int | None
     ttl_days: int | None
     keywords: str | None
     source: str | None
+    origin: str
+    verified_at: datetime | None
+    verified_commit: str | None
     created_at: datetime
     updated_at: datetime
     expires_at: datetime | None
@@ -184,11 +197,29 @@ class Item:
 # --------------------------------------------------------------------------- leitura
 
 
-def _load_yaml(path: Path) -> dict[str, Any]:
+MAX_META_BYTES = 256 * 1024  # `.knowledge.yaml` maior que isso é ignorado (vai para `errors`)
+
+
+def _load_yaml(path: Path, errors: dict[str, str] | None = None,
+               rel: str | None = None) -> dict[str, Any]:
+    """Um `.knowledge.yaml`; inválido, grande demais ou com alias YAML vira `{}` (e o motivo
+    em `errors[rel]`), sem derrubar a leitura da pasta."""
+    reason: str | None = None
+    data: Any = None
     try:
-        data = yaml.load(path.read_text(encoding="utf-8"), Loader=_LOADER)  # noqa: S506
-    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
-        logger.warning("Ignorando %s inválido: %s", path, exc)
+        size = path.stat().st_size
+        if size > MAX_META_BYTES:
+            reason = f"arquivo grande demais ({size} bytes; máximo {MAX_META_BYTES})"
+        else:
+            data = load_yaml_text(path.read_text(encoding="utf-8"), ".knowledge.yaml")
+    except (OSError, UnicodeDecodeError, ValidationError) as exc:
+        reason = str(exc)[:300]
+    except (MemoryError, RecursionError) as exc:
+        reason = f"arquivo não pôde ser lido ({type(exc).__name__})"
+    if reason is not None:
+        logger.warning("Ignorando %s: %s", path, reason)
+        if errors is not None:
+            errors[rel or path.name] = reason
         return {}
     return data if isinstance(data, dict) else {}
 
@@ -203,18 +234,24 @@ def _visible_dirs(folder: Path) -> list[os.DirEntry[str]]:
         return []
 
 
-def read_metas(root: Path) -> dict[str, dict[str, Any]]:
-    """Todos os `.knowledge.yaml` (raiz, workspaces e projects), por path relativo."""
+def read_metas(root: Path, errors: dict[str, str] | None = None) -> dict[str, dict[str, Any]]:
+    """Todos os `.knowledge.yaml` (raiz, workspaces e projects), por path relativo.
+
+    O que não pôde ser lido entra como `{}` e, com `errors`, o motivo vai para
+    `errors[path relativo]` (o `health_check` mostra junto dos `.md` quebrados).
+    """
     metas: dict[str, dict[str, Any]] = {}
-    if (root / META_FILE).is_file():
-        metas[META_FILE] = _load_yaml(root / META_FILE)
+
+    def load(folder: Path, rel: str) -> None:
+        if (folder / META_FILE).is_file():
+            metas[rel] = _load_yaml(folder / META_FILE, errors, rel)
+
+    load(root, META_FILE)
     for ws in _visible_dirs(root):
         ws_path = Path(ws.path)
-        if (ws_path / META_FILE).is_file():
-            metas[f"{ws.name}/{META_FILE}"] = _load_yaml(ws_path / META_FILE)
+        load(ws_path, f"{ws.name}/{META_FILE}")
         for pj in _visible_dirs(ws_path):
-            if (Path(pj.path) / META_FILE).is_file():
-                metas[f"{ws.name}/{pj.name}/{META_FILE}"] = _load_yaml(Path(pj.path) / META_FILE)
+            load(Path(pj.path), f"{ws.name}/{pj.name}/{META_FILE}")
     return metas
 
 
@@ -228,13 +265,26 @@ def meta_location(ws_id: str | None = None, pj_id: str | None = None) -> str:
     return "/".join([*parts, META_FILE])
 
 
-def _subject_entries(raw: Any) -> list[tuple[str, str | None]]:
-    out: list[tuple[str, str | None]] = []
+def _scope_from(data: dict[str, Any], where: str) -> str | None:
+    """`scope` do `.knowledge.yaml`; valor fora de `SCOPES` é ignorado (com log)."""
+    value = data.get("scope")
+    if value is None:
+        return None
+    if value not in SCOPES:
+        logger.warning("Ignorando scope inválido %r em %s (válidos: %s)", value, where,
+                       ", ".join(SCOPES))
+        return None
+    return value
+
+
+def _subject_entries(raw: Any) -> list[tuple[str, str | None, str | None]]:
+    out: list[tuple[str, str | None, str | None]] = []
     for entry in raw or []:
         if isinstance(entry, str) and entry.strip():
-            out.append((entry.strip(), None))
+            out.append((entry.strip(), None, None))
         elif isinstance(entry, dict) and str(entry.get("name") or "").strip():
-            out.append((str(entry["name"]).strip(), entry.get("description")))
+            name = str(entry["name"]).strip()
+            out.append((name, entry.get("description"), _scope_from(entry, f"subject {name}")))
     return out
 
 
@@ -244,6 +294,7 @@ class _Node:
     name: str
     description: str | None = None
     named: bool = False  # nome vindo do `.knowledge.yaml` (vale sobre o dos itens)
+    scope: str | None = None  # explícito no `.knowledge.yaml`
     created_at: datetime | None = None
     updated_at: datetime | None = None
     children: dict[str, _Node] = field(default_factory=dict)
@@ -255,12 +306,13 @@ class _Node:
             self.updated_at = record.updated_at
 
 
-def _names_from_meta(node: _Node, data: dict[str, Any]) -> None:
+def _names_from_meta(node: _Node, data: dict[str, Any], where: str) -> None:
     name = str(data.get("name") or "").strip()
     if name:
         node.name, node.named = name, True
     if data.get("description") is not None:
         node.description = data.get("description")
+    node.scope = _scope_from(data, where)
 
 
 class Snapshot:
@@ -295,13 +347,14 @@ class Snapshot:
                 continue
             ws = tree.setdefault(parts[0], _Node(parts[0], parts[0]))
             if len(parts) == 1:
-                _names_from_meta(ws, data)
+                _names_from_meta(ws, data, rel)
                 continue
             pj = ws.children.setdefault(parts[1], _Node(parts[1], parts[1]))
-            _names_from_meta(pj, data)
-            for name, description in _subject_entries(data.get("subjects")):
+            _names_from_meta(pj, data, rel)
+            for name, description, sj_scope in _subject_entries(data.get("subjects")):
                 sj = pj.children.setdefault(slugify(name), _Node(slugify(name), name))
                 sj.named = True
+                sj.scope = sj_scope
                 if description is not None:
                     sj.description = description
         for record in sorted(self.records.values(), key=lambda r: (r.created_at, r.path)):
@@ -349,7 +402,8 @@ class Snapshot:
 
     @staticmethod
     def _workspace(node: _Node) -> Workspace:
-        return Workspace(node.id, node.name, node.description, node.created_at, node.updated_at)
+        return Workspace(node.id, node.name, node.description, node.created_at, node.updated_at,
+                         node.scope)
 
     def find_workspace(self, ref: str | None) -> Workspace | None:
         node = self._match(self.tree, ref)
@@ -372,7 +426,7 @@ class Snapshot:
     @staticmethod
     def _project(ws: _Node, node: _Node) -> Project:
         return Project(node.id, ws.id, node.name, node.description, node.created_at,
-                       node.updated_at)
+                       node.updated_at, node.scope)
 
     def projects(self, ws_ref: str) -> list[Project]:
         ws = self._ws_node(ws_ref)
@@ -401,7 +455,7 @@ class Snapshot:
     @staticmethod
     def _subject(ws: _Node, pj: _Node, node: _Node) -> Subject:
         return Subject(node.id, pj.id, ws.id, node.name, node.description, node.created_at,
-                       node.updated_at)
+                       node.updated_at, node.scope)
 
     def subjects(self, ws_ref: str, pj_ref: str) -> list[Subject]:
         ws = self._ws_node(ws_ref)
@@ -457,25 +511,50 @@ class Snapshot:
             }
         return self._keys.get((ws_id, pj_id, key))
 
-    # ------------------------------------------------------------------ tags e labels
+    def key_clash(self, ws_id: str, pj_id: str, key: str,
+                  exclude: str | None = None) -> ItemRecord | None:
+        """Outro item do project cuja key difere desta só pela caixa (`Rule/Money` x
+        `rule/money`): no Windows/macOS os dois seriam o mesmo arquivo."""
+        folded = key.casefold()
+        for r in self.records.values():
+            if (r.key and r.id != exclude and r.key != key and r.key.casefold() == folded
+                    and slugify(r.workspace or "") == ws_id
+                    and slugify(r.project or "") == pj_id):
+                return r
+        return None
 
-    def _root_names(self, kind: str) -> list[str]:
-        raw = self.metas.get(META_FILE, {}).get(kind) or []
-        return [str(n).strip() for n in raw if str(n).strip()]
+    # ------------------------------------------------------------------ scope
+
+    def effective_scope(self, record: ItemRecord) -> str:
+        """Scope que vale para o item: o primeiro explícito subindo item → subject → project
+        → workspace; nada explícito = `scoped`.
+
+        Exceção: `secret` nunca herda — vale só o `scope` do próprio item (padrão `scoped`).
+        Um workspace `global` não pode tornar global, sem ninguém pedir, cada segredo dele: o
+        `knowledge-mcp run` de outro cliente receberia o valor. Para usar um segredo fora do
+        project, o item declara `scope: workspace` ou `global`.
+        """
+        if record.scope:
+            return record.scope
+        if record.type == "secret":
+            return DEFAULT_SCOPE
+        ws = self.tree.get(slugify(record.workspace or ""))
+        pj = ws.children.get(slugify(record.project or "")) if ws else None
+        sj = pj.children.get(slugify(record.subject)) if (pj and record.subject) else None
+        for node in (sj, pj, ws):
+            if node is not None and node.scope:
+                return node.scope
+        return DEFAULT_SCOPE
+
+    # ------------------------------------------------------------------ tags
 
     def tags(self) -> list[Tag]:
-        names = set(self._root_names("tags"))
+        """Vocabulário (`tags` do `.knowledge.yaml` da raiz) + as tags usadas nos itens."""
+        raw = self.metas.get(META_FILE, {}).get("tags") or []
+        names = {str(n).strip() for n in raw if str(n).strip()}
         for r in self.records.values():
             names.update(r.tags or [])
         return [Tag(n, n) for n in sorted(names)]
-
-    def labels(self) -> list[Label]:
-        removed = set(self._root_names("labels_removed"))
-        names = {n for n in DEFAULT_LABELS if n not in removed}
-        names.update(self._root_names("labels"))
-        for r in self.records.values():
-            names.update(r.labels or [])
-        return [Label(n, n) for n in sorted(names)]
 
     # ------------------------------------------------------------------ relações
 
@@ -608,6 +687,28 @@ class Draft(Snapshot):
     def meta(self, rel: str) -> dict[str, Any]:
         return dict(self.metas.get(rel) or {})
 
+    # ------------------------------------------------------------------ scope
+
+    def keep_scopes(self) -> int:
+        """Grava como `scope` explícito o alcance que cada item tinha antes do rascunho, nos
+        itens sem scope próprio cujo scope efetivo mudaria (merge/delete que tira ou troca o
+        `.knowledge.yaml` de onde ele herdava). Ninguém muda de alcance sem pedir. Devolve
+        quantos itens ganharam scope explícito. `secret` não entra: nunca herda.
+        """
+        changed = []
+        for record_id, record in self.records.items():
+            old = self._base.records.get(record_id)
+            if old is None or record.scope or old.scope or record.type == "secret":
+                continue
+            before = self._base.effective_scope(old)
+            if self.effective_scope(record) != before:
+                changed.append((record_id, before))
+        for record_id, before in changed:
+            self.records[record_id] = dataclasses.replace(self.records[record_id], scope=before)
+        if changed:
+            self._invalidate()
+        return len(changed)
+
     # ------------------------------------------------------------------ resultado
 
     def files(self) -> dict[str, str | None]:
@@ -625,22 +726,27 @@ class Draft(Snapshot):
                 out[old.path] = None
                 for dup in self.duplicates.get(record_id, []):
                     out[dup] = None  # senão o item "volta" pelo arquivo duplicado
+        # Caminhos comparados sem caixa: no Windows/macOS `rule/money.md` e `Rule/Money.md` são
+        # o mesmo arquivo, e gravar um apagaria o outro.
         occupied = {
-            r.path: r.id for r in self.records.values()
+            r.path.casefold(): r.id for r in self.records.values()
             if base.get(r.id) is r and r.path
         }
         written: dict[str, str] = {}
+        written_folded: set[str] = set()
         for record_id, record in self.records.items():
             old = base.get(record_id)
             if old is record:
                 continue
             path, text = record_text(record)
-            other = occupied.get(path)
-            if path in written or (other is not None and other != record_id):
+            other = occupied.get(path.casefold())
+            if path.casefold() in written_folded or (other is not None and other != record_id):
                 raise ValidationError(
-                    f"Dois itens no mesmo arquivo ({path}): key repetida no project?"
+                    f"Dois itens no mesmo arquivo ({path}): key repetida no project (a caixa "
+                    "não diferencia)?"
                 )
             written[path] = text
+            written_folded.add(path.casefold())
             if old is not None and old.path and old.path != path:
                 out.setdefault(old.path, None)
             for dup in self.duplicates.get(record_id, []):
@@ -725,7 +831,9 @@ class Brain:
 
     def view(self, record: ItemRecord) -> Item:
         use = self.usage().get(record.id) or {}
-        last = use.get("last_used")
+        # Contadores novos (`opened`, `last_used_at`) ou o formato antigo (`uses`, `last_used`).
+        opened = use.get("opened", use.get("uses", 0))
+        last = use.get("last_used_at") or use.get("last_used")
         try:
             last_dt = datetime.fromisoformat(last.rstrip("Z")) if last else None
         except (TypeError, ValueError):
@@ -735,22 +843,29 @@ class Brain:
             workspace_id=slugify(record.workspace or ""), project_id=slugify(record.project or ""),
             subject_id=slugify(record.subject) if record.subject else None,
             workspace=record.workspace or "", project=record.project or "",
-            subject=record.subject, type=record.type, title=record.title,
-            summary=record.summary, content=record.content, status=record.status or "active",
-            memory_class=record.memory_class, tags=sorted(record.tags or []),
-            labels=sorted(record.labels or []), scope_paths=list(record.scope_paths or []),
-            confidence=record.confidence, importance=record.importance,
-            ttl_days=record.ttl_days, keywords=record.keywords, source=record.source,
+            subject=record.subject, type=record.type, subtype=record.subtype,
+            scope=record.scope, effective_scope=self.snapshot.effective_scope(record),
+            title=record.title, summary=record.summary, content=record.content,
+            status=record.status or "active", tags=sorted(record.tags or []),
+            links=[dict(lk) for lk in record.links or []],
+            scope_paths=list(record.scope_paths or []), ttl_days=record.ttl_days,
+            keywords=record.keywords, source=record.source, origin=record.origin,
+            verified_at=record.verified_at, verified_commit=record.verified_commit,
             created_at=record.created_at, updated_at=record.updated_at,
             expires_at=expires_at(record), path=record.path,
-            access_count=int(use.get("uses") or 0), last_accessed=last_dt,
+            access_count=opened if isinstance(opened, int) else 0, last_accessed=last_dt,
             has_value=record.type == "secret" and self.secret_path(record.id).is_file(),
         )
 
     def views(self, records: Iterable[ItemRecord]) -> list[Item]:
         return [self.view(r) for r in records]
 
-    def track(self, ids: Iterable[str]) -> None:
-        """Conta um uso de cada item (contador local; nunca derruba a operação)."""
-        local_state.track(self.cid, ids)
+    def count(self, ids: Iterable[str], field: str = "opened") -> None:
+        """Soma 1 ao sinal `field` (`local_state.COUNTERS`) de cada item; contador local,
+        nunca derruba a operação."""
+        local_state.count(self.cid, ids, field)
         self._usage = None
+
+    def track(self, ids: Iterable[str]) -> None:
+        """Conta uma abertura (`opened`) de cada item."""
+        self.count(ids, "opened")

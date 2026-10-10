@@ -30,6 +30,8 @@ ASSETS = [
     "js/shortcuts.js",
     "js/views/editor.js",
     "js/views/connections.js",
+    "js/views/subject.js",
+    "js/views/tags.js",
 ]
 
 
@@ -70,8 +72,8 @@ def test_sem_tailwind_e_sem_build_step():
     assert not (STATIC / "package.json").exists()
 
 
-CONN_OPEN = "<!-- Configurações · Conexões"
-CONN_CLOSE = "<!-- /Configurações · Conexões"
+CONN_OPEN = "<!-- Settings · Connections"
+CONN_CLOSE = "<!-- /Settings · Connections"
 
 
 def _static_files():
@@ -115,11 +117,11 @@ def test_view_de_conexoes_tem_as_acoes_pedidas():
     inside = html[html.index(CONN_OPEN) : html.index(CONN_CLOSE)]
     for needle in (
         "connectionsView",
-        "Testar",
-        "Salvar e testar",
-        "Definir como padrão",
-        "Zona de perigo",
-        "Padrão",
+        "'Test'",
+        "Save and test",
+        "Make default",
+        "Danger zone",
+        "$connbadges(",
     ):
         assert needle in inside, needle
     conn = _js("views/connections.js")
@@ -280,35 +282,34 @@ def test_fechar_modal_sujo_pede_confirmacao():
     assert html.count("close()") >= 3
 
 
-def test_mapa_de_tipos_cobre_todos_os_tipos_da_api():
-    from knowledge_os.schemas.item_schemas import ITEM_TYPES
+def test_mapa_de_tipos_cobre_os_tipos_e_subtipos_do_model():
+    from knowledge_os.model import TYPES
 
     util = _js("util.js")
     meta = util[util.index("export const TYPE_META") : util.index("export const TYPE_ORDER")]
-    for t in (*ITEM_TYPES, "secret"):
-        assert re.search(rf"\b{t}: {{ label: '[^']+' }}", meta), t
+    for t, subtypes in TYPES.items():
+        m = re.search(rf"\b{t}: {{ label: '[^']+', subtypes: \[([^\]]*)\] }}", meta)
+        assert m, t
+        assert re.findall(r"'(\w+)'", m.group(1)) == list(subtypes), t
     labels = dict(re.findall(r"(\w+): \{ label: '([^']+)'", meta))
-    assert labels["rule"] == "Rule" and labels["insight"] == "Decision"
-    assert labels["knowledge"] == "Learning"
-    assert "task" not in labels
+    assert set(labels) == set(TYPES)
+    assert labels["rule"] == "Rule" and labels["howto"] == "How-to"
     tokens = (STATIC / "css" / "tokens.css").read_text(encoding="utf-8")
-    for t in (*ITEM_TYPES, "secret"):
+    for t in TYPES:
         assert tokens.count(f"--t-{t}:") == 3, t  # claro, escuro (media) e escuro (data-theme)
+    for old in ("insight", "procedure", "pattern", "knowledge"):
+        assert f"--t-{old}:" not in tokens, old
 
 
 def test_ui_sem_vestigios_de_aprovacao():
-    banned = re.compile(
-        r"memory_class|memoryClass|MEMORY_CLASSES|confidence|importance|\bttl|ttl_days|\$conf|mc-",
-        re.I,
-    )
+    banned = re.compile(r"memory_class|memoryClass|MEMORY_CLASSES|confidence|importance|\$conf|mc-",
+                        re.I)
     files = [STATIC / "index.html", *(STATIC / "js").rglob("*.js"), STATIC / "css" / "app.css"]
     for f in files:
         if "vendor" in f.parts:
             continue
         for line in f.read_text(encoding="utf-8").splitlines():
-            if banned.search(line):
-                # único uso permitido: a UI cria itens sempre como longterm.
-                assert f.name == "editor.js" and "memory_class: 'longterm'" in line, (f.name, line)
+            assert not banned.search(line), (f.name, line)
 
 
 def test_tema_so_claro_e_escuro_com_dica_em_ingles():
@@ -347,15 +348,7 @@ def test_listas_sao_planas_com_filtros_e_busca():
     util = _js("util.js")
     block = re.search(r"export const TYPE_META = \{(.*?)\n\};", util, re.S).group(1)
     keys = re.findall(r"^  (\w+): \{", block, re.M)
-    assert keys[:7] == [
-        "rule",
-        "insight",
-        "procedure",
-        "pattern",
-        "knowledge",
-        "context",
-        "spec",
-    ]
+    assert keys == ["rule", "howto", "context", "spec", "secret"]
     assert "task" not in keys
 
 
@@ -752,9 +745,13 @@ def test_linhas_de_item_nao_usam_icone_de_tipo():
     rows = re.findall(r'<a class="item-row".*?</a>', html, re.S)
     assert rows
     for row in rows:
-        assert "<svg" not in row
-        assert row.count('class="tbadge"') == 1
-    assert "icon:" not in (STATIC / "js" / "util.js").read_text(encoding="utf-8")
+        # os únicos ícones da linha são os do badge (alerta, scope) e o da origem, todos
+        # vindos do gerador: o tipo é bolinha + texto, nunca ícone
+        assert row.count('x-for="b in $badges(it, { context: contextScope })"') == 1
+        assert "<use href=" not in row
+    util = (STATIC / "js" / "util.js").read_text(encoding="utf-8")
+    type_badge = next(line for line in util.splitlines() if "key: 'type'" in line)
+    assert "dot: true" in type_badge and "icon" not in type_badge
 
 
 def _sidebar() -> str:

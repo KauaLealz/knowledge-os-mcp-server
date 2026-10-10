@@ -50,8 +50,10 @@ def test_ui_sobe_com_default_inacessivel(down_default, monkeypatch):
 
 
 def test_health_check_conta_o_problema_sem_derrubar(down_default):
-    report = main_mod.check_connection()
-    assert report["status"] == "error" and report["connection"] is None
+    from knowledge_os.mcp import tools
+
+    report = tools.health_check()
+    assert report["status"] == "error" and report["connections"] == []
     assert "pg" in report["message"] and "review_mode" in report["message"]
 
 

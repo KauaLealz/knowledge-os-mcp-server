@@ -11,8 +11,7 @@ import pytest  # noqa: E402
 
 import knowledge_os.config as config  # noqa: E402
 from knowledge_os.config import ConfigManager, ConnectionConfig, ConnectionsFile  # noqa: E402
-from knowledge_os.services.brain import Item, Project, Workspace  # noqa: E402
-from knowledge_os.services.item_service import ItemService  # noqa: E402
+from knowledge_os.services.brain import Project, Workspace  # noqa: E402
 from knowledge_os.services.project_service import ProjectService  # noqa: E402
 from knowledge_os.services.workspace_service import WorkspaceService  # noqa: E402
 
@@ -66,17 +65,3 @@ def sample_workspace(conn) -> Workspace:
 def sample_project(sample_workspace: Workspace) -> Project:
     return ProjectService().create(sample_workspace.id, "TestProject", "Project para testes")
 
-
-@pytest.fixture
-def sample_item(sample_workspace: Workspace, sample_project: Project) -> Item:
-    return ItemService().create(
-        workspace_id=sample_workspace.id,
-        project_id=sample_project.id,
-        type="knowledge",
-        memory_class="longterm",
-        title="Test Item",
-        summary="Test summary about ConditionalOnProperty",
-        content="Test content with keywords about Spring beans and conditional logic",
-        confidence=90,
-        importance=5,
-    )

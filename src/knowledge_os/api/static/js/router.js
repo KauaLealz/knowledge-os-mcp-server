@@ -1,5 +1,5 @@
 // Router por hash: #/c/:conn/w/:ws/p/:pj/i/:item[/edit], #/c/:conn/w/:ws/p/:pj/s/:subj,
-// #/c/:conn/w/:ws[/p/:pj[/s/:subj]]/graph e #/settings/connections[/:id].
+// #/c/:conn/w/:ws[/p/:pj[/s/:subj]]/graph, #/c/:conn/tags e #/settings/connections[/:id].
 
 const enc = encodeURIComponent;
 
@@ -21,6 +21,8 @@ export function parseHash(hash = location.hash) {
   if (seg[0] !== 'c' || !seg[1]) return { name: 'notfound', params: {} };
   const params = { conn: seg[1] };
   if (seg.length === 2) return { name: 'connection', params };
+  // Tags gerenciadas: valem para a conexão inteira (não são de um workspace).
+  if (seg[2] === 'tags' && seg.length === 3) return { name: 'tags', params };
   if (seg[2] !== 'w' || !seg[3]) return { name: 'notfound', params };
   params.ws = seg[3];
   if (seg.length === 4) return { name: 'workspace', params };
@@ -56,6 +58,7 @@ export const hrefs = {
   subjectGraph: (c, w, p, s) => `#/c/${enc(c)}/w/${enc(w)}/p/${enc(p)}/s/${enc(s)}/graph`,
   item: (c, w, p, i) => `#/c/${enc(c)}/w/${enc(w)}/p/${enc(p)}/i/${enc(i)}`,
   edit: (c, w, p, i) => `#/c/${enc(c)}/w/${enc(w)}/p/${enc(p)}/i/${enc(i)}/edit`,
+  tags: (c) => `#/c/${enc(c)}/tags`,
   connections: (sub) => `#/settings/connections${sub ? '/' + enc(sub) : ''}`,
 };
 

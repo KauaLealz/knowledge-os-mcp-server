@@ -8,7 +8,7 @@ export function setConnection(id) {
 
 export class ApiError extends Error {
   constructor(status, detail) {
-    super(formatDetail(detail) || `Erro ${status}`);
+    super(formatDetail(detail) || `Error ${status}`);
     this.status = status;
     this.detail = detail;
   }

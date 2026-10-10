@@ -1,7 +1,8 @@
 """Ponto de entrada do `knowledge-mcp`.
 
-Os subcomandos do segundo cérebro (`context`, `recent`, `pending`, `link`) rodam sem carregar
-o fastmcp: o hook de início de sessão chama `context` em toda sessão e precisa ser rápido.
+Os subcomandos do segundo cérebro (`context`, `recent`, `report`, `pending`, `link`, `run`)
+rodam sem carregar o fastmcp: o hook de início de sessão chama `context` em toda sessão e
+precisa ser rápido.
 O resto (servidor MCP via stdio e `ui`) delega ao `knowledge_os.main`.
 """
 
@@ -15,12 +16,16 @@ from pathlib import Path
 from typing import Any
 
 from knowledge_os import __version__
-from knowledge_os.exceptions import NoConnectionError
+from knowledge_os.exceptions import NoConnectionError, ValidationError
 
-BRAIN_COMMANDS = ("context", "recent", "pending", "link", "run")
+BRAIN_COMMANDS = ("context", "recent", "report", "pending", "link", "run")
 PENDING_NAME = "pending.jsonl"  # no home do cérebro, fora de qualquer repositório
 LEGACY_PENDING = Path(".plumb") / "pending-brain.jsonl"  # versões antigas do Plumb
 HOOK_BUDGET = 1200
+# `report`: limites do relatório para o plumb-dream.
+REPORT_NEVER_OPENED_DAYS = 60
+REPORT_REVIEW_DAYS = 7
+REPORT_IRRELEVANT_MIN = 3
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -40,6 +45,9 @@ def _parser() -> argparse.ArgumentParser:
     rec.add_argument("--until", help="AAAA-MM-DD ou ISO (padrão: agora)")
     rec.add_argument("--json", action="store_true", help="saída em JSON")
 
+    rep = sub.add_parser("report", help="o que revisar no cérebro (para o plumb-dream)")
+    rep.add_argument("--json", action="store_true", help="saída em JSON")
+
     pen = sub.add_parser("pending", help="grava a fila offline (<home>/pending.jsonl)")
     pen.add_argument("--repo", default=".", help="pasta do projeto (padrão: atual)")
 
@@ -51,11 +59,11 @@ def _parser() -> argparse.ArgumentParser:
 
     run = sub.add_parser(
         "run", help="roda um comando com segredos do cérebro, sem shell, com a saída redigida",
-        description="Ex.: knowledge-mcp run --env NPM_TOKEN=segredo/npm-token -- npm publish",
+        description="Ex.: knowledge-mcp run --env NPM_TOKEN=secret/npm-token -- npm publish",
     )
-    run.add_argument("--env", action="append", default=[], metavar="VAR=segredo/<nome>",
+    run.add_argument("--env", action="append", default=[], metavar="VAR=secret/<nome>",
                      help="variável de ambiente do comando com o valor do segredo (repetível)")
-    run.add_argument("--stdin", metavar="segredo/<nome>",
+    run.add_argument("--stdin", metavar="secret/<nome>",
                      help="entrega o valor no stdin (ex.: docker login --password-stdin)")
     run.add_argument("--repo", default=".", help="pasta do projeto (padrão: atual)")
     run.add_argument("cmd", nargs=argparse.REMAINDER, help="-- comando e argumentos")
@@ -130,7 +138,8 @@ def _flush_file(path: Path, repo: Path) -> tuple[int, str | None]:
 
     A fila é tomada por rename antes de ler: duas sessões abrindo juntas não processam as
     mesmas linhas, e o que o agente acrescentar depois cai num arquivo novo. Entradas sem
-    `repo` vão para o projeto da sessão. O que falhar volta para a fila.
+    `repo` vão para o projeto da sessão. O que falhar por git/disco volta para a fila; a
+    entrada que o item_save recusa (validação) vai para `pending.rejected.jsonl` e sai dela.
     """
     claimed_files, errors = _claimed_files(path)
     saved = 0
@@ -164,7 +173,7 @@ def _rewrite_claimed(claimed: Path, lines: list[str], read_size: int) -> int:
 
 
 def _flush_claimed(claimed: Path, queue: Path, repo: Path) -> tuple[int, str | None]:
-    from knowledge_os.services.item_service import ItemService
+    from knowledge_os.services.item_service import MAX_BATCH, ItemService
     from knowledge_os.services.repo_service import RepoService
 
     raw = claimed.read_bytes()
@@ -187,25 +196,65 @@ def _flush_claimed(claimed: Path, queue: Path, repo: Path) -> tuple[int, str | N
     if invalid:
         read_size = _rewrite_claimed(claimed, [ln for v in pending.values() for ln in v],
                                      read_size)
+    rejected = 0
     for proj, items in groups.items():
-        entries = [e for e, _ in items]
-        try:
-            link = RepoService().resolve(proj)
-            default = (link["workspace"], link["project"]) if link else None
-            ItemService().save(entries, default_location=default)
-            saved += len(entries)
-        except Exception as exc:  # noqa: BLE001 - a fila fica para a próxima tentativa
-            errors.append(f"{type(exc).__name__}: {exc}")
-            _requeue(queue, [json.dumps({**e, "repo": proj}, ensure_ascii=False)
-                             for e in entries])
+        # O item_save v2 grava até MAX_BATCH por lote: a fila vai em lotes, cada um atômico.
+        for start in range(0, len(items), MAX_BATCH):
+            chunk = items[start:start + MAX_BATCH]
+            entries = [e for e, _ in chunk]
+            try:
+                link = RepoService().resolve(proj)
+                default = (link["workspace"], link["project"]) if link else None
+                try:
+                    ItemService().save(entries, default_location=default)
+                    saved += len(entries)
+                except ValidationError:
+                    # Uma entrada inválida (ex.: formato antigo) desfaz o lote inteiro: regrava
+                    # uma por uma, e a inválida sai da fila (senão envenena toda sessão).
+                    n, bad = _save_one_by_one(entries, default, queue, proj)
+                    saved, rejected = saved + n, rejected + bad
+            except Exception as exc:  # noqa: BLE001 - a fila fica para a próxima tentativa
+                errors.append(f"{type(exc).__name__}: {exc}")
+                _requeue(queue, [json.dumps({**e, "repo": proj}, ensure_ascii=False)
+                                 for e in entries])
+            pending[proj] = pending[proj][len(chunk):]
+            read_size = _rewrite_claimed(claimed, [ln for v in pending.values() for ln in v],
+                                         read_size)
         del pending[proj]
-        read_size = _rewrite_claimed(claimed, [ln for v in pending.values() for ln in v],
-                                     read_size)
     late = claimed.read_bytes()[read_size:]  # acrescentado ao arquivo tomado após a leitura
     if late:
         _requeue(queue, late.decode("utf-8").splitlines())
     claimed.unlink(missing_ok=True)
+    if rejected:
+        errors.append(f"{rejected} entrada(s) inválida(s) saíram da fila e estão em "
+                      f"{_rejected_file(queue)} (com o erro de cada uma)")
     return saved, "; ".join(errors) or None
+
+
+def _rejected_file(queue: Path) -> Path:
+    """`pending.rejected.jsonl` ao lado da fila: as entradas que o item_save recusou."""
+    return queue.with_name(f"{queue.stem}.rejected.jsonl")
+
+
+def _save_one_by_one(entries: list[dict[str, Any]], default: tuple[str, str] | None,
+                     queue: Path, proj: str) -> tuple[int, int]:
+    """Grava cada entrada sozinha: as boas gravam; a que o item_save recusa (validação) vai
+    para `pending.rejected.jsonl` como `{entry, error}` e sai da fila; outra falha (git, disco)
+    devolve a entrada à fila. Devolve (gravadas, rejeitadas)."""
+    from knowledge_os.services.item_service import ItemService
+
+    saved = rejected = 0
+    for entry in entries:
+        try:
+            ItemService().save([entry], default_location=default)
+            saved += 1
+        except ValidationError as exc:
+            row = {"entry": {**entry, "repo": proj}, "error": str(exc)}
+            _requeue(_rejected_file(queue), [json.dumps(row, ensure_ascii=False)])
+            rejected += 1
+        except Exception:  # noqa: BLE001 - fica para a próxima tentativa
+            _requeue(queue, [json.dumps({**entry, "repo": proj}, ensure_ascii=False)])
+    return saved, rejected
 
 
 def _flush_pending(repo: Path) -> tuple[int, str | None]:
@@ -267,7 +316,7 @@ def _context(args: argparse.Namespace) -> int:
         if flushed:
             text += f"\n\n_{flushed} item(ns) da fila offline gravados._"
         if flush_error:
-            text += (f"\n\n_Fila offline não gravada ({flush_error}); "
+            text += (f"\n\n_Fila offline com problema ({flush_error}); o que não gravou "
                      f"continua em {_pending_file()}._")
     except NoConnectionError as exc:
         if args.hook and not _is_project(repo.resolve()):
@@ -317,8 +366,8 @@ def _recent(args: argparse.Namespace) -> int:
         {
             "action": "created" if r.created_at >= since_utc else "updated",
             "workspace": r.workspace, "project": r.project, "key": r.key, "type": r.type,
-            "memory_class": r.memory_class, "title": r.title, "summary": r.summary,
-            "source": r.source, "status": r.status,
+            "subtype": r.subtype, "title": r.title, "summary": r.summary,
+            "source": r.source, "status": r.status, "origin": r.origin,
         }
         for r in records
     ]
@@ -329,8 +378,88 @@ def _recent(args: argparse.Namespace) -> int:
     else:
         for d in data:
             src = f" [{d['source']}]" if d["source"] else ""
-            print(f"- {d['action']} · {d['workspace']}/{d['project']} · {d['type']} · "
+            kind = f"{d['type']}/{d['subtype']}" if d["subtype"] else d["type"]
+            print(f"- {d['action']} · {d['workspace']}/{d['project']} · {kind} · "
                   f"{d['title']} — {d['summary']}{src}")
+    return 0
+
+
+def report_data(connection_id: str | None = None) -> dict[str, list[dict[str, Any]]]:
+    """O relatório para o plumb-dream (V2_MVP.md §10), da conexão inteira.
+
+    `never_opened_60d` (criado há mais de 60 dias e nunca aberto), `review_over_7d` (em
+    `review` sem mudança há mais de 7 dias), `high_irrelevant` (`irrelevant` ≥ 3 e maior que
+    `helped`) — cada um `{key, id, where, reason}`, sem arquivados —, `empty_searches`
+    (`[{query, count}]`) e `tags_unused` (`[{name, reason}]`, tags do vocabulário sem item).
+    """
+    from knowledge_os.services import scope as scope_mod
+    from knowledge_os.services.brain import Brain, utcnow
+    from knowledge_os.services.tag_service import TagService
+    from knowledge_os.storage import local_state
+
+    brain = Brain(connection_id)
+    usage = brain.usage()
+    now = utcnow()
+    out: dict[str, list[dict[str, Any]]] = {
+        "never_opened_60d": [], "review_over_7d": [], "high_irrelevant": []}
+
+    def row(record: Any, reason: str) -> dict[str, Any]:
+        return {"key": record.key, "id": record.id, "where": scope_mod.where(record),
+                "reason": reason}
+
+    for r in sorted(brain.snapshot.records.values(), key=lambda r: (r.key or "", r.path)):
+        if r.status == "archived":
+            continue
+        use = usage.get(r.id) or {}
+        opened = int(use.get("opened") or 0)
+        if r.created_at <= now - timedelta(days=REPORT_NEVER_OPENED_DAYS) and opened == 0:
+            out["never_opened_60d"].append(
+                row(r, f"criado em {r.created_at:%Y-%m-%d} e nunca aberto"))
+        if r.status == "review" and r.updated_at <= now - timedelta(days=REPORT_REVIEW_DAYS):
+            out["review_over_7d"].append(
+                row(r, f"em review desde {r.updated_at:%Y-%m-%d}"))
+        irrelevant, helped = int(use.get("irrelevant") or 0), int(use.get("helped") or 0)
+        if irrelevant >= REPORT_IRRELEVANT_MIN and irrelevant > helped:
+            out["high_irrelevant"].append(
+                row(r, f"irrelevant {irrelevant} × helped {helped}"))
+    searches = [{"query": s["query"], "count": s["count"]}
+                for s in local_state.empty_searches(brain.cid)]
+    tags = [{"name": t["name"], "reason": "nenhum item usa"}
+            for t in TagService(brain.cid).list() if t["count"] == 0]
+    return {**out, "empty_searches": searches, "tags_unused": tags}
+
+
+_REPORT_TITLES = (
+    ("never_opened_60d", "Nunca abertos (criados há mais de 60 dias)"),
+    ("review_over_7d", "Em review há mais de 7 dias"),
+    ("high_irrelevant", "Alta taxa de irrelevante"),
+    ("empty_searches", "Buscas que voltaram vazias"),
+    ("tags_unused", "Tags sem uso"),
+)
+
+
+def _report(args: argparse.Namespace) -> int:
+    _init()
+    data = report_data()
+    if args.json:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return 0
+    if not any(data.values()):
+        print("Nada a revisar no segundo cérebro.")
+        return 0
+    for name, title in _REPORT_TITLES:
+        rows = data[name]
+        if not rows:
+            continue
+        print(f"## {title} ({len(rows)})")
+        for r in rows:
+            if name == "empty_searches":
+                print(f"- \"{r['query']}\" × {r['count']}")
+            elif name == "tags_unused":
+                print(f"- {r['name']} — {r['reason']}")
+            else:
+                print(f"- {r['key'] or r['id']} ({r['where']}) — {r['reason']}")
+        print()
     return 0
 
 
@@ -338,7 +467,7 @@ def _pending(args: argparse.Namespace) -> int:
     _init()
     count, error = _flush_pending(Path(args.repo).resolve())
     if error:
-        print(f"Fila não gravada: {error}", file=sys.stderr)
+        print(f"Fila offline com problema: {error}", file=sys.stderr)
         return 1
     print(f"{count} item(ns) gravados" if count else "Fila vazia")
     return 0
@@ -361,11 +490,11 @@ def _run(args: argparse.Namespace) -> int:
     for spec in args.env:
         var, sep, key = spec.partition("=")
         if not sep or not var or not key:
-            print(f"Erro: --env espera VAR=segredo/<nome>, recebi {spec!r}", file=sys.stderr)
+            print(f"Erro: --env espera VAR=secret/<nome>, recebi {spec!r}", file=sys.stderr)
             return 1
         pairs.append((var, key))
     if not pairs and not args.stdin:
-        print("Erro: informe --env VAR=segredo/<nome> ou --stdin segredo/<nome>", file=sys.stderr)
+        print("Erro: informe --env VAR=secret/<nome> ou --stdin secret/<nome>", file=sys.stderr)
         return 1
     _init()
     from knowledge_os.services.secret_run import run
@@ -391,7 +520,7 @@ def main(argv: list[str] | None = None) -> int:
             stream.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
     args = _parser().parse_args(argv)
     try:
-        return {"context": _context, "recent": _recent, "pending": _pending,
+        return {"context": _context, "recent": _recent, "report": _report, "pending": _pending,
                 "link": _link, "run": _run}[args.command](args)
     except Exception as exc:  # noqa: BLE001
         print(f"Erro: {exc}", file=sys.stderr)

@@ -1,4 +1,5 @@
-// Página de item em modo leitura: selo de tipo, Markdown, TOC, relações, prev/next.
+// Página de item em modo leitura: tipo · subtipo, ⚠ revisão, scope (com o herdado indicado),
+// origem, links, Markdown, TOC, relações (do grafo do item, formato `item_graph`), prev/next.
 import { api } from '../api.js';
 import { renderTo } from '../markdown.js';
 import { go, hrefs } from '../router.js';
@@ -124,12 +125,12 @@ export function register(Alpine) {
       observer?.disconnect();
       try {
         const item = await api('GET', `/items/${id}`);
-        const rels = await api('GET', `/items/${id}/relations`).then(
+        const graph = await api('GET', `/items/${id}/graph`, { query: { depth: 1, limit: 100 } }).then(
           (value) => ({ status: 'fulfilled', value }),
           () => ({ status: 'rejected' }),
         );
         if (seq !== this.seq) return;
-        this.splitRelations(id, rels.status === 'fulfilled' ? rels.value : {});
+        this.splitRelations(item, graph.status === 'fulfilled' ? graph.value : { nodes: [], edges: [] });
         this.item = item;
         this.app.pushRecent(item);
         document.title = `${item.title} · Knowledge OS`;
@@ -144,14 +145,16 @@ export function register(Alpine) {
       }
     },
 
-    splitRelations(id, grouped) {
+    /** Grafo de 1 salto (`{nodes, edges: [{from, type, to}]}`, pontas por key ou id) em
+     * "References" (saem do item) e "Referenced by" (chegam nele). */
+    splitRelations(item, graph) {
+      const me = item.key || item.id;
+      const byRef = new Map((graph.nodes || []).map((n) => [n.key || n.id, n]));
       const out = [];
       const inc = [];
-      for (const [type, list] of Object.entries(grouped)) {
-        for (const rel of list) {
-          if (rel.source_item_id === id) out.push({ id: rel.id, type, other: rel.target_item_id });
-          else inc.push({ id: rel.id, type, other: rel.source_item_id });
-        }
+      for (const e of graph.edges || []) {
+        if (e.from === me && byRef.has(e.to)) out.push({ id: `${e.type}>${e.to}`, type: e.type, node: byRef.get(e.to) });
+        else if (e.to === me && byRef.has(e.from)) inc.push({ id: `${e.type}<${e.from}`, type: e.type, node: byRef.get(e.from) });
       }
       this.out = out;
       this.inc = inc;
@@ -186,7 +189,8 @@ export function register(Alpine) {
     goTo(id) {
       const el = document.getElementById(id);
       if (!el) return;
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      el.scrollIntoView({ behavior: still ? 'auto' : 'smooth', block: 'start' });
       this.active = id;
     },
 
@@ -215,13 +219,25 @@ export function register(Alpine) {
       const i = this.siblings.findIndex((s) => s.id === this.item?.id);
       return i >= 0 && i < this.siblings.length - 1 ? this.siblings[i + 1] : null;
     },
-    relTitle(id) {
-      return this.app.itemIndex[id]?.title || `${id.slice(0, 8)}…`;
+    relTitle(r) {
+      return r.node.title || `${r.node.id.slice(0, 8)}…`;
     },
-    relHref(id) {
-      return this.app.hItemById(id);
+    /** O nó do grafo não traz o project: usa o índice da sidebar quando já carregado; senão
+     * abre pelo project do item atual (relação no mesmo project é o caso comum). */
+    relHref(r) {
+      return this.app.hItemById(r.node.id) || hrefs.item(this.app.connId, this.app.route.params.ws, this.item.project_id, r.node.id);
     },
     fullDate: formatDate,
+    /** Avisa o item no servidor (`POST /items/{id}/feedback`): `verified` grava a data. */
+    async markVerified() {
+      try {
+        await api('POST', `/items/${this.item.id}/feedback`, { body: { outcome: 'verified' } });
+        this.item = await api('GET', `/items/${this.item.id}`);
+        this.app.toast('Marked as verified');
+      } catch (e) {
+        this.app.toast(e.message, 'error');
+      }
+    },
 
     // ---- ações ----
     applyUpdate(updated) {

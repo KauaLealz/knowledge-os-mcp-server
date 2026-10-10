@@ -10,7 +10,7 @@ from knowledge_os.services.workspace_service import WorkspaceService
 
 
 def _item(ws, pj, key="k", subject=None, **extra):
-    entry = {"workspace": ws, "project": pj, "key": key, "type": "knowledge", "title": "T",
+    entry = {"workspace": ws, "project": pj, "key": key, "type": "rule", "title": "T",
              "summary": "s", "content": "c", **extra}
     if subject:
         entry["subject"] = subject
@@ -52,29 +52,18 @@ class TestWorkspaceService:
         _item("Só Itens", "app")
         assert [w.name for w in WorkspaceService().list()] == ["Só Itens"]
 
-    def test_delete(self, sample_item, data_dir):
+    def test_delete(self, conn, data_dir):
+        _item("TestWorkspace", "TestProject")
         svc = WorkspaceService()
         assert svc.delete("TestWorkspace") is True
         assert svc.delete("TestWorkspace") is False
         assert not (data_dir / "testworkspace").exists()
         assert svc.list() == []
 
-    def test_export(self, sample_item):
-        data = WorkspaceService().export("TestWorkspace")
-        assert data["manifest"]["type"] == "workspace"
-        assert data["manifest"]["counts"] == {"projects": 1, "items": 1}
-        assert data["workspace_data"]["workspace"]["name"] == "TestWorkspace"
-        assert data["workspace_data"]["projects"][0]["name"] == "TestProject"
-        assert data["workspace_data"]["items"][0]["title"] == "Test Item"
-
-    def test_export_inexistente(self, conn):
-        with pytest.raises(NotFoundError):
-            WorkspaceService().export("nada")
-
-    def test_rename_move_a_pasta_e_regrava_os_itens(self, conn, data_dir):
+    def test_update_nome_move_a_pasta_e_regrava_os_itens(self, conn, data_dir):
         item_id = _item("alpha", "app", key="regra/x")
         svc = WorkspaceService()
-        renamed = svc.rename("alpha", "Beta")
+        renamed = svc.update("alpha", new_name="Beta")
         assert renamed.id == "beta" and renamed.name == "Beta"
         assert svc.get("beta").name == "Beta"
         with pytest.raises(NotFoundError):
@@ -84,28 +73,28 @@ class TestWorkspaceService:
         assert "workspace: Beta" in text
         assert ItemService().get(item_id).workspace_id == "beta"
 
-    def test_rename_so_da_caixa_mantem_a_pasta(self, conn, data_dir):
+    def test_update_nome_so_da_caixa_mantem_a_pasta(self, conn, data_dir):
         _item("alpha", "app")
-        WorkspaceService().rename("alpha", "Alpha")
+        WorkspaceService().update("alpha", new_name="Alpha")
         assert WorkspaceService().get("alpha").name == "Alpha"
         assert (data_dir / "alpha" / "app" / "k.md").is_file()
 
-    def test_rename_colisao(self, conn):
+    def test_update_nome_colisao(self, conn):
         svc = WorkspaceService()
         svc.create("alpha", None)
         svc.create("beta", None)
         with pytest.raises(ValidationError):
-            svc.rename("alpha", "beta")
+            svc.update("alpha", new_name="beta")
 
-    def test_rename_inexistente(self, conn):
+    def test_update_nome_inexistente(self, conn):
         with pytest.raises(NotFoundError):
-            WorkspaceService().rename("nada", "outro")
+            WorkspaceService().update("nada", new_name="outro")
 
-    def test_rename_leva_as_ligacoes_de_repositorio(self, conn):
+    def test_update_nome_leva_as_ligacoes_de_repositorio(self, conn):
         from knowledge_os.services.repo_service import RepoService
 
         RepoService().link("github.com/o/r", "alpha", "app")
-        WorkspaceService().rename("alpha", "Beta")
+        WorkspaceService().update("alpha", new_name="Beta")
         assert RepoService().resolve("github.com/o/r")["workspace"] == "Beta"
 
     def test_merge_sem_colisao(self, conn):
@@ -114,7 +103,8 @@ class TestWorkspaceService:
         svc.create("tgt", None)
         ProjectService().create("src", "p1", None)
         result = svc.merge("src", "tgt")
-        assert result == {"merged_projects": 1, "renamed_collisions": 0}
+        assert result == {"merged_projects": 1, "renamed_collisions": 0,
+                          "scope_changes": {"items": 0}}
         assert [p.name for p in ProjectService().list("tgt")] == ["p1"]
         with pytest.raises(NotFoundError):
             svc.get("src")
@@ -127,7 +117,8 @@ class TestWorkspaceService:
         item_id = _item("src", "shared")
 
         result = svc.merge("src", "tgt")
-        assert result == {"merged_projects": 1, "renamed_collisions": 1}
+        assert result == {"merged_projects": 1, "renamed_collisions": 1,
+                          "scope_changes": {"items": 0}}
         assert [p.name for p in ProjectService().list("tgt")] == ["shared"]
         moved = ItemService().get(item_id)
         assert (moved.workspace_id, moved.project_id) == ("tgt", "shared")
@@ -160,39 +151,36 @@ class TestProjectService:
         with pytest.raises(NotFoundError):
             ProjectService().get(sample_workspace.id, "nada")
 
-    def test_delete(self, sample_item, data_dir):
+    def test_delete(self, sample_workspace, data_dir):
+        _item("TestWorkspace", "TestProject")
         svc = ProjectService()
-        wid = sample_item.workspace_id
+        wid = "testworkspace"
         assert svc.delete(wid, "TestProject") is True
         assert svc.delete(wid, "TestProject") is False
         assert not (data_dir / "testworkspace" / "testproject").exists()
 
-    def test_export(self, sample_item):
-        data = ProjectService().export(sample_item.workspace_id, "TestProject")
-        assert data["project_data"]["project"]["name"] == "TestProject"
-        assert data["project_data"]["items"][0]["title"] == "Test Item"
-
-    def test_rename(self, sample_workspace):
+    def test_update_nome(self, sample_workspace):
         svc = ProjectService()
         svc.create(sample_workspace.id, "d1", None)
-        renamed = svc.rename(sample_workspace.id, "d1", "d2")
+        renamed = svc.update(sample_workspace.id, "d1", new_name="d2")
         assert renamed.id == "d2" and renamed.name == "d2"
         assert svc.get(sample_workspace.id, "d2").name == "d2"
         with pytest.raises(NotFoundError):
             svc.get(sample_workspace.id, "d1")
 
-    def test_rename_colisao(self, sample_workspace):
+    def test_update_nome_colisao(self, sample_workspace):
         svc = ProjectService()
         svc.create(sample_workspace.id, "d1", None)
         svc.create(sample_workspace.id, "d2", None)
         with pytest.raises(ValidationError):
-            svc.rename(sample_workspace.id, "d1", "d2")
+            svc.update(sample_workspace.id, "d1", new_name="d2")
 
     def test_merge_sem_colisao(self, conn):
         item_id = _item("W", "src")
         ProjectService().create("w", "tgt", None)
         result = ProjectService().merge("w", "src", "tgt")
-        assert result == {"merged_items": 1, "merged_subjects": 0}
+        assert result == {"merged_items": 1, "merged_subjects": 0,
+                          "scope_changes": {"items": 0}}
         assert ItemService().get(item_id).project_id == "tgt"
         with pytest.raises(NotFoundError):
             ProjectService().get("w", "src")
@@ -203,7 +191,8 @@ class TestProjectService:
         SubjectService().create("w", "src", "only-in-src", None)
 
         result = ProjectService().merge("w", "src", "tgt")
-        assert result == {"merged_items": 1, "merged_subjects": 1}
+        assert result == {"merged_items": 1, "merged_subjects": 1,
+                          "scope_changes": {"items": 0}}
         assert ItemService().get(item_id).subject_id == "shared"
         assert SubjectService().get("w", "tgt", "only-in-src").name == "only-in-src"
 
@@ -260,26 +249,27 @@ class TestSubjectService:
         item = ItemService().get(item_id)  # o item continua existindo
         assert item.subject_id is None  # só desvinculado
 
-    def test_rename(self, conn):
+    def test_update_nome(self, conn):
         item_id = _item("W", "D", subject="s1")
         svc = SubjectService()
-        renamed = svc.rename("w", "d", "s1", "s2")
+        renamed = svc.update("w", "d", "s1", new_name="s2")
         assert renamed.id == "s2" and renamed.name == "s2"
         assert ItemService().get(item_id).subject == "s2"
 
-    def test_rename_colisao(self, sample_project):
+    def test_update_nome_colisao(self, sample_project):
         svc = SubjectService()
         ws = sample_project.workspace_id
         svc.create(ws, sample_project.id, "s1", None)
         svc.create(ws, sample_project.id, "s2", None)
         with pytest.raises(ValidationError):
-            svc.rename(ws, sample_project.id, "s1", "s2")
+            svc.update(ws, sample_project.id, "s1", new_name="s2")
 
     def test_merge(self, conn):
         item_id = _item("W", "D", subject="src")
         SubjectService().create("w", "d", "tgt", None)
         result = SubjectService().merge("w", "d", "src", "tgt")
-        assert result == {"merged_items": 1}
+        assert result == {"merged_items": 1,
+                          "scope_changes": {"items": 0}}
         assert ItemService().get(item_id).subject == "tgt"
         with pytest.raises(NotFoundError):
             SubjectService().get("w", "d", "src")
