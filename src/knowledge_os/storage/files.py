@@ -39,8 +39,10 @@ MAX_ITEM_BYTES = 1 << 20  # 1 MiB: acima disso o `.md` vai para `errors` sem ser
 
 @dataclass
 class ItemRecord:
-    """Um item como está no arquivo (campos de `parse_item_file`, formato v2) + `path`
-    relativo à raiz. `scope` é o explícito do item (o efetivo é do `Snapshot`)."""
+    """Um item como está no arquivo (campos de `parse_item_file`, formato v6) + `path` relativo
+    à raiz. v6: sem subtype/scope/status/ttl/keywords/source/origin/verified/relations — a
+    nuance e o ciclo vão em `tags`, e `links` é unificado ({item, rel} | {url[, title]} |
+    {path}). O alcance vem de onde o item mora (workspace/project/subject), não de um campo."""
 
     id: str
     key: str | None
@@ -48,22 +50,11 @@ class ItemRecord:
     project: str | None
     subject: str | None
     type: str
-    subtype: str | None
-    scope: str | None
     title: str
-    status: str
     tags: list[str]
     links: list[dict[str, str]]
-    scope_paths: list[str]
-    ttl_days: int | None
-    keywords: str | None
-    source: str | None
-    origin: str
-    verified_at: datetime | None
-    verified_commit: str | None
     created_at: datetime
     updated_at: datetime
-    relations: list[dict[str, str]]
     summary: str
     content: str
     path: str = field(default="")
@@ -86,7 +77,7 @@ def record_text(record: ItemRecord) -> tuple[str, str]:
         workspace_name=record.workspace,
         project_name=record.project,
         subject_name=record.subject,
-        relations=list(record.relations or []),
+        links=list(record.links or []),
         tags=list(record.tags or []),
     )
     return rel, text

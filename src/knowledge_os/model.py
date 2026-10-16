@@ -1,14 +1,17 @@
-"""Modelo do segundo cérebro (v2): a taxonomia fechada e a validação de uma entrada de item.
+"""Modelo do segundo cérebro (v6): a taxonomia enxuta e a validação mínima de um item.
 
-Fonte única dos valores aceitos — tipos e subtipos, status, scope, origin, tipos de relação e
-de feedback — e das regras que dependem só deles. Puro: sem I/O e sem importar serviços, para
-que serviços, MCP, API e as instruções do MCP (`taxonomy_markdown`) leiam daqui sem ciclo.
+Fonte única dos valores aceitos — os 5 tipos, as tags de base (ciclo e nuance) e os tipos de
+link entre itens — e das regras de key/tag. Puro: sem I/O e sem importar serviços, para que
+serviços, MCP, API e as instruções do MCP (`taxonomy_markdown`) leiam daqui sem ciclo.
 
-- `validate_entry` normaliza e valida uma entrada do `item_save` e devolve os avisos (modelo do
-  `content` por subtipo, key fora do padrão). Valida os campos presentes: o que falta (numa
-  atualização parcial) não é cobrado aqui.
-- `translate_legacy` é o único ponto de compatibilidade com o formato antigo: o parser de
-  arquivo chama na leitura, e a regravação já sai em v2.
+Schema mínimo por decisão de design (v6):
+- Não há `subtype`, `scope`, `status`, `origin`, `ttl_days`, `keywords`, `source` nem feedback.
+  A nuance e o ciclo vivem em TAGS (não em campos); o alcance vem de onde o item mora na
+  hierarquia (workspace → project → subject), não de um campo.
+- O guia de COMO escrever cada tipo vive no harness, não aqui. `validate_entry` valida só o
+  essencial (type, key, title/summary, tags, links).
+- `links` é unificado: liga um item a outro item (`depends_on`/`relates_to`) ou a uma
+  referência externa (URL ou caminho/glob de arquivo).
 
 Erros de validação dizem como corrigir (os valores válidos).
 """
@@ -25,41 +28,22 @@ from knowledge_os.exceptions import ValidationError
 
 # --------------------------------------------------------------------------- taxonomia
 
-TYPES: dict[str, tuple[str, ...]] = {
-    "rule": ("code", "pattern", "security", "business", "process", "decision"),
-    "howto": ("procedure", "troubleshoot"),
-    "context": ("product", "map", "stack", "glossary", "environment"),
-    "spec": ("change", "setup", "dream"),
-    "secret": (),
-}
+TYPES: tuple[str, ...] = ("rule", "howto", "context", "work", "secret")
 
-STATUSES = ("active", "review", "archived")
-SPEC_STATUSES = ("draft", "done")  # só `spec`
-EXPIRED = "expired"  # derivado do ttl vencido, nunca gravado
-DEFAULT_STATUS = "active"
+# Tags de base (em inglês), semeadas no setup; o agente pode criar novas. O cérebro não força
+# nenhuma — são vocabulário sugerido. Ciclo marca o andamento (sobretudo de `work`); nuance é o
+# que antes era subtipo.
+LIFECYCLE_TAGS: tuple[str, ...] = ("draft", "active", "done", "archived")
+NUANCE_TAGS: tuple[str, ...] = ("decision", "troubleshoot", "security", "pattern", "map",
+                                "glossary", "product", "environment", "business", "process")
+BASE_TAGS: tuple[str, ...] = LIFECYCLE_TAGS + NUANCE_TAGS
 
-SCOPES = ("scoped", "workspace", "global")
-DEFAULT_SCOPE = "scoped"  # nada explícito na cadeia item → subject → project → workspace
-
-ORIGINS = ("user", "code", "agent")
-DEFAULT_ORIGIN = "agent"
-
-RELATION_TYPES = ("related_to", "depends_on", "implements", "references", "supersedes",
-                  "derived_from")
-OUTCOMES = ("helped", "irrelevant", "wrong", "outdated", "verified")
+# Link de um item para outro item.
+LINK_RELATIONS: tuple[str, ...] = ("depends_on", "relates_to")
 
 # Campos aceitos no `item_save` (os de local — workspace, project, subject — passam à parte).
-ITEM_FIELDS = ("key", "id", "type", "subtype", "scope", "title", "summary", "content", "status",
-               "tags", "links", "scope_paths", "ttl_days", "keywords", "source", "origin")
+ITEM_FIELDS = ("key", "id", "type", "title", "summary", "content", "tags", "links")
 LOCATION_FIELDS = ("workspace", "project", "subject")
-
-# Modelo do `content` por (tipo, subtipo): o que falta só vira aviso.
-CONTENT_MODEL: dict[tuple[str, str], tuple[str, ...]] = {
-    ("rule", "decision"): ("## Por quê", "## Alternativa descartada"),
-    ("rule", "pattern"): ("Arquivo-modelo:",),
-    ("howto", "troubleshoot"): ("## Sintoma", "## Causa", "## Solução"),
-}
-LINKS_REQUIRED = (("context", "environment"),)
 
 _KEY_NAME = r"[a-z0-9]+(?:-[a-z0-9]+)*"
 # Segmento de key que vira pasta: começa por letra ou número (nada de vazio, ".", ".." ou
@@ -150,24 +134,6 @@ def _fold(text: str) -> str:
     return "".join(c for c in normalized if not unicodedata.combining(c)).casefold()
 
 
-def content_warnings(item_type: str | None, subtype: str | None, content: str | None,
-                     links: list[dict[str, str]] | None = None) -> list[str]:
-    """Avisos do modelo do `content` por subtipo (nunca impedem a gravação)."""
-    if not item_type or not subtype:
-        return []
-    out: list[str] = []
-    expected = CONTENT_MODEL.get((item_type, subtype), ())
-    folded = _fold(content or "")
-    missing = [part for part in expected if _fold(part) not in folded]
-    if missing:
-        out.append(f"{item_type}/{subtype} sem {', '.join(repr(m) for m in missing)} no "
-                   "content: acrescente para seguir o modelo")
-    if (item_type, subtype) in LINKS_REQUIRED and not links:
-        out.append(f"{item_type}/{subtype} sem links: informe ao menos um em "
-                   "links=[{title, url}]")
-    return out
-
-
 def normalize_tag(name: Any) -> str:
     """Nome de tag em kebab-case minúsculo, sem acento; vazio é erro."""
     if not isinstance(name, str):
@@ -178,13 +144,6 @@ def normalize_tag(name: Any) -> str:
     return slug
 
 
-def statuses_for(item_type: str | None) -> tuple[str, ...]:
-    """Status gravável para o tipo (sem tipo: todos)."""
-    if item_type is None or item_type == "spec":
-        return STATUSES + SPEC_STATUSES
-    return STATUSES
-
-
 def _check_choice(name: str, value: Any, valid: tuple[str, ...]) -> str:
     if not isinstance(value, str) or value.strip().lower() not in valid:
         raise ValidationError(f"{name} inválido: {_short(value)}. Válidos: {_listing(valid)}")
@@ -192,34 +151,7 @@ def _check_choice(name: str, value: Any, valid: tuple[str, ...]) -> str:
 
 
 def _check_type(value: Any) -> str:
-    return _check_choice("type", value, tuple(TYPES))
-
-
-def _check_subtype(item_type: str | None, value: Any) -> str | None:
-    if value is None or value == "":
-        return None
-    if item_type == "secret":
-        raise ValidationError("secret não tem subtipo: remova subtype")
-    if item_type is None:
-        valid = tuple(s for subs in TYPES.values() for s in subs)
-        return _check_choice("subtype", value, valid)
-    valid = TYPES[item_type]
-    if not isinstance(value, str) or value.strip().lower() not in valid:
-        raise ValidationError(f"subtype inválido para {item_type}: {_short(value)}. "
-                              f"Válidos: {_listing(valid)}")
-    return value.strip().lower()
-
-
-def _check_status(item_type: str | None, value: Any) -> str:
-    valid = statuses_for(item_type)
-    if isinstance(value, str) and value.strip().lower() in valid:
-        return value.strip().lower()
-    hint = ""
-    if isinstance(value, str) and value.strip().lower() in SPEC_STATUSES:
-        hint = f" ({value} só em spec)"
-    elif value == EXPIRED:
-        hint = " (expired é derivado do ttl_days, nunca gravado)"
-    raise ValidationError(f"status inválido: {_short(value)}{hint}. Válidos: {_listing(valid)}")
+    return _check_choice("type", value, TYPES)
 
 
 def _check_text(name: str, value: Any, *, required: bool) -> str | None:
@@ -242,70 +174,94 @@ def _check_str_list(name: str, value: Any) -> list[str]:
     return [v.strip() for v in value if v.strip()]
 
 
+# --------------------------------------------------------------------------- links
+
 LINK_SCHEMES = ("http", "https", "mailto")
 
-# Limites de `scope_paths`: cada padrão vira um casamento de glob a cada busca com `paths`.
-MAX_SCOPE_PATHS = 20
-MAX_SCOPE_PATH_CHARS = 200
-MAX_SCOPE_PATH_WILDCARDS = 8
+# Limites de um link de caminho/glob: cada padrão vira um casamento de glob a cada busca.
+MAX_LINKS = 50
+MAX_PATH_CHARS = 200
+MAX_PATH_WILDCARDS = 8
 
 
 def check_links(value: Any) -> list[dict[str, str]]:
-    """`links` = `[{title, url}]`; sem `title`, vale a própria url. Só `LINK_SCHEMES`: um
-    `javascript:` ou `data:` viraria código ao ser clicado na UI; `file:` aponta para fora."""
+    """`links` unificado — cada entrada liga o item a UMA coisa:
+
+    - a outro item:        {"item": "<key>", "rel": "depends_on" | "relates_to"}
+    - a uma URL externa:   {"url": "http(s)/mailto://...", "title"?: "..."}
+    - a um arquivo/glob:   {"path": "src/payments/**"}  (o que o `scope_paths` fazia)
+
+    `javascript:`/`data:`/`file:` em `url` viram código ou apontam para fora: só `LINK_SCHEMES`.
+    """
     if value is None:
         return []
     if not isinstance(value, list):
-        raise ValidationError(f"links deve ser lista de {{title, url}}: {_short(value)}")
+        raise ValidationError(
+            "links deve ser lista de {item, rel} | {url[, title]} | {path}: " + _short(value))
+    if len(value) > MAX_LINKS:
+        raise ValidationError(f"links: no máximo {MAX_LINKS} por item (recebi {len(value)})")
     out: list[dict[str, str]] = []
     for link in value:
-        url = link.get("url") if isinstance(link, dict) else None
-        title = link.get("title") if isinstance(link, dict) else None
-        if not isinstance(url, str) or not url.strip() or (
-                title is not None and not isinstance(title, str)):
+        if not isinstance(link, dict):
+            raise ValidationError(f"link inválido: {_short(link)}")
+        if "item" in link:
+            out.append(_check_item_link(link))
+        elif "url" in link:
+            out.append(_check_url_link(link))
+        elif "path" in link:
+            out.append(_check_path_link(link))
+        else:
             raise ValidationError(
-                f"link inválido: {_short(link)}. Formato: "
-                "{\"title\": \"Painel\", \"url\": \"https://...\"}"
-            )
-        try:
-            scheme = urlsplit(url.strip()).scheme.lower()
-        except ValueError:
-            scheme = ""
-        if scheme not in LINK_SCHEMES:
-            raise ValidationError(
-                f"link com esquema não aceito: {_short(url.strip())}. Aceitos: "
-                f"{', '.join(LINK_SCHEMES)} (ex.: https://painel.exemplo.com)"
-            )
-        out.append({"title": (title or "").strip() or url.strip(), "url": url.strip()})
+                f"link inválido: {_short(link)}. Use {{item, rel}}, {{url[, title]}} ou {{path}}")
     return out
 
 
-def check_scope_paths(value: Any) -> list[str]:
-    """`scope_paths`: até `MAX_SCOPE_PATHS` globs de até `MAX_SCOPE_PATH_CHARS` caracteres,
-    cada um com no máximo `MAX_SCOPE_PATH_WILDCARDS` curingas (`*`/`?`)."""
-    paths = _check_str_list("scope_paths", value)
-    if len(paths) > MAX_SCOPE_PATHS:
-        raise ValidationError(f"scope_paths: no máximo {MAX_SCOPE_PATHS} padrões por item "
-                              f"(recebi {len(paths)}); junte os parecidos (ex.: src/**/*.py)")
-    for path in paths:
-        if len(path) > MAX_SCOPE_PATH_CHARS:
-            raise ValidationError(f"scope_paths: cada padrão tem até {MAX_SCOPE_PATH_CHARS} "
-                                  f"caracteres ({_short(path)} tem {len(path)})")
-        wildcards = path.count("*") + path.count("?")
-        if wildcards > MAX_SCOPE_PATH_WILDCARDS:
-            raise ValidationError(
-                f"scope_paths: no máximo {MAX_SCOPE_PATH_WILDCARDS} curingas (* ou ?) por "
-                f"padrão ({_short(path)} tem {wildcards}); use ** para cruzar pastas"
-            )
-    return paths
+def _check_item_link(link: dict[str, Any]) -> dict[str, str]:
+    key = link.get("item")
+    problem = key_problem(key, portable=False)
+    if problem:
+        raise ValidationError(f"link de item inválido: {problem}")
+    rel = _check_choice("rel", link.get("rel"), LINK_RELATIONS)
+    return {"item": key, "rel": rel}
 
 
-def _check_ttl(value: Any) -> int | None:
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        raise ValidationError(f"ttl_days deve ser inteiro positivo (dias): {_short(value)}")
-    return value
+def _check_url_link(link: dict[str, Any]) -> dict[str, str]:
+    url = link.get("url")
+    title = link.get("title")
+    if not isinstance(url, str) or not url.strip() or (
+            title is not None and not isinstance(title, str)):
+        raise ValidationError(
+            "link de url inválido: " + _short(link) + '. Formato: {"url": "https://...", '
+            '"title": "Painel"}')
+    try:
+        scheme = urlsplit(url.strip()).scheme.lower()
+    except ValueError:
+        scheme = ""
+    if scheme not in LINK_SCHEMES:
+        raise ValidationError(
+            f"link com esquema não aceito: {_short(url.strip())}. Aceitos: "
+            f"{', '.join(LINK_SCHEMES)} (ex.: https://painel.exemplo.com)")
+    out = {"url": url.strip()}
+    if title and title.strip():
+        out["title"] = title.strip()
+    return out
+
+
+def _check_path_link(link: dict[str, Any]) -> dict[str, str]:
+    path = link.get("path")
+    if not isinstance(path, str) or not path.strip():
+        raise ValidationError(f"link de caminho inválido: {_short(link)}. Formato: {{\"path\": "
+                              '"src/**/*.py"}')
+    path = path.strip()
+    if len(path) > MAX_PATH_CHARS:
+        raise ValidationError(f"links: cada path tem até {MAX_PATH_CHARS} caracteres "
+                              f"({_short(path)} tem {len(path)})")
+    wildcards = path.count("*") + path.count("?")
+    if wildcards > MAX_PATH_WILDCARDS:
+        raise ValidationError(
+            f"links: no máximo {MAX_PATH_WILDCARDS} curingas (* ou ?) por path "
+            f"({_short(path)} tem {wildcards}); use ** para cruzar pastas")
+    return {"path": path}
 
 
 # --------------------------------------------------------------------------- entrada
@@ -314,10 +270,10 @@ def _check_ttl(value: Any) -> int | None:
 def validate_entry(entry: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
     """Normaliza e valida uma entrada do `item_save`; devolve (campos limpos, avisos).
 
-    Campo fora de `ITEM_FIELDS` (e dos de local: workspace, project, subject) é erro que lista
-    os válidos. Valida só o que veio; as regras que cruzam campos (subtipo e status por tipo)
-    usam o `type` da entrada — numa atualização parcial, quem chama manda o tipo do item.
-    Defaults (status, origin) não são preenchidos aqui: numa atualização apagariam o valor atual.
+    Valida só o essencial (v6): type na taxonomia, key no formato de path, title/summary não
+    vazios (quando presentes), tags em kebab-case, links no formato unificado. Campo fora de
+    `ITEM_FIELDS`/`LOCATION_FIELDS` é erro que lista os válidos. Numa atualização parcial,
+    valida só o que veio.
     """
     if not isinstance(entry, dict):
         raise ValidationError(f"Cada item deve ser um objeto: {_short(entry)}")
@@ -334,20 +290,10 @@ def validate_entry(entry: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
     for name in LOCATION_FIELDS:
         if name in entry:
             clean[name] = entry[name]
-    if "subtype" in entry:
-        clean["subtype"] = _check_subtype(item_type, entry["subtype"])
-    if entry.get("status") is not None:
-        clean["status"] = _check_status(item_type, entry["status"])
-    if entry.get("scope") is not None:
-        clean["scope"] = _check_choice("scope", entry["scope"], SCOPES)
-    elif "scope" in entry:
-        clean["scope"] = None
-    if entry.get("origin") is not None:
-        clean["origin"] = _check_choice("origin", entry["origin"], ORIGINS)
     for name in ("title", "summary"):
         if name in entry:
             clean[name] = _check_text(name, entry[name], required=True).strip()
-    for name in ("content", "keywords", "source", "id"):
+    for name in ("content", "id"):
         if name in entry:
             clean[name] = _check_text(name, entry[name], required=False)
     if entry.get("key") is not None:
@@ -361,73 +307,9 @@ def validate_entry(entry: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
         ))
     if "links" in entry:
         clean["links"] = check_links(entry["links"])
-    if "scope_paths" in entry:
-        clean["scope_paths"] = check_scope_paths(entry["scope_paths"])
-    if "ttl_days" in entry:
-        clean["ttl_days"] = _check_ttl(entry["ttl_days"])
 
     warnings = key_warnings(clean.get("key"), item_type)
-    warnings += content_warnings(item_type, clean.get("subtype"), clean.get("content"),
-                                 clean.get("links"))
     return clean, warnings
-
-
-# --------------------------------------------------------------------------- leitura antiga
-
-_LEGACY_TYPES: dict[str, tuple[str, str | None]] = {
-    "insight": ("rule", "decision"),
-    "procedure": ("howto", None),
-    "knowledge": ("howto", "troubleshoot"),
-    "pattern": ("rule", "pattern"),
-    "task": ("spec", None),
-}
-_LEGACY_STATUSES = {"superseded": "archived", "deprecated": "archived"}
-_LEGACY_FIELDS = ("memory_class", "labels", "importance", "confidence")
-_SENSITIVE_WORD = "sensivel"
-
-
-def translate_legacy(data: dict[str, Any]) -> dict[str, Any]:
-    """Traduz, na leitura, o frontmatter de um arquivo no formato antigo para o v2.
-
-    Arquivo v2 (com `origin` e sem campo antigo) passa intacto, salvo um tipo ou status antigo
-    que tenha sobrado. Os mapeamentos: insight → rule/decision; procedure → howto; knowledge →
-    howto/troubleshoot com status review; pattern → rule/pattern; task → spec; rule com a
-    palavra "sensivel" nas keywords → rule/security (a palavra sai); superseded/deprecated →
-    archived; labels somam-se às tags; memory_class/importance/confidence saem (ephemeral
-    mantém o ttl_days); sem origin → "user" no arquivo antigo, "agent" nos demais.
-    """
-    out = dict(data)
-    legacy = any(name in out for name in _LEGACY_FIELDS)
-    old_type = out.get("type")
-    status = out.get("status")
-    if isinstance(status, str) and status in _LEGACY_STATUSES:
-        out["status"] = _LEGACY_STATUSES[status]
-    if isinstance(old_type, str) and old_type in _LEGACY_TYPES:
-        new_type, subtype = _LEGACY_TYPES[old_type]
-        out["type"] = new_type
-        if subtype and not out.get("subtype"):
-            out["subtype"] = subtype
-        if old_type == "knowledge" and out.get("status") == "active":
-            out["status"] = "review"
-    if legacy and old_type == "rule" and isinstance(out.get("keywords"), str):
-        words = out["keywords"].split()
-        if _SENSITIVE_WORD in words:
-            out["keywords"] = " ".join(w for w in words if w != _SENSITIVE_WORD) or None
-            if not out.get("subtype"):
-                out["subtype"] = "security"
-    if "labels" in out:
-        labels = out.pop("labels") or []
-        tags = out.get("tags") or []
-        if isinstance(labels, list) and isinstance(tags, list):
-            out["tags"] = list(dict.fromkeys([*tags, *labels]))
-    memory_class = out.pop("memory_class", None)
-    out.pop("importance", None)
-    out.pop("confidence", None)
-    if legacy and memory_class != "ephemeral":
-        out.pop("ttl_days", None)
-    if out.get("origin") is None:
-        out["origin"] = "user" if memory_class is not None else DEFAULT_ORIGIN
-    return out
 
 
 # --------------------------------------------------------------------------- instruções
@@ -435,27 +317,29 @@ def translate_legacy(data: dict[str, Any]) -> dict[str, Any]:
 
 def taxonomy_markdown() -> str:
     """Tabelas da taxonomia para as instruções do MCP (geradas daqui, nunca à mão)."""
-    lines = ["| Tipo | Subtipos (opcionais) |", "|---|---|"]
-    for item_type, subtypes in TYPES.items():
-        lines.append(f"| `{item_type}` | {', '.join(f'`{s}`' for s in subtypes) or '—'} |")
-    models = [f"`{t}/{s}` → {', '.join(f'`{p}`' for p in parts)}"
-              for (t, s), parts in CONTENT_MODEL.items()]
-    models += [f"`{t}/{s}` → ao menos um item em `links`" for t, s in LINKS_REQUIRED]
-    lines += [
+    lines = [
+        "| Tipo | Guarda |",
+        "|---|---|",
+        "| `rule` | o que deve ser seguido + o porquê (convenção, decisão, regra de negócio) |",
+        "| `howto` | passos repetíveis ou diagnóstico (sintoma/causa/solução) |",
+        "| `context` | pano de fundo: produto, mapa, stack, glossário, ambiente |",
+        "| `work` | o trabalho: plano/spec + decisões (o porquê durável); ciclo por tag |",
+        "| `secret` | referência a um segredo (sem o valor) |",
         "",
         "| Campo | Valores |",
         "|---|---|",
-        f"| status | {', '.join(f'`{s}`' for s in STATUSES)}; só `spec`: "
-        f"{', '.join(f'`{s}`' for s in SPEC_STATUSES)} (`{EXPIRED}` é derivado do ttl) |",
-        f"| scope | {', '.join(f'`{s}`' for s in SCOPES)} (sem valor: herda subject → project "
-        f"→ workspace; nada explícito = `{DEFAULT_SCOPE}`) |",
-        f"| origin | {', '.join(f'`{s}`' for s in ORIGINS)} (padrão `{DEFAULT_ORIGIN}`) |",
-        f"| relação | {', '.join(f'`{s}`' for s in RELATION_TYPES)} |",
-        f"| feedback (outcome) | {', '.join(f'`{s}`' for s in OUTCOMES)} |",
+        f"| tags de ciclo | {', '.join(f'`{t}`' for t in LIFECYCLE_TAGS)} |",
+        f"| tags de nuance (base, extensível) | {', '.join(f'`{t}`' for t in NUANCE_TAGS)} |",
+        f"| link item→item (`rel`) | {', '.join(f'`{r}`' for r in LINK_RELATIONS)} |",
         "",
         "Key: `<tipo>/<nome>` (nome em minúsculas com `-`); fora do padrão grava com aviso, e a "
         "key de um item existente nunca muda.",
         "",
-        "Modelo do `content` (só avisa): " + "; ".join(models) + ".",
+        "Alcance: o item vale onde mora na hierarquia (workspace → project → subject) e abaixo. "
+        "Não há `scope`, `status`, `subtype`, `origin` nem expiração — a nuance e o ciclo vão em "
+        "`tags`.",
+        "",
+        "`links` (unificado): `{item, rel}` liga a outro item; `{url[, title]}` a uma URL; "
+        "`{path}` a um arquivo/glob do repositório.",
     ]
     return "\n".join(lines) + "\n"

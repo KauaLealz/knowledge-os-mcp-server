@@ -31,16 +31,10 @@ import yaml
 
 from knowledge_os.exceptions import ValidationError
 from knowledge_os.model import (
-    DEFAULT_ORIGIN,
-    ORIGINS,
-    SCOPES,
-    SPEC_STATUSES,
-    STATUSES,
     TYPES,
     key_problem,  # mora em `model`; segue importável daqui
     segment_problem,
     short_repr,
-    translate_legacy,
 )
 
 # Teto do caminho completo (raiz da conexão + relativo) no Windows: o limite clássico é 260;
@@ -62,7 +56,6 @@ _REQUIRED_FIELDS = (
     "type",
     "title",
     "summary",
-    "status",
     "created_at",
     "updated_at",
 )
@@ -230,18 +223,16 @@ def serialize_item(
     workspace_name: str,
     project_name: str,
     subject_name: str | None,
-    relations: list[dict[str, str]],
+    links: list[dict[str, str]],
     tags: list[str],
 ) -> str:
     """Serializa um item (dict ou objeto com os mesmos campos) em conteúdo de arquivo
-    Markdown com frontmatter YAML, na ordem do formato v2.
+    Markdown com frontmatter YAML, na ordem do formato v6.
 
-    Opcionais sem valor (`key`, `subject`, `subtype`, `scope`, `ttl_days`, `keywords`,
-    `source`, `verified_at`, `verified_commit`) não viram linha; `origin` ausente sai
-    `agent`. Item `type == "secret"` é serializado só com metadados; recusa
-    (`ValidationError`) se ele trouxer algum campo de valor — o valor do segredo nunca vai pro
-    git. Telemetria (`access_count`, `last_accessed`) e `expires_at` (sempre recalculado a
-    partir de `updated_at` + `ttl_days`) nunca são persistidos no arquivo.
+    Opcionais sem valor (`key`, `subject`) não viram linha. `links` é unificado
+    ({item, rel} | {url[, title]} | {path}). Item `type == "secret"` é serializado só com
+    metadados; recusa (`ValidationError`) se trouxer algum campo de valor — o valor do segredo
+    nunca vai para o git.
     """
     item_type = _field(item, "type")
     if item_type == "secret":
@@ -263,25 +254,11 @@ def serialize_item(
     data["project"] = project_name
     optional("subject", subject_name)
     data["type"] = item_type
-    optional("subtype", _field(item, "subtype"))
-    optional("scope", _field(item, "scope"))
     data["title"] = _field(item, "title")
-    data["status"] = _field(item, "status")
     data["tags"] = list(tags)
-    data["links"] = [{"title": lk["title"], "url": lk["url"]}
-                     for lk in (_field(item, "links") or [])]
-    data["scope_paths"] = list(_field(item, "scope_paths") or [])
-    optional("ttl_days", _field(item, "ttl_days"))
-    optional("keywords", _field(item, "keywords"))
-    optional("source", _field(item, "source"))
-    data["origin"] = _field(item, "origin") or DEFAULT_ORIGIN
-    verified_at = _field(item, "verified_at")
-    if verified_at is not None:
-        data["verified_at"] = _fmt_dt(verified_at)
-    optional("verified_commit", _field(item, "verified_commit"))
+    data["links"] = [dict(lk) for lk in links]
     data["created_at"] = _fmt_dt(_field(item, "created_at"))
     data["updated_at"] = _fmt_dt(_field(item, "updated_at"))
-    data["relations"] = [{"type": r["type"], "target": r["target"]} for r in relations]
     data["summary"] = _field(item, "summary")
 
     frontmatter = yaml.dump(
@@ -347,8 +324,6 @@ def parse_item_file(raw: str) -> dict[str, Any]:
     for name in _TEXT_OPTIONAL:
         _text(data, name, required=False)
     _str_list(data, "tags")
-    _str_list(data, "labels")
-    data = translate_legacy(data)
     _check_taxonomy(data)
 
     problem = id_problem(data["id"])
@@ -360,7 +335,6 @@ def parse_item_file(raw: str) -> dict[str, Any]:
     if problem:
         raise ValidationError(f"Frontmatter com {problem}")
 
-    verified_at = data.get("verified_at")
     parsed: dict[str, Any] = {
         "id": data["id"],
         "key": data.get("key"),
@@ -368,23 +342,11 @@ def parse_item_file(raw: str) -> dict[str, Any]:
         "project": data.get("project"),
         "subject": data.get("subject"),
         "type": data["type"],
-        "subtype": data.get("subtype"),
-        "scope": data.get("scope"),
         "title": data["title"],
-        "status": data["status"],
         "tags": _str_list(data, "tags"),
         "links": _links(data),
-        "scope_paths": _str_list(data, "scope_paths"),
-        "ttl_days": _int(data, "ttl_days"),
-        "keywords": data.get("keywords"),
-        "source": data.get("source"),
-        "origin": data["origin"],
-        "verified_at": (_parse_dt(verified_at, "verified_at")
-                        if verified_at is not None else None),
-        "verified_commit": data.get("verified_commit"),
         "created_at": _parse_dt(data["created_at"], "created_at"),
         "updated_at": _parse_dt(data["updated_at"], "updated_at"),
-        "relations": _relations(data),
         "summary": data["summary"],
         "content": content,
     }
@@ -393,34 +355,16 @@ def parse_item_file(raw: str) -> dict[str, Any]:
 
 # Campos de texto do frontmatter: um YAML válido com outro tipo (`title: 2024`, `id: [a]`)
 # derrubaria quem lê o item; aqui ele vira erro do arquivo.
-_TEXT_REQUIRED = ("id", "type", "title", "summary", "status")
-_TEXT_OPTIONAL = ("key", "workspace", "project", "subject", "subtype", "scope", "keywords",
-                  "source", "origin", "verified_commit")
+_TEXT_REQUIRED = ("id", "type", "title", "summary")
+_TEXT_OPTIONAL = ("key", "workspace", "project", "subject")
 
 
 def _check_taxonomy(data: dict[str, Any]) -> None:
-    """Tipo, subtipo, status, scope e origin dentro da taxonomia (já traduzidos).
-
-    Na leitura o status não é cruzado com o tipo: um arquivo editado à mão com `done` numa
-    regra continua legível (a gravação pelo `item_save` é que recusa).
-    """
+    """Tipo dentro da taxonomia (v6: não há mais subtype/status/scope/origin)."""
     item_type = data["type"]
     if item_type not in TYPES:
         raise ValidationError(f"Frontmatter com 'type' fora da taxonomia: {_s(item_type)} "
                               f"(válidos: {', '.join(TYPES)})")
-    subtype = data.get("subtype")
-    if subtype is not None and subtype not in TYPES[item_type]:
-        raise ValidationError(f"Frontmatter com 'subtype' inválido para {item_type}: "
-                              f"{_s(subtype)} (válidos: {', '.join(TYPES[item_type]) or '—'})")
-    status = data["status"]
-    if status not in STATUSES + SPEC_STATUSES:
-        raise ValidationError(f"Frontmatter com 'status' inválido: {_s(status)} "
-                              f"(válidos: {', '.join(STATUSES + SPEC_STATUSES)})")
-    for name, valid in (("scope", SCOPES), ("origin", ORIGINS)):
-        value = data.get(name)
-        if value is not None and value not in valid:
-            raise ValidationError(f"Frontmatter com {name!r} inválido: {_s(value)} "
-                                  f"(válidos: {', '.join(valid)})")
 
 
 def _text(data: dict[str, Any], name: str, *, required: bool) -> None:
@@ -440,42 +384,25 @@ def _str_list(data: dict[str, Any], name: str) -> list[str]:
     return list(value)
 
 
-def _int(data: dict[str, Any], name: str) -> int | None:
-    value = data.get(name)
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValidationError(f"Frontmatter com {name!r} que não é número inteiro: {_s(value)}")
-    return value
-
-
 def _links(data: dict[str, Any]) -> list[dict[str, str]]:
+    """`links` unificado (v6): cada entrada é {item, rel} | {url[, title]} | {path}. Valida só a
+    forma (os valores são conferidos no save por `model.check_links`)."""
     value = data.get("links")
     if value is None:
         return []
-    ok = isinstance(value, list) and all(
-        isinstance(lk, dict) and isinstance(lk.get("title"), str)
-        and isinstance(lk.get("url"), str)
-        for lk in value
-    )
-    if not ok:
-        raise ValidationError(
-            f"Frontmatter com 'links' fora do formato [{{title, url}}]: {_s(value)}"
-        )
-    return [{"title": lk["title"], "url": lk["url"]} for lk in value]
-
-
-def _relations(data: dict[str, Any]) -> list[dict[str, str]]:
-    value = data.get("relations")
-    if value is None:
-        return []
-    ok = isinstance(value, list) and all(
-        isinstance(r, dict) and isinstance(r.get("type"), str)
-        and isinstance(r.get("target"), str)
-        for r in value
-    )
-    if not ok:
-        raise ValidationError(
-            f"Frontmatter com 'relations' fora do formato [{{type, target}}]: {_s(value)}"
-        )
-    return [{"type": r["type"], "target": r["target"]} for r in value]
+    if not isinstance(value, list):
+        raise ValidationError(f"Frontmatter com 'links' que não é lista: {_s(value)}")
+    out: list[dict[str, str]] = []
+    for lk in value:
+        if not isinstance(lk, dict) or not all(isinstance(v, str) for v in lk.values()):
+            raise ValidationError(f"Frontmatter com link fora do formato: {_s(lk)}")
+        if "item" in lk and "rel" in lk:
+            out.append({"item": lk["item"], "rel": lk["rel"]})
+        elif "url" in lk:
+            out.append({"url": lk["url"], **({"title": lk["title"]} if "title" in lk else {})})
+        elif "path" in lk:
+            out.append({"path": lk["path"]})
+        else:
+            raise ValidationError(
+                f"Frontmatter com link fora do formato {{item, rel}}|{{url}}|{{path}}: {_s(lk)}")
+    return out
