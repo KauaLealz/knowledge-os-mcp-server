@@ -332,6 +332,15 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .prose table { display: block; width: max-content; max-width: 100%; overflow-x: auto; border-collapse: collapse; font-size: 14.5px; }
 .prose th, .prose td { border: 1px solid var(--border); padding: 6px 12px; text-align: left; }
 .prose th { background: var(--bg-soft); font-weight: 600; }
+/* Lista de tarefas (GFM): checkbox alinhado, sem marcador de lista. */
+.prose li:has(> input[type="checkbox"]) { list-style: none; margin-left: -1.3em; }
+.prose li > input[type="checkbox"] { margin-right: 0.5em; vertical-align: middle; }
+/* Mermaid: diagrama centralizado; bloco em erro mantém o código com aviso. */
+.prose .mermaid-diagram { margin: 0 0 1em; text-align: center; overflow-x: auto; }
+.prose .mermaid-diagram svg { max-width: 100%; height: auto; }
+.prose pre.mermaid-pending { color: var(--text-3); }
+.prose pre.mermaid-error { border-color: var(--danger); }
+.prose pre.mermaid-error::after { content: "Invalid mermaid diagram"; position: absolute; top: 6px; right: 10px; font: 11px var(--font); color: var(--danger); }
 .hljs-comment, .hljs-quote { color: var(--hl-comment); font-style: italic; }
 .hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-doctag { color: var(--hl-keyword); }
 .hljs-string, .hljs-regexp, .hljs-addition { color: var(--hl-string); }
