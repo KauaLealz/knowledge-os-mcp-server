@@ -55,3 +55,13 @@ def test_sanitizador_abre_so_o_necessario_sem_perder_xss():
     assert "getAttribute('type') !== 'checkbox'" in md  # restringe input a checkbox
     # O SVG do mermaid é sanitizado à parte, com perfil SVG.
     assert "USE_PROFILES" in md and "svg: true" in md
+
+
+def test_hardening_de_style_e_dinheiro():
+    md = _text(STATIC / "js" / "markdown.js")
+    # `style` liberado para o KaTeX, mas um hook tira as propriedades de overlay
+    # (clickjacking) de qualquer style de conteúdo não confiável.
+    assert "uponSanitizeAttribute" in md
+    assert "position" in md and "z-index" in md and "inset" in md
+    # Sem nonStandard ativo: "$5 ... $10" (dinheiro) não é confundido com fórmula.
+    assert "nonStandard: true" not in md and "nonStandard:true" not in md

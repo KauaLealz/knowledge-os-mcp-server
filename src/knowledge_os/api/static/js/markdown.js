@@ -9,12 +9,24 @@ import markedKatex from '../vendor/marked-katex.esm.js';
 
 marked.use({ gfm: true, breaks: true });
 // KaTeX: $...$ na linha, $$...$$ em bloco. output:'html' evita MathML — basta liberar o
-// atributo `style` no sanitizador (o KaTeX usa style para posicionar os glifos).
-marked.use(markedKatex({ throwOnError: false, nonStandard: true, output: 'html' }));
+// atributo `style` no sanitizador (o KaTeX usa style para posicionar os glifos). Sem
+// nonStandard: assim "$5 ... $10" (dinheiro) não é confundido com fórmula.
+marked.use(markedKatex({ throwOnError: false, output: 'html' }));
+
+// O KaTeX posiciona os glifos com `style` inline, então o atributo fica liberado — mas
+// conteúdo não confiável poderia usar `style` para um overlay de clickjacking
+// (position/z-index/inset cobrindo o painel). Este hook tira essas propriedades de QUALQUER
+// style; o KaTeX (height/margin/vertical-align/top) não usa nenhuma delas.
+const CSS_REDRESS = /(^|;)\s*(position|z-index|inset(?:-[a-z]+)?)\s*:[^;]*/gi;
+DOMPurify.addHook('uponSanitizeAttribute', (_node, data) => {
+  if (data.attrName === 'style' && data.attrValue) {
+    data.attrValue = data.attrValue.replace(CSS_REDRESS, '$1');
+  }
+});
 
 // Conteúdo não confiável. Diferenças para o perfil padrão do DOMPurify: `input` é permitido
 // (mas reduzido a checkbox desabilitado, abaixo) para a lista de tarefas, e `style` continua
-// liberado (o KaTeX precisa). Seguem barrados script/on*/form e afins.
+// liberado (o KaTeX precisa), já higienizado pelo hook acima. Seguem barrados script/on*/form.
 const CONTENT_OPTS = {
   RETURN_DOM_FRAGMENT: true,
   FORBID_TAGS: ['style', 'form', 'textarea', 'select', 'button'],
@@ -103,7 +115,9 @@ export function render(src) {
 export function renderTo(el, src) {
   const { fragment, headings } = render(src);
   el.replaceChildren(fragment);
-  renderMermaid(el);
+  // Sem await: a TOC volta já; o mermaid desenha depois. Falha ao carregar não quebra a
+  // página (o código fica visível no bloco pendente).
+  renderMermaid(el).catch(() => {});
   return headings;
 }
 
@@ -140,12 +154,13 @@ function mermaidTheme() {
 async function drawInto(mermaid, target, source) {
   const id = `mmd-${++mermaidSeq}`;
   try {
-    const { svg, bindFunctions } = await mermaid.render(id, source);
+    // Só o SVG; não chamamos bindFunctions (listeners de interação do mermaid) — a
+    // visualização é estática e isso evitaria a única superfície fora do DOMPurify.
+    const { svg } = await mermaid.render(id, source);
     const box = document.createElement('div');
     box.className = 'mermaid-diagram';
     box.dataset.mermaidSrc = source;
     box.innerHTML = DOMPurify.sanitize(svg, SVG_OPTS);
-    bindFunctions?.(box);
     target.replaceWith(box);
     return box;
   } catch {
@@ -190,12 +205,11 @@ async function rerenderAllMermaid() {
 
 function ensureThemeObserver() {
   if (themeObserver) return;
-  themeObserver = new MutationObserver(rerenderAllMermaid);
+  const onThemeChange = () => rerenderAllMermaid().catch(() => {});
+  themeObserver = new MutationObserver(onThemeChange);
   themeObserver.observe(document.documentElement, {
     attributes: true,
     attributeFilter: ['data-theme'],
   });
-  window
-    .matchMedia('(prefers-color-scheme: dark)')
-    .addEventListener?.('change', rerenderAllMermaid);
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', onThemeChange);
 }
