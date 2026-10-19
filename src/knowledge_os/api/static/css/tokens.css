@@ -31,7 +31,7 @@
   --t-howto: #1d4ed8;
   --t-context: #475569;
   --t-secret: #9a3412;
-  --t-spec: #a21caf;
+  --t-work: #a21caf;
 
   --hl-comment: #8a8a94;
   --hl-keyword: #7c3aed;
@@ -84,7 +84,7 @@
     --t-howto: #60a5fa;
     --t-context: #94a3b8;
     --t-secret: #fb923c;
-    --t-spec: #e879f9;
+    --t-work: #e879f9;
     --hl-comment: #71717a;
     --hl-keyword: #c4b5fd;
     --hl-string: #5eead4;
@@ -121,7 +121,7 @@
   --t-howto: #60a5fa;
   --t-context: #94a3b8;
   --t-secret: #fb923c;
-  --t-spec: #e879f9;
+  --t-work: #e879f9;
   --hl-comment: #71717a;
   --hl-keyword: #c4b5fd;
   --hl-string: #5eead4;

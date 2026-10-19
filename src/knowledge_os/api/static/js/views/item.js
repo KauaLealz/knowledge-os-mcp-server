@@ -228,16 +228,6 @@ export function register(Alpine) {
       return this.app.hItemById(r.node.id) || hrefs.item(this.app.connId, this.app.route.params.ws, this.item.project_id, r.node.id);
     },
     fullDate: formatDate,
-    /** Avisa o item no servidor (`POST /items/{id}/feedback`): `verified` grava a data. */
-    async markVerified() {
-      try {
-        await api('POST', `/items/${this.item.id}/feedback`, { body: { outcome: 'verified' } });
-        this.item = await api('GET', `/items/${this.item.id}`);
-        this.app.toast('Marked as verified');
-      } catch (e) {
-        this.app.toast(e.message, 'error');
-      }
-    },
 
     // ---- ações ----
     applyUpdate(updated) {

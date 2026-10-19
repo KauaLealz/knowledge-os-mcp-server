@@ -10,7 +10,7 @@
 // DOMPurify).
 import { api } from '../api.js';
 import { go, hrefs } from '../router.js';
-import { kindLabel, scopeLabel, typeClass } from '../util.js';
+import { kindLabel, typeClass } from '../util.js';
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, forceX, forceY } from '../../vendor/d3-force.esm.js';
 import { select } from '../../vendor/d3-selection.esm.js';
 import { drag } from '../../vendor/d3-drag.esm.js';
@@ -80,7 +80,7 @@ export function register(Alpine) {
       this.sim?.stop();
       try {
         const data = await api('GET', `/workspaces/${wsId}/graph`, { query: this.scopeQuery });
-        // Formato do `item_graph`: nós {key, id, type, subtype, title, summary, scope, status}
+        // Formato do `item_graph` (v6): nós {key, id, type, title, summary, hop}
         // (+ onde moram) e arestas {from, type, to} — aqui com os ids dos itens nas pontas.
         this.nodes = (data.nodes || []).map((n) => ({ ...n }));
         this.edges = (data.edges || []).map((e) => ({ source: e.from, target: e.to, relation_type: e.type }));
@@ -114,8 +114,7 @@ export function register(Alpine) {
     /** Dica do nó: título, tipo · subtipo e ⚠ quando em revisão (item); nome (project/assunto). */
     tooltipOf(n) {
       if (n.kind !== 'item') return this.textOf(n);
-      const review = n.status === 'review' ? ' ⚠ review' : '';
-      return `${n.title} — ${kindLabel(n.type, n.subtype)} · ${scopeLabel(n.scope)}${review}`;
+      return `${n.title} — ${kindLabel(n.type)}`;
     },
 
     label(title) {

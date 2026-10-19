@@ -75,7 +75,7 @@ export function register(Alpine) {
               key: 'r' + r.id,
               title: r.title,
               sub: '',
-              it: { type: r.type, subtype: r.subtype },
+              it: { type: r.type, tags: r.tags },
               hash: hrefs.item(r.conn, r.ws, r.pj, r.id),
             })),
         );

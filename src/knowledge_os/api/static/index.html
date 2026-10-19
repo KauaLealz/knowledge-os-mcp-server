@@ -42,9 +42,6 @@
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 6.3"/><path d="M20 4v7h-7"/></symbol>
   <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 5h16l-6 7v6l-4 2v-8z"/></symbol>
   <symbol id="i-tag" viewBox="0 0 24 24"><path d="M3 12V4h8l10 10-8 8L3 12z"/><circle cx="7.5" cy="8.5" r="1.5"/></symbol>
-  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></symbol>
-  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></symbol>
-  <symbol id="i-bot" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 4v4M9 13v1M15 13v1"/></symbol>
   <symbol id="i-code" viewBox="0 0 24 24"><path d="m8 7-5 5 5 5M16 7l5 5-5 5"/></symbol>
   <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></symbol>
 </svg>
@@ -159,8 +156,8 @@
                                 <a class="tree-item" :class="{ active: $store.app.route.params.item === it.id, faded: $faded(it) }"
                                    :href="$store.app.hItemIn(w.id, p.id, it.id)" :title="it.title">
                                   <span class="tdot" :class="$tc(it.type)" aria-hidden="true"></span>
-                                  <span class="sr-only" x-text="$kind(it.type, it.subtype) + ': '"></span><span class="ti-text" x-text="it.title"></span>
-                                  <span class="badges"><template x-for="b in $badges(it, { type: false, scope: false })" :key="b.key"><span :class="b.cls" :title="b.title"><span class="tdot" x-show="b.dot" aria-hidden="true"></span><svg class="ic" x-show="b.icon" aria-hidden="true"><use :href="b.icon ? '#i-' + b.icon : ''"/></svg><span x-text="b.label"></span></span></template></span>
+                                  <span class="sr-only" x-text="$kind(it.type) + ': '"></span><span class="ti-text" x-text="it.title"></span>
+                                  <span class="badges"><template x-for="b in $badges(it, { type: false })" :key="b.key"><span :class="b.cls" :title="b.title"><span class="tdot" x-show="b.dot" aria-hidden="true"></span><svg class="ic" x-show="b.icon" aria-hidden="true"><use :href="b.icon ? '#i-' + b.icon : ''"/></svg><span x-text="b.label"></span></span></template></span>
                                 </a>
                               </template>
                               <div class="tree-empty" x-show="!s.items.length">No items</div>
@@ -171,8 +168,8 @@
                           <a class="tree-item" :class="{ active: $store.app.route.params.item === it.id, faded: $faded(it) }"
                              :href="$store.app.hItemIn(w.id, p.id, it.id)" :title="it.title">
                             <span class="tdot" :class="$tc(it.type)" aria-hidden="true"></span>
-                            <span class="sr-only" x-text="$kind(it.type, it.subtype) + ': '"></span><span class="ti-text" x-text="it.title"></span>
-                            <span class="badges"><template x-for="b in $badges(it, { type: false, scope: false })" :key="b.key"><span :class="b.cls" :title="b.title"><span class="tdot" x-show="b.dot" aria-hidden="true"></span><svg class="ic" x-show="b.icon" aria-hidden="true"><use :href="b.icon ? '#i-' + b.icon : ''"/></svg><span x-text="b.label"></span></span></template></span>
+                            <span class="sr-only" x-text="$kind(it.type) + ': '"></span><span class="ti-text" x-text="it.title"></span>
+                            <span class="badges"><template x-for="b in $badges(it, { type: false })" :key="b.key"><span :class="b.cls" :title="b.title"><span class="tdot" x-show="b.dot" aria-hidden="true"></span><svg class="ic" x-show="b.icon" aria-hidden="true"><use :href="b.icon ? '#i-' + b.icon : ''"/></svg><span x-text="b.label"></span></span></template></span>
                           </a>
                         </template>
                         <div class="tree-empty" x-show="!p.items.length && !(p.subjects || []).length">No items</div>
@@ -276,7 +273,6 @@
                     <span class="card-foot" x-show="w.stats">
                       <span><b x-text="w.stats?.projects"></b> projects</span>
                       <span><b x-text="w.stats?.items"></b> items</span>
-                      <span class="badges"><template x-for="b in $scopebadges(w.scope, w.scope_explicit, null)" :key="b.key"><span :class="b.cls" :title="b.title"><span class="tdot" x-show="b.dot" aria-hidden="true"></span><svg class="ic" x-show="b.icon" aria-hidden="true"><use :href="b.icon ? '#i-' + b.icon : ''"/></svg><span x-text="b.label"></span></span></template></span>
                     </span>
                   </a>
                 </template>
@@ -301,13 +297,6 @@
                   <div class="page-head">
                     <h1 class="page-title" x-text="$store.app.workspace.name"></h1>
                     <div class="toolbar">
-                      <label class="scope-pick">
-                        <span class="scope-label">Scope</span>
-                        <select class="select sm" @change="setScope($event.target.value)">
-                          <template x-for="sc in scopes" :key="sc"><option :value="sc" :selected="sc === scopeInfo.value" x-text="$scopelabel(sc)"></option></template>
-                        </select>
-                        <span class="scope-note" x-show="scopeInfo.note" x-text="scopeInfo.note"></span>
-                      </label>
                       <a class="btn" :href="graphHref()"><svg class="ic"><use href="#i-graph"/></svg> View graph</a>
                       <button class="btn" @click="$store.app.openModal('project')"><svg class="ic"><use href="#i-plus"/></svg> New project</button>
                     </div>
@@ -363,14 +352,14 @@
                             </template>
                           </div>
                         </div>
-                        <div class="filter-group" x-show="chipSubtypes.length" x-data="{ open: false }">
+                        <div class="filter-group" x-show="chipTags.length" x-data="{ open: false }">
                           <button type="button" class="filter-group-title" @click="open = !open" :aria-expanded="open">
-                            Subtype <svg class="ic" :class="{ open }"><use href="#i-chevron"/></svg>
+                            Tag <svg class="ic" :class="{ open }"><use href="#i-chevron"/></svg>
                           </button>
-                          <div class="type-chips" role="group" aria-label="Filter by subtype" x-show="open">
-                            <template x-for="c in chipSubtypes" :key="c.subtype">
-                              <button class="tchip" :class="{ on: filters.subtypes.includes(c.subtype) }"
-                                      :aria-pressed="filters.subtypes.includes(c.subtype)" @click="toggleSubtype(c.subtype)">
+                          <div class="type-chips" role="group" aria-label="Filter by tag" x-show="open">
+                            <template x-for="c in chipTags" :key="c.tag">
+                              <button class="tchip" :class="{ on: filters.tags.includes(c.tag) }"
+                                      :aria-pressed="filters.tags.includes(c.tag)" @click="toggleTag(c.tag)">
                                 <span x-text="c.label"></span> <span class="n" x-show="c.count != null" x-text="c.count"></span>
                               </button>
                             </template>
@@ -405,7 +394,7 @@
                         <div class="ir-title" x-text="it.title"></div>
                         <div class="ir-sum" x-text="it.summary"></div>
                         <div class="ir-meta">
-                          <span class="badges"><template x-for="b in $badges(it, { context: contextScope })" :key="b.key"><span :class="b.cls" :title="b.title"><span class="tdot" x-show="b.dot" aria-hidden="true"></span><svg class="ic" x-show="b.icon" aria-hidden="true"><use :href="b.icon ? '#i-' + b.icon : ''"/></svg><span x-text="b.label"></span></span></template></span>
+                          <span class="badges"><template x-for="b in $badges(it)" :key="b.key"><span :class="b.cls" :title="b.title"><span class="tdot" x-show="b.dot" aria-hidden="true"></span><svg class="ic" x-show="b.icon" aria-hidden="true"><use :href="b.icon ? '#i-' + b.icon : ''"/></svg><span x-text="b.label"></span></span></template></span>
                           <span class="meta"><template x-for="m in $meta(it, { where: where(it) })" :key="m.key"><span class="meta-part" :title="m.title"><svg class="ic" x-show="m.icon" aria-hidden="true"><use :href="m.icon ? '#i-' + m.icon : ''"/></svg><span :class="{ 'sr-only': m.icon }" x-text="m.label"></span></span></template></span>
                         </div>
                       </a>
@@ -552,14 +541,6 @@
                   <div class="page-head">
                     <h1 class="page-title" x-text="$store.app.project.name"></h1>
                     <div class="toolbar">
-                      <label class="scope-pick">
-                        <span class="scope-label">Scope</span>
-                        <select class="select sm" @change="setScope($event.target.value)">
-                          <option value="" :selected="!scopeInfo.value" x-text="'Inherit (' + $scopelabel(scopeInfo.effective) + ')'"></option>
-                          <template x-for="sc in scopes" :key="sc"><option :value="sc" :selected="sc === scopeInfo.value" x-text="$scopelabel(sc)"></option></template>
-                        </select>
-                        <span class="scope-note" x-show="scopeInfo.note" x-text="scopeInfo.note"></span>
-                      </label>
                       <a class="btn" :href="graphHref()"><svg class="ic"><use href="#i-graph"/></svg> View graph</a>
                       <button class="btn primary" @click="$store.app.openModal('item')"><svg class="ic"><use href="#i-plus"/></svg> New item</button>
                     </div>
@@ -602,14 +583,14 @@
                             </template>
                           </div>
                         </div>
-                        <div class="filter-group" x-show="chipSubtypes.length" x-data="{ open: false }">
+                        <div class="filter-group" x-show="chipTags.length" x-data="{ open: false }">
                           <button type="button" class="filter-group-title" @click="open = !open" :aria-expanded="open">
-                            Subtype <svg class="ic" :class="{ open }"><use href="#i-chevron"/></svg>
+                            Tag <svg class="ic" :class="{ open }"><use href="#i-chevron"/></svg>
                           </button>
-                          <div class="type-chips" role="group" aria-label="Filter by subtype" x-show="open">
-                            <template x-for="c in chipSubtypes" :key="c.subtype">
-                              <button class="tchip" :class="{ on: filters.subtypes.includes(c.subtype) }"
-                                      :aria-pressed="filters.subtypes.includes(c.subtype)" @click="toggleSubtype(c.subtype)">
+                          <div class="type-chips" role="group" aria-label="Filter by tag" x-show="open">
+                            <template x-for="c in chipTags" :key="c.tag">
+                              <button class="tchip" :class="{ on: filters.tags.includes(c.tag) }"
+                                      :aria-pressed="filters.tags.includes(c.tag)" @click="toggleTag(c.tag)">
                                 <span x-text="c.label"></span> <span class="n" x-show="c.count != null" x-text="c.count"></span>
                               </button>
                             </template>
@@ -639,7 +620,7 @@
                         <div class="ir-title" x-text="it.title"></div>
                         <div class="ir-sum" x-text="it.summary"></div>
                         <div class="ir-meta">
-                          <span class="badges"><template x-for="b in $badges(it, { context: contextScope })" :key="b.key"><span :class="b.cls" :title="b.title"><span class="tdot" x-show="b.dot" aria-hidden="true"></span><svg class="ic" x-show="b.icon" aria-hidden="true"><use :href="b.icon ? '#i-' + b.icon : ''"/></svg><span x-text="b.label"></span></span></template></span>
+                          <span class="badges"><template x-for="b in $badges(it)" :key="b.key"><span :class="b.cls" :title="b.title"><span class="tdot" x-show="b.dot" aria-hidden="true"></span><svg class="ic" x-show="b.icon" aria-hidden="true"><use :href="b.icon ? '#i-' + b.icon : ''"/></svg><span x-text="b.label"></span></span></template></span>
                           <span class="meta"><template x-for="m in $meta(it)" :key="m.key"><span class="meta-part" :title="m.title"><svg class="ic" x-show="m.icon" aria-hidden="true"><use :href="m.icon ? '#i-' + m.icon : ''"/></svg><span :class="{ 'sr-only': m.icon }" x-text="m.label"></span></span></template></span>
                         </div>
                       </a>
@@ -707,14 +688,6 @@
                   <div class="page-head">
                     <h1 class="page-title" x-text="$store.app.subject.name"></h1>
                     <div class="toolbar">
-                      <label class="scope-pick">
-                        <span class="scope-label">Scope</span>
-                        <select class="select sm" @change="setScope($event.target.value)">
-                          <option value="" :selected="!scopeInfo.value" x-text="'Inherit (' + $scopelabel(scopeInfo.effective) + ')'"></option>
-                          <template x-for="sc in scopes" :key="sc"><option :value="sc" :selected="sc === scopeInfo.value" x-text="$scopelabel(sc)"></option></template>
-                        </select>
-                        <span class="scope-note" x-show="scopeInfo.note" x-text="scopeInfo.note"></span>
-                      </label>
                       <a class="btn" :href="graphHref()"><svg class="ic"><use href="#i-graph"/></svg> View graph</a>
                     </div>
                   </div>
@@ -743,14 +716,14 @@
                             </template>
                           </div>
                         </div>
-                        <div class="filter-group" x-show="chipSubtypes.length" x-data="{ open: false }">
+                        <div class="filter-group" x-show="chipTags.length" x-data="{ open: false }">
                           <button type="button" class="filter-group-title" @click="open = !open" :aria-expanded="open">
-                            Subtype <svg class="ic" :class="{ open }"><use href="#i-chevron"/></svg>
+                            Tag <svg class="ic" :class="{ open }"><use href="#i-chevron"/></svg>
                           </button>
-                          <div class="type-chips" role="group" aria-label="Filter by subtype" x-show="open">
-                            <template x-for="c in chipSubtypes" :key="c.subtype">
-                              <button class="tchip" :class="{ on: filters.subtypes.includes(c.subtype) }"
-                                      :aria-pressed="filters.subtypes.includes(c.subtype)" @click="toggleSubtype(c.subtype)">
+                          <div class="type-chips" role="group" aria-label="Filter by tag" x-show="open">
+                            <template x-for="c in chipTags" :key="c.tag">
+                              <button class="tchip" :class="{ on: filters.tags.includes(c.tag) }"
+                                      :aria-pressed="filters.tags.includes(c.tag)" @click="toggleTag(c.tag)">
                                 <span x-text="c.label"></span> <span class="n" x-show="c.count != null" x-text="c.count"></span>
                               </button>
                             </template>
@@ -780,7 +753,7 @@
                         <div class="ir-title" x-text="it.title"></div>
                         <div class="ir-sum" x-text="it.summary"></div>
                         <div class="ir-meta">
-                          <span class="badges"><template x-for="b in $badges(it, { context: contextScope })" :key="b.key"><span :class="b.cls" :title="b.title"><span class="tdot" x-show="b.dot" aria-hidden="true"></span><svg class="ic" x-show="b.icon" aria-hidden="true"><use :href="b.icon ? '#i-' + b.icon : ''"/></svg><span x-text="b.label"></span></span></template></span>
+                          <span class="badges"><template x-for="b in $badges(it)" :key="b.key"><span :class="b.cls" :title="b.title"><span class="tdot" x-show="b.dot" aria-hidden="true"></span><svg class="ic" x-show="b.icon" aria-hidden="true"><use :href="b.icon ? '#i-' + b.icon : ''"/></svg><span x-text="b.label"></span></span></template></span>
                           <span class="meta"><template x-for="m in $meta(it)" :key="m.key"><span class="meta-part" :title="m.title"><svg class="ic" x-show="m.icon" aria-hidden="true"><use :href="m.icon ? '#i-' + m.icon : ''"/></svg><span :class="{ 'sr-only': m.icon }" x-text="m.label"></span></span></template></span>
                         </div>
                       </a>
@@ -876,23 +849,15 @@
 
                     <p class="page-lead" x-text="item.summary"></p>
 
-                    <div class="banner" role="alert" x-show="item.status === 'review'">
-                      <svg class="ic"><use href="#i-alert"/></svg>
-                      <span><b>In review:</b> flagged as wrong or outdated. Check it, fix it, then set the status back to active.</span>
-                    </div>
-
-
                     <div class="item-badges">
-                      <span class="badges"><template x-for="b in $badges(item, { review: false })" :key="b.key"><span :class="b.cls" :title="b.title"><span class="tdot" x-show="b.dot" aria-hidden="true"></span><svg class="ic" x-show="b.icon" aria-hidden="true"><use :href="b.icon ? '#i-' + b.icon : ''"/></svg><span x-text="b.label"></span></span></template></span>
+                      <span class="badges"><template x-for="b in $badges(item)" :key="b.key"><span :class="b.cls" :title="b.title"><span class="tdot" x-show="b.dot" aria-hidden="true"></span><svg class="ic" x-show="b.icon" aria-hidden="true"><use :href="b.icon ? '#i-' + b.icon : ''"/></svg><span x-text="b.label"></span></span></template></span>
                       <template x-for="t in item.tags" :key="'t' + t"><span class="tag" x-text="'#' + t"></span></template>
                     </div>
 
                     <p class="item-meta" x-show="!$store.app.route.params.edit">
                       <code class="mono" x-show="item.key" x-text="item.key"></code>
-                      <span x-show="item.subject || item.source || item.ttl_days" x-text="[item.subject, item.source && ('source: ' + item.source), item.ttl_days && ('expires ' + fullDate(item.expires_at))].filter(Boolean).join(' · ')"></span>
+                      <span x-show="item.subject" x-text="item.subject"></span>
                       <span class="meta"><template x-for="m in $meta(item)" :key="m.key"><span class="meta-part" :title="m.title"><svg class="ic" x-show="m.icon" aria-hidden="true"><use :href="m.icon ? '#i-' + m.icon : ''"/></svg><span :class="{ 'sr-only': m.icon }" x-text="m.label"></span></span></template></span>
-                      <span class="meta-part" x-show="item.verified_at" :title="'Verified ' + fullDate(item.verified_at) + (item.verified_commit ? ' · ' + item.verified_commit.slice(0, 8) : '')" x-text="'✓ verified ' + $ago(item.verified_at)"></span>
-                      <button class="btn ghost sm" type="button" x-show="item.type !== 'secret'" @click="markVerified()" x-text="item.verified_at ? 'Verify again' : 'Mark verified'"></button>
                     </p>
                     <!-- Segredo · valor -->
                     <template x-if="item.type === 'secret' && !$store.app.route.params.edit">
@@ -943,29 +908,11 @@
                             <select id="ed-type" class="select" x-model="draft.type">
                               <template x-for="t in types" :key="t"><option :value="t" :selected="t === draft.type" x-text="$tlabel(t)"></option></template>
                             </select></div>
-                          <div class="field"><label for="ed-subtype">Subtype</label>
-                            <select id="ed-subtype" class="select" x-model="draft.subtype" :disabled="!subtypes.length">
-                              <option value="" :selected="!draft.subtype">None</option>
-                              <template x-for="st in subtypes" :key="st"><option :value="st" :selected="st === draft.subtype" x-text="$stlabel(st)"></option></template>
-                            </select></div>
-                          <div class="field"><label for="ed-status">Status</label>
-                            <select id="ed-status" class="select" x-model="draft.status">
-                              <template x-for="st in statuses" :key="st"><option :value="st" :selected="st === draft.status" x-text="st[0].toUpperCase() + st.slice(1)"></option></template>
-                            </select></div>
-                          <div class="field"><label for="ed-scope">Scope</label>
-                            <select id="ed-scope" class="select" x-model="draft.scope">
-                              <option value="" :selected="!draft.scope">Inherit</option>
-                              <template x-for="sc in scopes" :key="sc"><option :value="sc" :selected="sc === draft.scope" x-text="$scopelabel(sc)"></option></template>
-                            </select></div>
                           <div class="field grow"><label for="ed-summary">Summary</label>
                             <input id="ed-summary" class="input" type="text" x-model="draft.summary"></div>
                           <div class="field grow"><label for="ed-tags">Tags (comma-separated)</label>
                             <input id="ed-tags" class="input" type="text" x-model="draft.tags"></div>
-                          <div class="field"><label for="ed-ttl">Expires in (days)</label>
-                            <input id="ed-ttl" class="input" type="number" min="1" placeholder="never" x-model="draft.ttl_days"></div>
-                          <div class="field"><span class="field-label">Origin</span>
-                            <span class="field-static" title="Read-only: who wrote the item" x-text="$origin(origin)"></span></div>
-                          <div class="field grow"><label for="ed-links">Links (one per line: Title | https://…)</label>
+                          <div class="field grow"><label for="ed-links">Links (one per line: Title | https://… · path: src/** · -&gt; rule/x (depends_on))</label>
                             <textarea id="ed-links" class="textarea mono" rows="2" x-model="draft.links" spellcheck="false"></textarea></div>
                         </div>
                         <div class="editor-grid">
@@ -1001,7 +948,7 @@
                                 <span class="rel-type" x-text="r.type"></span>
                                 <svg class="ic"><use href="#i-arrow-right"/></svg>
                                 <span class="rel-t" x-text="relTitle(r)"></span>
-                                <span class="badges"><template x-for="b in $badges(r.node, { type: false, scope: false })" :key="b.key"><span :class="b.cls" :title="b.title"><span class="tdot" x-show="b.dot" aria-hidden="true"></span><svg class="ic" x-show="b.icon" aria-hidden="true"><use :href="b.icon ? '#i-' + b.icon : ''"/></svg><span x-text="b.label"></span></span></template></span>
+                                <span class="badges"><template x-for="b in $badges(r.node, { type: false })" :key="b.key"><span :class="b.cls" :title="b.title"><span class="tdot" x-show="b.dot" aria-hidden="true"></span><svg class="ic" x-show="b.icon" aria-hidden="true"><use :href="b.icon ? '#i-' + b.icon : ''"/></svg><span x-text="b.label"></span></span></template></span>
                               </a>
                             </template>
                           </div>
@@ -1012,7 +959,7 @@
                                 <span class="rel-type" x-text="r.type"></span>
                                 <svg class="ic"><use href="#i-arrow-left"/></svg>
                                 <span class="rel-t" x-text="relTitle(r)"></span>
-                                <span class="badges"><template x-for="b in $badges(r.node, { type: false, scope: false })" :key="b.key"><span :class="b.cls" :title="b.title"><span class="tdot" x-show="b.dot" aria-hidden="true"></span><svg class="ic" x-show="b.icon" aria-hidden="true"><use :href="b.icon ? '#i-' + b.icon : ''"/></svg><span x-text="b.label"></span></span></template></span>
+                                <span class="badges"><template x-for="b in $badges(r.node, { type: false })" :key="b.key"><span :class="b.cls" :title="b.title"><span class="tdot" x-show="b.dot" aria-hidden="true"></span><svg class="ic" x-show="b.icon" aria-hidden="true"><use :href="b.icon ? '#i-' + b.icon : ''"/></svg><span x-text="b.label"></span></span></template></span>
                               </a>
                             </template>
                           </div>
@@ -1326,10 +1273,6 @@
               <input id="m-name" x-ref="first" class="input" type="text" x-model="form.name" maxlength="255" required></div>
             <div class="field"><label for="m-desc">Description</label>
               <textarea id="m-desc" class="textarea" rows="3" x-model="form.description"></textarea></div>
-            <div class="field"><label for="m-scope">Scope</label>
-              <select id="m-scope" class="select" x-model="form.scope">
-                <template x-for="sc in scopes" :key="sc"><option :value="sc === 'scoped' ? '' : sc" x-text="$scopelabel(sc)"></option></template>
-              </select></div>
             <p class="muted" style="font-size:13px;margin:0">Will be created in the <b x-text="$store.app.connName"></b> connection.</p>
           </div>
         </template>
@@ -1344,11 +1287,6 @@
               <input id="m-pname" x-ref="first" class="input" type="text" x-model="form.name" maxlength="255" required></div>
             <div class="field"><label for="m-pdesc">Description</label>
               <textarea id="m-pdesc" class="textarea" rows="3" x-model="form.description"></textarea></div>
-            <div class="field"><label for="m-pscope">Scope</label>
-              <select id="m-pscope" class="select" x-model="form.scope">
-                <option value="">Inherit from workspace</option>
-                <template x-for="sc in scopes" :key="sc"><option :value="sc" x-text="$scopelabel(sc)"></option></template>
-              </select></div>
           </div>
         </template>
 
@@ -1365,16 +1303,6 @@
               <div class="field"><label for="m-type">Type</label>
                 <select id="m-type" class="select" x-model="form.type">
                   <template x-for="t in types" :key="t"><option :value="t" x-text="$tlabel(t)"></option></template>
-                </select></div>
-              <div class="field"><label for="m-subtype">Subtype</label>
-                <select id="m-subtype" class="select" x-model="form.subtype" :disabled="!subtypes.length">
-                  <option value="">None</option>
-                  <template x-for="st in subtypes" :key="st"><option :value="st" x-text="$stlabel(st)"></option></template>
-                </select></div>
-              <div class="field"><label for="m-iscope">Scope</label>
-                <select id="m-iscope" class="select" x-model="form.scope">
-                  <option value="">Inherit</option>
-                  <template x-for="sc in scopes" :key="sc"><option :value="sc" x-text="$scopelabel(sc)"></option></template>
                 </select></div>
             </div>
             <p class="form-hint" x-show="!projects.length">This workspace has no projects yet: create one before the item.</p>

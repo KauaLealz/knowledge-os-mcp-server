@@ -224,8 +224,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
   border-color: color-mix(in srgb, var(--tc, var(--text-2)) 30%, transparent);
 }
 .badge.alert { background: var(--warn-bg); border-color: var(--warn-border); color: var(--warn-text); }
-.badge.scope { background: none; border-color: var(--border-strong); }
-.badge.scope.inherited { border-style: dashed; }
 /* Tag: texto simples, sem borda (não é badge) */
 .tag { color: var(--text-2); font-size: 13px; font-weight: 500; white-space: nowrap; }
 /* Metadado da linha (onde · origem · tempo): muted, à direita, nunca badge */
@@ -302,10 +300,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .tag-row:hover .row-actions, .row-actions:focus-within { opacity: 1; }
 @media (hover: none) { .row-actions { opacity: 1; } }
 .confirm-pair { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
-/* Seletor de scope: um controle só (rótulo + select), com a nota "Inherited from …" só quando herdado */
-.scope-pick { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); }
-.scope-label { font-size: 12.5px; font-weight: 600; color: var(--text-2); }
-.scope-note { font-size: 12.5px; color: var(--text-3); }
 .field-label { font-size: 12.5px; font-weight: 600; color: var(--text-2); }
 .field-static { font-size: 14px; color: var(--text-2); padding: var(--sp-2) 0; }
 .form-actions { margin-top: var(--sp-3); }
@@ -450,7 +444,6 @@ body { overflow-x: clip; }
   .pager { grid-template-columns: minmax(0, 1fr); }
   .pager-a.next { grid-column: 1; }
   .toolbar .select.sm { flex: 1 1 140px; }
-  .toolbar .scope-pick { flex: 1 1 100%; }
   .dialog { margin: 0; }
   .editor-bar { padding-bottom: 16px; }
   .toasts { left: 16px; right: 16px; }

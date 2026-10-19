@@ -282,22 +282,19 @@ def test_fechar_modal_sujo_pede_confirmacao():
     assert html.count("close()") >= 3
 
 
-def test_mapa_de_tipos_cobre_os_tipos_e_subtipos_do_model():
+def test_mapa_de_tipos_cobre_os_tipos_do_model():
     from knowledge_os.model import TYPES
 
     util = _js("util.js")
     meta = util[util.index("export const TYPE_META") : util.index("export const TYPE_ORDER")]
-    for t, subtypes in TYPES.items():
-        m = re.search(rf"\b{t}: {{ label: '[^']+', subtypes: \[([^\]]*)\] }}", meta)
-        assert m, t
-        assert re.findall(r"'(\w+)'", m.group(1)) == list(subtypes), t
+    assert "subtypes" not in meta  # v6: sem subtipo
     labels = dict(re.findall(r"(\w+): \{ label: '([^']+)'", meta))
     assert set(labels) == set(TYPES)
-    assert labels["rule"] == "Rule" and labels["howto"] == "How-to"
+    assert labels["rule"] == "Rule" and labels["howto"] == "How-to" and labels["work"] == "Work"
     tokens = (STATIC / "css" / "tokens.css").read_text(encoding="utf-8")
     for t in TYPES:
         assert tokens.count(f"--t-{t}:") == 3, t  # claro, escuro (media) e escuro (data-theme)
-    for old in ("insight", "procedure", "pattern", "knowledge"):
+    for old in ("insight", "procedure", "pattern", "knowledge", "spec"):
         assert f"--t-{old}:" not in tokens, old
 
 
@@ -348,8 +345,8 @@ def test_listas_sao_planas_com_filtros_e_busca():
     util = _js("util.js")
     block = re.search(r"export const TYPE_META = \{(.*?)\n\};", util, re.S).group(1)
     keys = re.findall(r"^  (\w+): \{", block, re.M)
-    assert keys == ["rule", "howto", "context", "spec", "secret"]
-    assert "task" not in keys
+    assert keys == ["rule", "howto", "context", "work", "secret"]
+    assert "task" not in keys and "spec" not in keys
 
 
 def test_busca_tem_botao_de_filtro_com_popover_a_direita():
@@ -745,9 +742,8 @@ def test_linhas_de_item_nao_usam_icone_de_tipo():
     rows = re.findall(r'<a class="item-row".*?</a>', html, re.S)
     assert rows
     for row in rows:
-        # os únicos ícones da linha são os do badge (alerta, scope) e o da origem, todos
-        # vindos do gerador: o tipo é bolinha + texto, nunca ícone
-        assert row.count('x-for="b in $badges(it, { context: contextScope })"') == 1
+        # v6: o único badge da linha vem do gerador; o tipo é bolinha + texto, nunca ícone
+        assert row.count('x-for="b in $badges(it)"') == 1
         assert "<use href=" not in row
     util = (STATIC / "js" / "util.js").read_text(encoding="utf-8")
     type_badge = next(line for line in util.splitlines() if "key: 'type'" in line)

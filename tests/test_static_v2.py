@@ -1,9 +1,9 @@
-"""Front no modelo v2 (V2_MVP.md §12), conferido nos arquivos de `api/static` (sem build):
+"""Front no modelo v6, conferido nos arquivos de `api/static` (sem build):
 
-- nenhum conceito do modelo antigo (labels, classe de memória, importância, confiança) como
-  campo, rota ou texto de UI;
-- os conceitos do v2 presentes (subtipo, scope com o herdado, origem, links, ⚠ de revisão,
-  tags com contagem e gestão, caminho e saúde da conexão) e as rotas novas;
+- nenhum conceito do modelo antigo (subtipo, scope, status, origin, feedback, ttl) como campo,
+  rota ou controle de UI;
+- os conceitos do v6 presentes (os 5 tipos, tags como nuance+ciclo, links unificados, filtro por
+  tipo e tag, alcance por hierarquia, caminho e saúde da conexão);
 - todo `import` relativo resolve para um arquivo existente (import quebrado = tela branca).
 """
 
@@ -18,9 +18,12 @@ import pytest
 STATIC = Path(__file__).resolve().parent.parent / "src" / "knowledge_os" / "api" / "static"
 OURS = [STATIC / "index.html", *sorted((STATIC / "js").rglob("*.js")),
         *sorted((STATIC / "css").glob("*.css"))]
-# "label" sozinho é palavra comum de UI (aria-label, <label>, typeLabel): o conceito antigo é
-# o plural, o id e a rota.
-OLD = re.compile(r"memory_class|memoryClass|importance|confidence|\blabels\b|label_id", re.I)
+# Conceitos removidos no v6: os do modelo antigo e os artefatos v2 (subtipo, scope com herança,
+# status/review, origin, feedback, ttl). `scope()` da listagem é o filtro de localização, legítimo.
+OLD = re.compile(r"memory_class|memoryClass|importance|confidence|\blabels\b|label_id|"
+                 r"\bsubtype\b|\bsubtypes\b|effective_scope|scope_explicit|scope_inherited|"
+                 r"scope_paths|scopeBadges|\$scopebadges|setScope|scopeInfo|statusesFor|"
+                 r"subtypeLabel|\borigin\b|ttl_days|verified_at|item_feedback", re.I)
 
 
 def _text(path: Path) -> str:
@@ -31,77 +34,59 @@ def _all() -> str:
     return "\n".join(_text(p) for p in OURS)
 
 
-def test_nenhum_conceito_do_modelo_antigo():
+def test_nenhum_conceito_do_modelo_antigo_nem_do_v2():
     for path in OURS:
-        for n, line in enumerate(_text(path).splitlines(), 1):
-            hit = OLD.search(line)
-            if not hit:
-                continue
-            raise AssertionError(f"{path.name}:{n}: {line.strip()}")
+        for n, line in enumerate(_strip_comments(_text(path)).splitlines(), 1):
+            if line.strip() and OLD.search(line):
+                raise AssertionError(f"{path.name}:{n}: {line.strip()}")
 
 
-def test_campos_do_v2_presentes():
+def test_campos_do_v6_presentes():
     text = _all()
-    for needle in ("subtype", "scope", "effective_scope", "scope_inherited_from", "origin",
-                   "links", "review", "ttl_days", "verified_at", "where"):
+    for needle in ("type", "tags", "links", "where", "depends_on", "relates_to"):
         assert needle in text, needle
 
 
-def test_rotas_novas_da_api():
+def test_rotas_da_api():
     js = "\n".join(_text(p) for p in (STATIC / "js").rglob("*.js"))
-    for route in ("'/tags'", "/tags/", "/items/search", "/graph", "/feedback",
-                  "/connections/health", "/subjects/", "'/workspaces'", "'/projects'"):
+    for route in ("'/tags'", "/tags/", "/items/search", "/graph",
+                  "/connections/health", "'/workspaces'", "'/projects'"):
         assert route in js, route
-    for gone in ("/relations`", "/stats`", "/labels"):
+    for gone in ("/feedback", "/relations`", "/stats`", "/labels"):
         assert gone not in js, gone
 
 
-def test_tipos_com_subtipo_e_rotulos():
+def test_cinco_tipos_sem_subtipo():
     util = _text(STATIC / "js" / "util.js")
-    for t in ("rule", "howto", "context", "spec", "secret"):
+    for t in ("rule", "howto", "context", "work", "secret"):
         assert re.search(rf"^  {t}: \{{ label: ", util, re.M), t
-    for st in ("decision", "troubleshoot", "environment", "dream", "security"):
-        assert st in util, st
-    for old in ("insight:", "knowledge:", "procedure: {", "pattern: {"):
-        assert old not in util, old
-    # o rótulo "Rule · Decision" sai do gerador único de badges (e do sr-only da árvore)
-    assert "kindLabel(it.type, it.subtype)" in util
-    html = _text(STATIC / "index.html")
-    assert html.count("toggleSubtype(c.subtype)") == 3  # filtro de subtipo nas listagens
-    assert "subtypesOf" in _text(STATIC / "js" / "views" / "editor.js")
+    for gone in ("insight:", "knowledge:", "spec:", "subtypes:", "SUBTYPE_LABELS", "SCOPES"):
+        assert gone not in util, gone
+    # O rótulo do tipo sai do gerador único (sem subtipo).
+    assert "$kind(it.type)" in _text(STATIC / "index.html")
+    assert "export function kindLabel" in util
+    # Filtro por tag no lugar do subtipo, nas 3 listagens.
+    assert _text(STATIC / "index.html").count("toggleTag(c.tag)") == 3
+    assert "chipTags" in _text(STATIC / "js" / "views" / "listing.js")
 
 
-def test_scope_com_herdado_indicado():
+def test_tags_carregam_nuance_e_ciclo():
     util = _text(STATIC / "js" / "util.js")
-    assert "Inherited from" in util and "scope_inherited_from" in util
-    assert "badge scope inherited" in util  # herdado = tracejado, com tooltip de onde vem
-    html = _text(STATIC / "index.html")
-    assert "$badges(item" in html
-    assert html.count('@change="setScope($event.target.value)"') == 3  # ws, project, subject
-    for view in ("workspace", "project", "subject"):
-        src = _text(STATIC / "js" / "views" / f"{view}.js")
-        assert "get scopeInfo()" in src and "async setScope(value)" in src, view
-        assert "inheritedNote(" in src, view
+    for tag in ("decision", "troubleshoot", "security", "draft", "active", "done", "archived"):
+        assert tag in util, tag
+    assert "LIFECYCLE_TAGS" in util and "NUANCE_TAGS" in util
 
 
-def test_review_marcado():
-    util = _text(STATIC / "js" / "util.js")
-    assert "review: { label: 'Review'" in util and "icon: 'alert'" in util
-    html = _text(STATIC / "index.html")
-    # a ficha mostra o banner curto; o badge ⚠ Review fica nas listas e na árvore
-    assert "item.status === 'review'" in html and "$badges(item, { review: false })" in html
-    assert "isReview" in _text(STATIC / "js" / "views" / "listing.js")
-
-
-def test_links_origin_e_ttl_no_item_e_no_editor():
+def test_links_unificados_no_item_e_no_editor():
     html = _text(STATIC / "index.html")
     assert 'x-for="l in item.links"' in html and 'rel="noopener noreferrer"' in html
-    assert "$meta(item)" in html and "$origin(origin)" in html
-    assert 'x-model="draft.links"' in html and 'x-model="draft.ttl_days"' in html
-    assert 'x-model="draft.subtype"' in html and 'x-model="draft.scope"' in html
-    assert 'x-model="draft.origin"' not in html  # origin só leitura
+    assert "$meta(item)" in html
+    assert 'x-model="draft.links"' in html and 'x-model="draft.tags"' in html
+    for gone in ('draft.subtype', 'draft.scope', 'draft.status', 'draft.ttl_days',
+                 'draft.origin', '$origin('):
+        assert gone not in html, gone
     ed = _text(STATIC / "js" / "views" / "editor.js")
-    assert "textToLinks" in ed and "'ttl_days'" in ed and "origin: 'user'" in ed
+    assert "textToLinks" in ed and "'subtype'" not in ed and "'scope'" not in ed
 
 
 def test_tags_com_contagem_e_gestao():
@@ -184,23 +169,24 @@ def _static_ours() -> list[Path]:
     return [p for p in STATIC.rglob("*") if p.is_file() and "vendor" not in p.parts]
 
 
-def test_sem_scope_padrao_nem_not_set():
+def test_sem_scope_em_lugar_nenhum():
     for path in _static_ours():
-        text = _text(path)
-        for banned in ("Scoped (default)", "Not set (inherit)", "Not set (scoped)",
-                       "(default)'", "Scope: "):
+        text = _strip_comments(_text(path))
+        for banned in ("Scoped", "Inherit", "setScope", "scopeInfo", "$scopebadges",
+                       "Scope: ", "scope-pick"):
             assert banned not in text, f"{path.name}: {banned}"
 
 
 def test_um_unico_gerador_de_badges_e_os_templates_so_o_percorrem():
     util = _text(STATIC / "js" / "util.js")
     assert util.count("export function itemBadges(") == 1
-    assert "export function itemMeta(" in util and "export function scopeBadges(" in util
+    assert "export function itemMeta(" in util
+    assert "scopeBadges" not in util  # não há mais scope
     main = _text(STATIC / "js" / "main.js")
-    for magic in ("badges", "meta", "scopebadges", "connbadges", "faded"):
+    for magic in ("badges", "meta", "connbadges", "faded"):
         assert f"Alpine.magic('{magic}'" in main, magic
     html = _text(STATIC / "index.html")
-    # ninguém monta chip/badge à mão: nem a gramática antiga, nem a classe nova literal
+    # ninguém monta chip/badge à mão
     for path in _static_ours():
         if path.suffix in (".html", ".js"):
             text = _text(path)
@@ -210,11 +196,9 @@ def test_um_unico_gerador_de_badges_e_os_templates_so_o_percorrem():
     assert ".chip" not in css and ".tbadge" not in css and ".badge {" in css
     loops = BADGE_LOOP.findall(html)
     sources = [src for src, _ in loops]
-    # 3 listagens + paleta + ficha + 2 da árvore + relações + cards + 3 toolbars? (não) + conexões
-    assert sum(s.startswith("$badges(it") for s in sources) >= 5, sources
-    assert any(s.startswith("$badges(item, { review: false })") for s in sources)
+    assert sum(s.startswith("$badges(it") for s in sources) >= 3, sources
+    assert any(s.startswith("$badges(item)") for s in sources)
     assert any(s.startswith("$badges(e.it") for s in sources)  # paleta
-    assert any(s.startswith("$scopebadges(") for s in sources)  # cards de workspace
     assert any(s.startswith("$connbadges(") for s in sources)  # conexões
     bodies = {body for _, body in loops}
     assert len(bodies) == 1, bodies  # o MESMO trecho de markup em todo lugar
@@ -225,8 +209,8 @@ def test_linhas_usam_badges_e_meta_e_where_so_onde_mistura_projects():
     rows = re.findall(r'<a class="item-row".*?</a>', html, re.S)
     assert len(rows) == 3
     for row in rows:
-        assert row.count('x-for="b in $badges(it, { context: contextScope })"') == 1
-        assert "$meta(it" in row and "$origin(" not in row and "$ago(" not in row
+        assert row.count('x-for="b in $badges(it)"') == 1
+        assert "$meta(it" in row and "$origin(" not in row
     ws = html[html.index("<!-- Workspace -->") : html.index("<!-- Grafo")]
     pj = html[html.index("<!-- Project -->") : html.index("<!-- Item -->")]
     assert "$meta(it, { where: where(it) })" in ws
@@ -236,22 +220,13 @@ def test_linhas_usam_badges_e_meta_e_where_so_onde_mistura_projects():
 def test_crumbs_mostram_so_ancestrais():
     html = _text(STATIC / "index.html")
     for nav in re.findall(r'<nav class="crumbs">(.*?)</nav>', html, re.S):
-        # a página atual nunca vira crumb (já é o H1): nada de <span x-text=...> nem texto fixo
         assert "<span x-text" not in nav and "<span>Graph</span>" not in nav, nav
         assert "<span>Tags</span>" not in nav, nav
 
 
-def test_scope_e_um_controle_so_com_ajuda_quando_herdado():
-    html = _text(STATIC / "index.html")
-    assert html.count('class="scope-pick"') == 3
-    for block in re.findall(r'<label class="scope-pick">(.*?)</label>', html, re.S):
-        assert "<select" in block and ">Scope<" in block
-        assert "scopeInfo.note" in block  # "Inherited from workspace" só quando herdado
-
-
 def test_botao_so_de_icone_tem_aria_label_e_title():
     html = _text(STATIC / "index.html")
-    attrs = r'(?:"[^"]*"|[^>"])*'  # valor entre aspas pode ter ">" (ex.: page >= totalPages)
+    attrs = r'(?:"[^"]*"|[^>"])*'
     buttons = re.findall(rf'<(?:button|a)\b{attrs}class="btn icon[^"]*"{attrs}>', html)
     assert len(buttons) >= 10
     for b in buttons:
@@ -311,9 +286,6 @@ def test_texto_secundario_tem_contraste_aa_nos_dois_temas():
                 assert ratio >= 4.5, f"{fg} sobre {bg}: {ratio:.2f}"
 
 
-# ---- badge de scope herdado: só quando difere do contêiner da lista ----
-
-
 def _node(code: str):
     node = shutil.which("node")
     if not node:
@@ -325,36 +297,10 @@ def _node(code: str):
     return json.loads(out.stdout)
 
 
-def test_scope_herdado_igual_ao_do_conteiner_nao_repete_badge():
+def test_item_arquivado_fica_esmaecido():
     got = _node("""
-const inh = (eff, ctx) => u.itemBadges({ type: 'rule', scope: null, effective_scope: eff,
-  scope_inherited_from: 'workspace' }, { type: false, context: ctx }).map((b) => b.cls);
-const exp = (eff, ctx) => u.itemBadges({ type: 'rule', scope: eff, effective_scope: eff,
-  scope_inherited_from: null }, { type: false, context: ctx }).map((b) => b.cls);
-// busca/palette: o resultado traz scope (efetivo) + scope_explicit + scope_inherited_from
-const hit = (explicit, from) => u.itemBadges({ type: 'rule', scope: 'workspace',
-  scope_explicit: explicit, scope_inherited_from: from }, { type: false }).map((b) => b.cls);
-console.log(JSON.stringify({
-  igual: inh('workspace', 'workspace'),
-  difere: inh('global', 'workspace'),
-  semContexto: inh('workspace', undefined),
-  explicitoIgual: exp('workspace', 'workspace'),
-  buscaHerdado: hit(null, 'workspace'),
-  buscaExplicito: hit('workspace', null),
-}));
-""")
-    assert got["igual"] == []  # herdado e igual ao contêiner: some
-    assert got["difere"] == ["badge scope inherited"]
-    assert got["semContexto"] == ["badge scope inherited"]  # lista sem contêiner
-    assert got["explicitoIgual"] == ["badge scope"]  # explícito (sólido) sempre aparece
-    assert got["buscaHerdado"] == ["badge scope inherited"]
-    assert got["buscaExplicito"] == ["badge scope"]
-
-
-def test_item_vencido_da_arvore_fica_esmaecido():
-    got = _node("""
-console.log(JSON.stringify([u.isFaded({ status: 'active', expired: true }),
-  u.isFaded({ status: 'active', expired: false }), u.isFaded({ status: 'active' })]));
+console.log(JSON.stringify([u.isFaded({ tags: ['archived'] }),
+  u.isFaded({ tags: ['active'] }), u.isFaded({})]));
 """)
     assert got == [True, False, False]
     html = _text(STATIC / "index.html")
@@ -362,8 +308,16 @@ console.log(JSON.stringify([u.isFaded({ status: 'active', expired: true }),
     assert len(tree) == 2 and all("faded: $faded(it)" in a for a in tree)
 
 
-def test_listagens_passam_o_scope_do_conteiner_como_contexto():
-    for view, source in (("workspace", "this.app.workspace"), ("project", "this.app.project"),
-                         ("subject", "this.app.subject")):
-        src = _text(STATIC / "js" / "views" / f"{view}.js")
-        assert "get contextScope()" in src and f"{source}?.scope" in src, view
+def test_lifecycle_badge_vem_da_tag():
+    got = _node("""
+const cls = (tags) => u.itemBadges({ type: 'work', tags }, { type: false }).map((b) => b.label);
+console.log(JSON.stringify({
+  draft: cls(['draft']), done: cls(['done']), archived: cls(['archived']),
+  active: cls(['active']), none: cls([]),
+}));
+""")
+    assert got["draft"] == ["Draft"]
+    assert got["done"] == ["Done"]
+    assert got["archived"] == ["Archived"]
+    assert got["active"] == []  # active é o normal: sem badge
+    assert got["none"] == []
