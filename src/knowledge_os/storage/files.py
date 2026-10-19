@@ -69,8 +69,8 @@ def _record_from_parsed(parsed: dict[str, Any], path: str) -> ItemRecord:
 
 def record_text(record: ItemRecord) -> tuple[str, str]:
     """(path relativo, conteúdo do arquivo) do item, como `FileStore.write` gravaria."""
-    if not record.workspace or not record.project:
-        raise ValidationError("Item sem workspace/project não pode ser gravado")
+    if not record.workspace:
+        raise ValidationError("Item sem workspace não pode ser gravado")
     rel = item_path(record.workspace, record.project, record.key, record.id)
     text = serialize_item(
         asdict(record),

@@ -152,24 +152,30 @@ def safe_join(root: Path, rel: str) -> Path:
     return target
 
 
-def item_path(workspace_name: str, project_name: str, key: str | None, item_id: str) -> str:
+# Pasta reservada para os itens que moram direto no workspace (sem project). Começa com "_", que
+# `check_name`/`_visible_dirs` recusam como nome de project — então nunca colide com um project.
+_WORKSPACE_DIR = "_"
+
+
+def item_path(workspace_name: str, project_name: str | None, key: str | None,
+              item_id: str) -> str:
     """Path do arquivo do item, relativo à raiz do repositório de dados.
 
-    Com key: "<workspace-slug>/<project-slug>/<key>.md" — a key já usa "/" como separador de
-    namespace (ex.: "regra/money"), que vira níveis de pasta dentro do project, não um nome de
-    arquivo com "/" literal. Sem key (item criado só com título): o arquivo vai para a pasta
-    "_sem-key", nomeado pelo id.
+    Com project e key: "<workspace-slug>/<project-slug>/<key>.md" — a key já usa "/" como
+    separador de namespace (ex.: "regra/money"), que vira níveis de pasta dentro do project. Sem
+    project (item que mora no workspace), vai para "<workspace-slug>/_/<key>.md". Sem key (item
+    só com título): a pasta "_sem-key", nomeado pelo id.
 
     Levanta `ValidationError` se key, id, workspace ou project levariam o arquivo para fora da
-    pasta do project (ex.: key com "..").
+    pasta (ex.: key com "..").
     """
     problem = (portable_folder_problem(workspace_name, "workspace")
-               or portable_folder_problem(project_name, "project")
+               or (portable_folder_problem(project_name, "project") if project_name else None)
                or (key_problem(key) if key else id_problem(item_id)))
     if problem:
         raise ValidationError(problem)
     ws = slugify(workspace_name)
-    dm = slugify(project_name)
+    dm = slugify(project_name) if project_name else _WORKSPACE_DIR
     rel = f"{ws}/{dm}/{key}.md" if key else f"{ws}/{dm}/{_SEM_KEY_DIR}/{item_id}.md"
     problem = path_length_problem(None, rel)
     if problem:
@@ -251,7 +257,7 @@ def serialize_item(
     optional("key", _field(item, "key"))
     data["id"] = _field(item, "id")
     data["workspace"] = workspace_name
-    data["project"] = project_name
+    optional("project", project_name)
     optional("subject", subject_name)
     data["type"] = item_type
     data["title"] = _field(item, "title")

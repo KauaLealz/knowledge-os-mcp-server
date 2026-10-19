@@ -315,14 +315,18 @@ class Snapshot:
                 if description is not None:
                     sj.description = description
         for record in sorted(self.records.values(), key=lambda r: (r.created_at, r.path)):
-            if not record.workspace or not record.project:
+            if not record.workspace:
                 continue
-            ws_id, pj_id = slugify(record.workspace), slugify(record.project)
+            ws_id = slugify(record.workspace)
             ws = tree.get(ws_id)
             if ws is None:
                 ws = tree[ws_id] = _Node(ws_id, record.workspace, named=True)
             elif not ws.named:
                 ws.name, ws.named = record.workspace, True
+            if not record.project:
+                ws.touch(record)  # item mora no workspace: toca o nó e não cria project
+                continue
+            pj_id = slugify(record.project)
             pj = ws.children.get(pj_id)
             if pj is None:
                 pj = ws.children[pj_id] = _Node(pj_id, record.project, named=True)

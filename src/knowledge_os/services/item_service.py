@@ -257,9 +257,9 @@ class ItemService:
                   default_location: tuple[str, str] | None) -> dict[str, Any]:
         item_id, key = raw.get("id"), raw.get("key")
         ws_ref, pj_ref = raw.get("workspace"), raw.get("project")
-        if bool(ws_ref) != bool(pj_ref):
-            raise ValidationError("informe workspace e project juntos (ou nenhum dos dois, para "
-                                  "usar o project ligado ao repo)")
+        if pj_ref and not ws_ref:
+            raise ValidationError("informe o workspace do project (ou nenhum dos dois, para usar "
+                                  "o project ligado ao repo)")
         existing: ItemRecord | None = None
         names: tuple[str, str] | None = None
         if item_id is not None:
@@ -283,7 +283,7 @@ class ItemService:
                 problem = key_problem(key)
                 if problem:
                     raise ValidationError(problem)
-                existing = d.by_key(slugify(names[0]), slugify(names[1]), key)
+                existing = d.by_key(slugify(names[0]), slugify(names[1] or ""), key)
                 if existing is None:
                     _refuse_case_clash(d, names, key, None)
 
@@ -628,12 +628,13 @@ class ItemService:
 # --------------------------------------------------------------------------- helpers
 
 
-def _refuse_case_clash(snap: Snapshot, names: tuple[str, str], key: str,
+def _refuse_case_clash(snap: Snapshot, names: tuple[str, str | None], key: str,
                        exclude: str | None) -> None:
-    clash = snap.key_clash(slugify(names[0]), slugify(names[1]), key, exclude)
+    clash = snap.key_clash(slugify(names[0]), slugify(names[1] or ""), key, exclude)
     if clash is not None:
-        raise ValidationError(f"já existe `{clash.key}` (a caixa não diferencia) no project "
-                              f"{names[1]}: use essa key para atualizar o item, ou outro nome")
+        onde = f"no project {names[1]}" if names[1] else "no workspace"
+        raise ValidationError(f"já existe `{clash.key}` (a caixa não diferencia) {onde}: use "
+                              "essa key para atualizar o item, ou outro nome")
 
 
 _CREDENTIAL_HINT = (
@@ -731,10 +732,14 @@ def full_dict(brain: Brain, record: ItemRecord, now: datetime | None = None) -> 
     return row
 
 
-def location_names(snap: Snapshot, workspace: str, project: str) -> tuple[str, str]:
-    """Nomes de exibição do workspace/project (existentes por nome ou id; novos validados)."""
+def location_names(snap: Snapshot, workspace: str,
+                   project: str | None) -> tuple[str, str | None]:
+    """Nomes de exibição do workspace/project (existentes por nome ou id; novos validados).
+    Sem project (item que mora no workspace), devolve (workspace, None)."""
     ws = snap.find_workspace(workspace)
     ws_name = ws.name if ws else check_name(workspace, "workspace")
+    if not project:
+        return ws_name, None
     pj = snap.find_project(slugify(ws_name), project) if ws else None
     pj_name = pj.name if pj else check_name(project, "project")
     return ws_name, pj_name
