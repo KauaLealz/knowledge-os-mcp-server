@@ -36,13 +36,32 @@ from knowledge_os.storage.access import resolve_connection
 _V2_MARKERS = ("subtype", "scope", "origin", "ttl_days", "keywords", "source", "status",
                "relations", "scope_paths", "verified_at", "verified_commit")
 _STATUS_ARCHIVED = ("review", "archived", "superseded", "deprecated")
+# Tipos de versões v1 (anteriores ao v2) que podem ter sobrado em disco: (tipo v6, tag de nuance).
+_V1_TYPES: dict[str, tuple[str, str | None]] = {
+    "procedure": ("howto", None),
+    "knowledge": ("howto", "troubleshoot"),
+    "pattern": ("rule", "pattern"),
+    "insight": ("rule", "decision"),
+    "task": ("work", None),
+}
+
+
+def _v6_type_and_tag(data: dict[str, Any]) -> tuple[str | None, str | None]:
+    """O tipo v6 do item (e a tag de nuance herdada, se houver): `spec`→`work`, tipos v1→v6."""
+    t = data.get("type")
+    if t == "spec":
+        return "work", None
+    if t in _V1_TYPES:
+        return _V1_TYPES[t]
+    return t, None
 
 
 def _needs_item_migration(data: dict[str, Any]) -> bool:
     # `status` é campo obrigatório no v2 e não existe no v6: o marcador mais confiável. Os
-    # demais campos v2 e `type: spec` cobrem o resto. (Um link {url, title} tem a mesma forma
-    # no v2 e no v6, então não serve de marcador.)
-    return data.get("type") == "spec" or any(m in data for m in _V2_MARKERS)
+    # demais campos v2, `type: spec` e os tipos v1 cobrem o resto. (Um link {url, title} tem a
+    # mesma forma no v2 e no v6, então não serve de marcador.)
+    return (data.get("type") == "spec" or data.get("type") in _V1_TYPES
+            or any(m in data for m in _V2_MARKERS))
 
 
 def _to_v6_links(data: dict[str, Any]) -> list[dict[str, str]]:
@@ -66,10 +85,12 @@ def _to_v6_links(data: dict[str, Any]) -> list[dict[str, str]]:
     return out
 
 
-def _to_v6_tags(data: dict[str, Any], item_type: str) -> list[str]:
+def _to_v6_tags(data: dict[str, Any], item_type: str, extra: str | None = None) -> list[str]:
     tags = [t for t in (data.get("tags") or []) if isinstance(t, str)]
     if data.get("subtype"):
         tags.append(str(data["subtype"]))
+    if extra:
+        tags.append(extra)
     status = data.get("status")
     if item_type == "work" and status in ("draft", "done"):
         tags.append(status)
@@ -87,7 +108,7 @@ def migrate_item_text(raw: str) -> str | None:
     if not isinstance(data, dict) or not _needs_item_migration(data):
         return None
     content = match.group(2)
-    item_type = "work" if data.get("type") == "spec" else data.get("type")
+    item_type, extra_tag = _v6_type_and_tag(data)
     item = {
         "id": data.get("id"), "key": data.get("key"), "type": item_type,
         "title": data.get("title"), "summary": data.get("summary"), "content": content,
@@ -97,7 +118,7 @@ def migrate_item_text(raw: str) -> str | None:
     return serialize_item(
         item, workspace_name=data.get("workspace"), project_name=data.get("project"),
         subject_name=data.get("subject"), links=_to_v6_links(data),
-        tags=_to_v6_tags(data, item_type),
+        tags=_to_v6_tags(data, item_type, extra_tag),
     )
 
 
