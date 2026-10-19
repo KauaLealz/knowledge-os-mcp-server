@@ -17,15 +17,13 @@ from datetime import datetime
 
 import pytest
 
-from knowledge_os.exceptions import NotFoundError, ValidationError
+from knowledge_os.exceptions import ValidationError
 from knowledge_os.model import check_links, validate_entry
 from knowledge_os.services import item_file
 from knowledge_os.services.brain import Brain, read_metas
-from knowledge_os.services.context_service import ContextService
 from knowledge_os.services.item_file import parse_item_file
 from knowledge_os.services.item_service import ItemService
 from knowledge_os.services.project_service import ProjectService
-from knowledge_os.services.repo_service import RepoService
 from knowledge_os.services.secret_service import SecretService
 from knowledge_os.services.subject_service import SubjectService
 from knowledge_os.services.workspace_service import WorkspaceService
@@ -57,11 +55,6 @@ def _record(item_id):
     return Brain().snapshot.require(item_id)
 
 
-def _effective(item_id):
-    snap = Brain().snapshot
-    return snap.effective_scope(snap.require(item_id))
-
-
 def _tree(root):
     """{path relativo: bytes} dos arquivos da pasta (fora do `.git`)."""
     return {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob("*")
@@ -73,65 +66,15 @@ def _git(root, *args):
                           check=True).stdout.strip()
 
 
-# ============================================================ bloqueador 1: segredo e scope
-
-
-@pytest.fixture
-def pessoal_global(conn):
-    """Workspace `Pessoal` com scope global e um repositório de outro cliente ligado."""
-    WorkspaceService().create("Pessoal", scope="global")
-    ProjectService().create("pessoal", "notas")
-    RepoService().link(OTHER, "Cliente", "app")
-    return conn
-
-
-def test_segredo_nao_herda_o_scope_global_do_workspace(pessoal_global):
-    item_id = _secret("Pessoal", "notas")
-    rule_id = _rule("Pessoal", "notas", "rule/comum")
-    with pytest.raises(NotFoundError):
-        SecretService().resolve(OTHER, "secret/github-token")
-    assert "Token do GitHub" not in ContextService().build(OTHER)["markdown"]
-    row = ItemService().get_many(ids=[item_id])[0]
-    assert (row["scope"], row["scope_explicit"]) == ("scoped", None)
-    assert _effective(item_id) == "scoped"
-    assert _effective(rule_id) == "global"  # o resto continua herdando
-
-
-def test_segredo_com_scope_global_explicito_resolve_de_outro_workspace(pessoal_global):
-    item_id = _secret("Pessoal", "notas", scope="global")
-    item, value = SecretService().resolve(OTHER, "secret/github-token")
-    assert (item.id, value) == (item_id, VALUE)
-    assert "Token do GitHub" in ContextService().build(OTHER)["markdown"]
-
-
-def test_segredo_do_project_do_repo_vence_o_de_fora(pessoal_global):
-    _secret("Pessoal", "notas", scope="global")
-    local = _secret("Cliente", "app", value="local-" + VALUE)
-    item, value = SecretService().resolve(OTHER, "secret/github-token")
-    assert (item.id, value) == (local, "local-" + VALUE)
-
-
-def test_dois_segredos_igualmente_proximos_sao_ambiguos(pessoal_global):
-    _secret("Pessoal", "notas", scope="global")
-    WorkspaceService().create("Outro")
-    ProjectService().create("outro", "x")
-    _secret("Outro", "x", scope="global")
-    with pytest.raises(ValidationError, match="mais de um lugar") as exc:
-        SecretService().resolve(OTHER, "secret/github-token")
-    assert VALUE not in str(exc.value)
-
-
-# ============================================================ bloqueador 2: credencial em campos
+# ============================================================ bloqueador: credencial em campos
 
 
 @pytest.mark.parametrize("extra", [
-    {"links": [{"title": "Painel", "url": "https://admin:S3nh4@host.com/x"}]},
-    {"links": [{"title": "API", "url": "https://api.host.com/v1?api_key=sk-abcdefghijklmnopqrstuvwx"}]},
-    {"links": [{"title": "https://admin:S3nh4@host.com", "url": "https://host.com"}]},
-    {"source": "https://admin:S3nh4@host.com/ticket"},
-    {"scope_paths": ["src/sk-abcdefghijklmnopqrstuvwx/*"]},
+    {"links": [{"url": "https://admin:S3nh4@host.com/x"}]},
+    {"links": [{"url": "https://api.host.com/v1?api_key=sk-abcdefghijklmnopqrstuvwx"}]},
+    {"links": [{"path": "src/sk-abcdefghijklmnopqrstuvwx/*"}]},
 ])
-def test_credencial_em_links_source_e_scope_paths_e_recusada(conn, data_dir, extra):
+def test_credencial_em_links_e_recusada(conn, data_dir, extra):
     with pytest.raises(ValidationError) as exc:
         ItemService().save([{"workspace": "W", "project": "P", "key": "context/painel",
                              "type": "context", "title": "Painel", "summary": "s", **extra}])
@@ -329,13 +272,11 @@ def test_memory_error_ao_ler_um_arquivo_nao_derruba_a_leitura(tmp_path, monkeypa
 # ============================================================ major 1: ReDoS em scope_paths
 
 
-def _rec(scope_paths) -> ItemRecord:
+def _rec(paths) -> ItemRecord:
     return ItemRecord(
         id="r1", key="rule/r1", workspace="W", project="P", subject=None, type="rule",
-        subtype=None, scope=None, title="t", status="active", tags=[], links=[],
-        scope_paths=scope_paths, ttl_days=None, keywords=None, source=None, origin="agent",
-        verified_at=None, verified_commit=None, created_at=datetime(2026, 1, 1),
-        updated_at=datetime(2026, 1, 1), relations=[], summary="s", content="",
+        title="t", tags=[], links=[{"path": p} for p in paths],
+        created_at=datetime(2026, 1, 1), updated_at=datetime(2026, 1, 1), summary="s", content="",
     )
 
 
@@ -367,84 +308,13 @@ def test_glob_mantem_o_casamento(pattern, path, expected):
 
 
 @pytest.mark.parametrize("paths,limit", [
-    ([f"src/{i}/*" for i in range(21)], "no máximo 20"),
+    ([f"src/{i}/*" for i in range(51)], "no máximo 50"),
     (["a" * 201], "200 caracteres"),
     (["*?" * 4 + "*"], "8 curingas"),
 ])
-def test_scope_paths_fora_do_limite_e_recusado(paths, limit):
+def test_links_path_fora_do_limite_e_recusado(paths, limit):
     with pytest.raises(ValidationError, match=limit):
-        validate_entry({"scope_paths": paths})
-
-
-# ============================================================ major 5: merge/delete e scope
-
-
-def test_apagar_subject_scoped_num_workspace_global_preserva_o_alcance(conn, data_dir):
-    from knowledge_os.mcp import tools
-
-    WorkspaceService().create("W", scope="global")
-    ProjectService().create("w", "P")
-    SubjectService().create("w", "p", "segredos", scope="scoped")
-    a = _rule("W", "P", "rule/a", subject="segredos")
-    b = _rule("W", "P", "rule/b")
-    sec = _secret("W", "P", subject="segredos")
-    preview = tools.subject_delete("W", "P", "segredos")
-    assert preview["status"] == "preview" and preview["scope_changes"] == {"items": 1}
-    assert _record(a).scope is None  # a prévia não muda nada
-    commits = int(_git(data_dir, "rev-list", "--count", "HEAD"))
-    tools.subject_delete("W", "P", "segredos", confirm=True)
-    assert int(_git(data_dir, "rev-list", "--count", "HEAD")) == commits + 1
-    assert (_record(a).scope, _effective(a)) == ("scoped", "scoped")
-    assert (_record(b).scope, _effective(b)) == (None, "global")
-    assert (_record(sec).scope, _effective(sec)) == (None, "scoped")
-
-
-def test_mesclar_subject_mantem_o_alcance_dos_itens(conn):
-    WorkspaceService().create("W")
-    ProjectService().create("w", "P")
-    SubjectService().create("w", "p", "git", scope="global")
-    SubjectService().create("w", "p", "outros")
-    a = _rule("W", "P", "rule/a", subject="git")
-    out = SubjectService().merge("w", "p", "git", "outros")
-    assert out["scope_changes"] == {"items": 1}
-    assert (_record(a).scope, _effective(a)) == ("global", "global")
-
-
-def test_mesclar_workspace_global_em_scoped_mantem_as_regras_globais(conn):
-    WorkspaceService().create("Global", scope="global")
-    ProjectService().create("global", "Geral")
-    WorkspaceService().create("Cliente")
-    ProjectService().create("cliente", "app")
-    g = _rule("Global", "Geral", "rule/g")
-    s = _rule("Global", "Geral", "rule/s", scope="workspace")
-    sec = _secret("Global", "Geral")
-    out = WorkspaceService().merge("Global", "Cliente")
-    assert out["scope_changes"] == {"items": 1}
-    assert (_record(g).workspace, _record(g).scope, _effective(g)) == ("Cliente", "global",
-                                                                        "global")
-    assert _record(s).scope == "workspace"
-    assert (_record(sec).scope, _effective(sec)) == (None, "scoped")
-
-
-def test_mesclar_workspace_scoped_em_global_nao_espalha_os_itens(conn):
-    WorkspaceService().create("Global", scope="global")
-    ProjectService().create("global", "Geral")
-    WorkspaceService().create("Cliente")
-    ProjectService().create("cliente", "app")
-    c = _rule("Cliente", "app", "rule/c")
-    out = WorkspaceService().merge("Cliente", "Global")
-    assert out["scope_changes"] == {"items": 1}
-    assert (_record(c).scope, _effective(c)) == ("scoped", "scoped")
-
-
-def test_mesclar_project_materializa_o_scope_anterior(conn):
-    WorkspaceService().create("W")
-    ProjectService().create("w", "Velho", scope="global")
-    ProjectService().create("w", "Novo")
-    a = _rule("W", "Velho", "rule/a")
-    out = ProjectService().merge("w", "velho", "novo")
-    assert out["scope_changes"] == {"items": 1}
-    assert (_record(a).project, _record(a).scope) == ("Novo", "global")
+        validate_entry({"links": [{"path": p} for p in paths]})
 
 
 # ============================================================ menores

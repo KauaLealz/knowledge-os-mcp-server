@@ -1,8 +1,9 @@
-"""Busca pela API: a resposta é a do `ItemService.search` (resultados explicados, nunca o
-`content`), com os ids para montar o link na UI e os filtros do v2."""
+"""Busca pela API (v6): a resposta é a do `ItemService.search` (resultados explicados, nunca o
+`content`), com os ids para montar o link na UI. Filtros: types, tags, paths (sem
+subtype/scope/status/origin)."""
 
-RESULT_FIELDS = {"id", "key", "type", "subtype", "title", "summary", "scope", "where", "status",
-                 "score", "matched_in", "snippet", "workspace_id", "project_id", "subject_id"}
+RESULT_FIELDS = {"id", "key", "type", "title", "summary", "where", "score", "matched_in",
+                 "snippet", "workspace_id", "project_id", "subject_id"}
 
 
 def _search(client, **params):
@@ -17,10 +18,10 @@ def test_search_devolve_o_formato_do_servico(client, mk):
     assert set(body) == {"results"}
     (hit,) = body["results"]
     assert RESULT_FIELDS <= hit.keys()
-    assert "content" not in hit and "labels" not in hit and "memory_class" not in hit
+    assert "content" not in hit and "subtype" not in hit and "scope" not in hit
     assert hit["id"] == it["id"] and hit["where"] == "WS/Dom"
     assert (hit["workspace_id"], hit["project_id"]) == (ws["id"], dm["id"])
-    assert "summary" in hit["matched_in"] and hit["scope"] == "scoped"
+    assert "summary" in hit["matched_in"]
 
 
 def test_search_no_match(client, mk):
@@ -28,17 +29,17 @@ def test_search_no_match(client, mk):
     assert _search(client, query="zzzinexistente")["results"] == []
 
 
-def test_search_por_workspace_inclui_os_globais_de_fora(client, mk):
+def test_search_everywhere_ve_todos_os_workspaces(client, mk):
     ws, dm, _ = mk.tree()
-    other = mk.ws("Global WS", scope="global")
+    other = mk.ws("Outro WS")
     pj = mk.project(other["id"], "P")
     mk.item(other["id"], pj["id"], "Fora conditional")
-    mk.item(mk.ws("Isolado")["id"], mk.project("isolado", "Q")["id"], "Isolado conditional")
-    titles = {h["title"] for h in _search(client, query="conditional",
-                                           workspace_id=ws["id"])["results"]}
-    assert titles == {"Item", "Fora conditional"}
-    every = {h["title"] for h in _search(client, query="conditional")["results"]}
-    assert every == {"Item", "Fora conditional", "Isolado conditional"}
+    every = {h["title"] for h in _search(client, query="conditional", everywhere="true")[
+        "results"]}
+    assert every == {"Item", "Fora conditional"}
+    so_ws = {h["title"] for h in _search(client, query="conditional",
+                                         workspace_id=ws["id"])["results"]}
+    assert so_ws == {"Item"}
 
 
 def test_search_project_e_subject(client, mk):
@@ -58,25 +59,18 @@ def test_search_project_e_subject(client, mk):
     assert titles(subject_id=sj["id"]) == ["Pix conditional"]
 
 
-def test_search_filtros_v2(client, mk):
+def test_search_filtros_v6(client, mk):
     ws, dm, _ = mk.tree()
-    mk.item(ws["id"], dm["id"], "Howto conditional", type="howto", subtype="procedure",
-            tags=["deploy"], origin="user")
-    mk.item(ws["id"], dm["id"], "Rev conditional", status="review", scope="global")
+    mk.item(ws["id"], dm["id"], "Howto conditional", type="howto", tags=["deploy", "procedure"])
+    mk.item(ws["id"], dm["id"], "Ctx conditional", type="context", tags=["stack"])
 
     def titles(**params):
-        return sorted(h["title"] for h in _search(client, query="conditional", **params)[
-            "results"])
+        return sorted(h["title"] for h in _search(client, query="conditional",
+                                                  workspace_id=ws["id"], **params)["results"])
 
     assert titles(types="howto") == ["Howto conditional"]
-    assert titles(subtypes="procedure") == ["Howto conditional"]
     assert titles(tags="deploy") == ["Howto conditional"]
-    assert titles(origin="user") == ["Howto conditional"]
-    assert titles(scope="global") == ["Rev conditional"]
-    assert titles(status="review") == ["Rev conditional"]
-    rev = [h for h in _search(client, query="conditional")["results"]
-           if h["title"] == "Rev conditional"]
-    assert rev and rev[0]["status"] == "review"
+    assert titles(tags="stack") == ["Ctx conditional"]
 
 
 def test_search_filtro_invalido_e_422_com_os_validos(client, mk):
@@ -84,7 +78,7 @@ def test_search_filtro_invalido_e_422_com_os_validos(client, mk):
     r = client.get("/api/items/search", params={"query": "x", "types": "insight"})
     assert r.status_code == 422 and "Válidos" in r.json()["detail"]
     r = client.get("/api/items/search", params={"query": "x", "labels": "a"})
-    assert r.status_code == 422 and "labels" in r.json()["detail"]
+    assert r.status_code == 422
 
 
 def test_search_limit_ate_50(client):
@@ -94,16 +88,3 @@ def test_search_limit_ate_50(client):
 def test_search_unknown_workspace_is_404(client):
     r = client.get("/api/items/search", params={"query": "x", "workspace_id": "nope"})
     assert r.status_code == 404
-
-
-def test_search_traz_scope_explicit_e_scope_inherited_from(client, mk):
-    ws = mk.ws("Esc", scope="workspace")
-    pj = mk.project(ws["id"], "P")
-    mk.item(ws["id"], pj["id"], "Herdado conditional")
-    mk.item(ws["id"], pj["id"], "Explicito conditional", scope="global")
-    by_title = {h["title"]: h for h in _search(client, query="conditional")["results"]}
-    herdado, explicito = by_title["Herdado conditional"], by_title["Explicito conditional"]
-    assert (herdado["scope"], herdado["scope_explicit"], herdado["scope_inherited_from"]) == (
-        "workspace", None, "workspace")
-    assert (explicito["scope"], explicito["scope_explicit"],
-            explicito["scope_inherited_from"]) == ("global", "global", None)

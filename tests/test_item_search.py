@@ -33,11 +33,11 @@ def test_search_nao_retorna_content(svc):
     assert isinstance(row["score"], float)
 
 
-def test_search_filtra_por_tipo_e_subtipo(svc):
+def test_search_filtra_por_tipo_e_tag(svc):
     _mk(svc, type="rule", content="redis")
-    k = _mk(svc, type="howto", subtype="troubleshoot", content="redis")
+    k = _mk(svc, type="howto", tags=["troubleshoot"], content="redis")
     assert _ids(svc.search("redis", viewpoint=VP, types=["howto"],
-                           subtypes=["troubleshoot"])) == [k.id]
+                           tags=["troubleshoot"])) == [k.id]
 
 
 def test_search_filtra_por_workspace(svc):
@@ -109,7 +109,7 @@ def _url(row):
     return f"http://127.0.0.1:8765/ui/#/c/teste/w/w/p/p/i/{row['id']}"
 
 
-@pytest.mark.parametrize("type_", ["rule", "howto", "context", "spec"])
+@pytest.mark.parametrize("type_", ["rule", "howto", "context", "work"])
 def test_save_devolve_url_em_item_de_qualquer_tipo_sem_fill_url(svc, type_):
     (row,) = svc.save([{"type": type_, "title": "t", "summary": "s", "content": "c"}],
                       default_location=("W", "P"))

@@ -1,6 +1,5 @@
-"""Pacote de contexto do hook (V2_MVP.md §10): a mesma cadeia de alcance da busca, as seções
-em ordem, a origem marcada nos itens de fora do project, o orçamento e o texto de como resolver
-quando não há ligação ou conexão."""
+"""Pacote de contexto do hook (v6): alcance por hierarquia, seções em ordem, foco por paths
+(links de `path`) ou query, segredos e orçamento. Sem scope/status/subtype."""
 
 import pytest
 
@@ -12,8 +11,8 @@ from knowledge_os.services.repo_service import RepoService
 from knowledge_os.services.secret_service import SecretService
 
 REPO = "github.com/org/app"
-SECTIONS = ["## Em foco", "## ⚠ Em revisão", "## Segurança", "## Regras", "## Contexto",
-            "## Como fazer", "## Specs ativas", "## Segredos", "## Regras com escopo"]
+SECTIONS = ["## Em foco", "## Segurança", "## Regras", "## Contexto", "## Como fazer",
+            "## Trabalho ativo", "## Segredos", "## Regras com escopo"]
 
 
 @pytest.fixture
@@ -36,62 +35,51 @@ def _pack(**kw):
 
 
 def _section(md, title):
-    """Texto da seção `title` (até o próximo `## `)."""
     start = md.index(title)
     nxt = md.find("\n## ", start + len(title))
     return md[start:nxt if nxt != -1 else len(md)]
 
 
 def test_secoes_em_ordem(save):
-    save("rule/sem-log", subtype="security", title="Segredo nunca no log")
-    save("rule/money", subtype="code", title="Use Money")
-    save("rule/revisar", subtype="code", title="Regra duvidosa", status="review")
+    save("rule/sem-log", tags=["security"], title="Segredo nunca no log")
+    save("rule/money", title="Use Money")
     save("context/stack", title="Stack Java 21", type_="context")
     save("howto/deploy", type_="howto", title="Deploy no Railway", content="passo secreto")
-    save("spec/migrar", type_="spec", title="Migrar pagamentos", summary="fase 2 de 3")
+    save("work/migrar", type_="work", title="Migrar pagamentos", summary="fase 2 de 3",
+         tags=["active"])
     save("secret/npm", type_="secret", title="Token do npm", summary="publicar pacotes")
-    save("rule/pay", subtype="business", title="Centavos em pagamentos",
-         scope_paths=["src/payments/**"])
+    save("rule/pay", title="Centavos em pagamentos", links=[{"path": "src/payments/**"}])
     out = _pack(paths=["src/payments/a.py"])
     md = out["markdown"]
     assert out["linked"] is True and (out["workspace"], out["project"]) == ("W", "P")
     positions = [md.index(title) for title in SECTIONS]
     assert positions == sorted(positions), md
-    assert "[code]" in _section(md, "## Regras\n") and "Use Money" in _section(md, "## Regras\n")
+    assert "Use Money" in _section(md, "## Regras\n")
     assert "Segredo nunca no log" in _section(md, "## Segurança")
-    assert "Regra duvidosa" in _section(md, "## ⚠ Em revisão")
     assert "Deploy no Railway" in _section(md, "## Como fazer")
     assert "passo secreto" not in md  # Como fazer: só títulos
-    assert "fase 2 de 3" in _section(md, "## Specs ativas")
+    assert "fase 2 de 3" in _section(md, "## Trabalho ativo")
     assert "Centavos em pagamentos" in _section(md, "## Em foco")
     assert "Centavos em pagamentos" in _section(md, "## Regras com escopo")
-    assert out["included"] >= 8 and out["omitted"] == 0
+    assert out["included"] >= 7 and out["omitted"] == 0
 
 
-def test_spec_done_e_arquivados_nao_aparecem(save):
-    save("spec/feita", type_="spec", title="Spec concluida", status="done")
-    save("spec/rascunho", type_="spec", title="Spec em rascunho", status="draft")
-    save("rule/velha", title="Regra arquivada", status="archived")
+def test_work_arquivado_nao_aparece(save):
+    save("work/feita", type_="work", title="Trabalho arquivado", tags=["archived"])
+    save("work/ativo", type_="work", title="Trabalho em andamento", tags=["active"])
     md = _pack()["markdown"]
-    assert "Spec concluida" not in md and "Regra arquivada" not in md
-    assert "Spec em rascunho" in _section(md, "## Specs ativas")
+    assert "Trabalho arquivado" not in md
+    assert "Trabalho em andamento" in _section(md, "## Trabalho ativo")
 
 
-def test_alcance_e_origem_marcada(save):
+def test_alcance_por_hierarquia(save):
     save("rule/local", title="Regra do proprio project")
-    save("rule/global", ws="E", pj="Q", scope="global", title="Responder em PT-BR")
-    save("rule/do-ws", pj="Geral", scope="workspace", title="Convencao do workspace")
     save("rule/outro", pj="Outro", title="Regra de outro project")
-    save("rule/fora", ws="E", pj="Q", title="Scoped de outro workspace")
+    save("rule/fora", ws="E", pj="Q", title="Regra de outro workspace")
     md = _pack()["markdown"]
-    lines = {ln for ln in md.splitlines() if ln.startswith("- ")}
-    line = next(ln for ln in lines if "Responder em PT-BR" in ln)
-    assert "[global]" in line
-    line = next(ln for ln in lines if "Convencao do workspace" in ln)
-    assert "[W]" in line
-    line = next(ln for ln in lines if "Regra do proprio project" in ln)
-    assert "[global]" not in line and "[W]" not in line
-    assert "Regra de outro project" not in md and "Scoped de outro workspace" not in md
+    assert "Regra do proprio project" in md
+    assert "Regra de outro project" not in md
+    assert "Regra de outro workspace" not in md
 
 
 def test_em_foco_por_query_traz_trecho_do_content(save):
@@ -100,26 +88,23 @@ def test_em_foco_por_query_traz_trecho_do_content(save):
     md = _pack(query="flyway")["markdown"]
     foco = _section(md, "## Em foco")
     assert "Migrações com Flyway" in foco and "Rodar migrate antes" in foco
-    assert md.count("Migrações com Flyway") == 1
 
 
-def test_em_foco_por_paths_e_sensivel_so_por_rule_security(save):
-    save("rule/pay", subtype="security", title="PCI em pagamentos",
-         content="Nunca logar o cartao", scope_paths=["src/payments/**"])
-    save("rule/kw", subtype="code", title="Palavra antiga", keywords="sensivel",
-         scope_paths=["src/users/**"])
+def test_em_foco_por_paths_e_sensivel_so_por_security(save):
+    save("rule/pay", tags=["security"], title="PCI em pagamentos",
+         content="Nunca logar o cartao", links=[{"path": "src/payments/**"}])
     com = _pack(paths=["src/payments/api/Charge.java"])
     assert com["sensitive"] is True and "Área sensível" in com["markdown"]
     assert "Nunca logar o cartao" in _section(com["markdown"], "## Em foco")
     fora = _pack(paths=["src/users/User.java"])
-    assert fora["sensitive"] is False  # `sensivel` em keywords não tem mais efeito
+    assert fora["sensitive"] is False
     assert "PCI em pagamentos" not in fora["markdown"]
     assert _pack()["sensitive"] is False
 
 
 def test_regras_com_escopo_sem_paths_viram_lembrete(save):
-    save("rule/pay", subtype="code", title="Money em pagamentos",
-         content="detalhe longo", scope_paths=["src/payments/**"])
+    save("rule/pay", title="Money em pagamentos", content="detalhe longo",
+         links=[{"path": "src/payments/**"}])
     md = _pack()["markdown"]
     escopo = _section(md, "## Regras com escopo")
     assert "Money em pagamentos" in escopo and "src/payments/**" in escopo
@@ -148,12 +133,12 @@ def test_orcamento_corta_e_lista_o_omitido(save):
     md = out["markdown"]
     assert out["omitted"] > 0 and "fora do orçamento" in md
     assert len(md) <= 200 * 4 + 400
-    omitted = [k for k in out["omitted_keys"]]
+    omitted = list(out["omitted_keys"])
     assert omitted and omitted[0] in md
 
 
 def test_itens_do_pacote_somam_shown(save):
-    item_id = save("rule/money", subtype="code", title="Use Money")
+    item_id = save("rule/money", title="Use Money")
     _pack()
     assert Brain().usage()[item_id]["shown"] == 1
 

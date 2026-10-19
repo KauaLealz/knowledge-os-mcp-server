@@ -6,7 +6,7 @@ import subprocess
 import pytest
 
 from knowledge_os.exceptions import ValidationError
-from knowledge_os.services.brain import Brain, meta_location
+from knowledge_os.services.brain import Brain
 from knowledge_os.services.item_service import ItemService
 
 LOC = ("W", "P")
@@ -40,11 +40,7 @@ def _set_meta(rel, data):
 
 
 @pytest.mark.parametrize("entry, needle", [
-    ({"type": "note"}, "Válidos: rule, howto, context, spec, secret"),
-    ({"subtype": "foo"}, "Válidos: code, pattern, security, business, process, decision"),
-    ({"status": "done"}, "Válidos: active, review, archived"),
-    ({"scope": "projeto"}, "Válidos: scoped, workspace, global"),
-    ({"origin": "humano"}, "Válidos: user, code, agent"),
+    ({"type": "note"}, "Válidos: rule, howto, context, work, secret"),
 ])
 def test_valor_invalido_lista_os_validos(svc, data_dir, entry, needle):
     with pytest.raises(ValidationError, match="Entrada 0") as exc:
@@ -58,7 +54,7 @@ def test_campo_desconhecido_e_erro_com_os_validos(svc, field):
     with pytest.raises(ValidationError) as exc:
         svc.save([{**RULE, "key": "rule/x", field: ["x"]}], default_location=LOC)
     msg = str(exc.value)
-    assert f"desconhecido(s): {field}" in msg and "Válidos: key, id, type, subtype" in msg
+    assert f"desconhecido(s): {field}" in msg and "Válidos: key, id, type, title" in msg
 
 
 def test_criar_sem_titulo_ou_resumo_diz_o_que_falta(svc):
@@ -80,19 +76,17 @@ def test_mais_de_20_entradas_e_erro(svc):
 # ---- avisos -----------------------------------------------------------------------------
 
 
-def test_avisos_de_modelo_key_e_tag_nova(svc):
+def test_avisos_de_key_e_tag_nova(svc):
     svc.save([{**RULE, "key": "rule/base", "tags": ["pagamentos"]}], default_location=LOC)
-    (row,) = svc.save([{**RULE, "key": "regra/x", "subtype": "decision",
-                        "tags": ["pagamento"]}], default_location=LOC)
+    (row,) = svc.save([{**RULE, "key": "regra/x", "tags": ["pagamento"]}],
+                      default_location=LOC)
     text = " | ".join(row["warnings"])
-    assert "## Por quê" in text and "## Alternativa descartada" in text
     assert "fora do padrão rule/<nome>" in text
     assert "tag nova 'pagamento' criada; existe parecida: 'pagamentos'" in text
 
 
-def test_item_dentro_do_modelo_nao_tem_aviso(svc):
-    (row,) = svc.save([{**RULE, "key": "rule/money", "subtype": "pattern",
-                        "content": "Arquivo-modelo: src/money.py"}], default_location=LOC)
+def test_item_no_padrao_nao_tem_aviso(svc):
+    (row,) = svc.save([{**RULE, "key": "rule/money"}], default_location=LOC)
     assert row["warnings"] == []
 
 
@@ -111,19 +105,12 @@ def test_upsert_por_key_nao_duplica_e_reconhece_sem_mudanca(svc, data_dir):
     assert svc.get(a["id"]).summary.endswith("(centavos)")
 
 
-def test_atualizacao_parcial_usa_o_tipo_do_item(svc):
-    svc.save([{"key": "spec/x", "type": "spec", "title": "Spec", "summary": "s"}],
+def test_atualizacao_parcial_mantem_o_tipo_do_item(svc):
+    svc.save([{"key": "work/x", "type": "work", "title": "Plano", "summary": "s"}],
              default_location=LOC)
-    (row,) = svc.save([{"key": "spec/x", "status": "done", "subtype": "change"}],
-                      default_location=LOC)
+    (row,) = svc.save([{"key": "work/x", "tags": ["done"]}], default_location=LOC)
     item = svc.get(row["id"])
-    assert (row["action"], item.status, item.subtype) == ("updated", "done", "change")
-
-
-def test_trocar_tipo_com_subtipo_que_nao_serve_e_erro(svc):
-    svc.save([{**RULE, "key": "rule/x", "subtype": "decision"}], default_location=LOC)
-    with pytest.raises(ValidationError, match="subtype.*procedure, troubleshoot"):
-        svc.save([{"key": "rule/x", "type": "howto"}], default_location=LOC)
+    assert (row["action"], item.type, item.tags) == ("updated", "work", ["done"])
 
 
 def test_mover_por_id_mantem_id_e_tira_o_arquivo_antigo(svc, data_dir):
@@ -177,42 +164,17 @@ def test_criar_sem_key_devolve_similares(svc):
     assert [s["key"] for s in row["similar"]] == ["rule/money"]
 
 
-# ---- scope, ttl, origin -----------------------------------------------------------------
+# ---- tags e links -----------------------------------------------------------------------
 
 
-def test_scope_devolvido_e_o_efetivo(svc):
-    svc.ensure_location("W", "P")
-    _set_meta(meta_location("w", "p"), {"name": "P", "scope": "workspace"})
-    herda, explicito = svc.save([{**RULE, "key": "rule/a"},
-                                 {**RULE, "key": "rule/b", "scope": "global"}],
-                                default_location=LOC)
-    assert (herda["scope"], explicito["scope"]) == ("workspace", "global")
-    assert svc.get(herda["id"]).scope is None  # o explícito do item continua vazio
-
-
-def test_ttl_days_em_qualquer_tipo(svc):
-    (row,) = svc.save([{**RULE, "key": "rule/tmp", "ttl_days": 7}], default_location=LOC)
-    item = svc.get(row["id"])
-    assert item.ttl_days == 7 and item.expires_at is not None
-
-
-def test_origin_padrao_agent_e_preservado_na_atualizacao(svc):
-    a, u = svc.save([{**RULE, "key": "rule/a"}, {**RULE, "key": "rule/u", "origin": "user"}],
-                    default_location=LOC)
-    svc.save([{"key": "rule/u", "title": "Novo"}], default_location=LOC)
-    assert svc.get(a["id"]).origin == "agent"
-    assert svc.get(u["id"]).origin == "user"
-
-
-def test_campos_novos_vao_ao_arquivo(svc, data_dir):
-    links = [{"title": "Painel", "url": "https://x.example"}]
-    (row,) = svc.save([{"key": "context/env", "type": "context", "subtype": "environment",
-                        "title": "Ambientes", "summary": "s", "links": links,
-                        "scope_paths": ["infra/**"]}], default_location=LOC)
-    assert row["warnings"] == []
+def test_campos_vao_ao_arquivo(svc, data_dir):
+    links = [{"url": "https://x.example", "title": "Painel"}, {"path": "infra/**"}]
+    (row,) = svc.save([{"key": "context/env", "type": "context", "title": "Ambientes",
+                        "summary": "s", "links": links, "tags": ["environment"]}],
+                      default_location=LOC)
     text = (data_dir / "w" / "p" / "context" / "env.md").read_text(encoding="utf-8")
-    assert "subtype: environment" in text and "https://x.example" in text
-    assert "origin: agent" in text
+    assert "https://x.example" in text and "infra/**" in text
+    assert "environment" in text and "origin:" not in text and "scope:" not in text
 
 
 # ---- segredos ---------------------------------------------------------------------------

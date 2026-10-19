@@ -1,5 +1,5 @@
-"""`knowledge-mcp report` (V2_MVP.md §10): o relatório para o plumb-dream — nunca abertos há
-60 dias, em review há mais de 7, alta taxa de irrelevante, buscas vazias e tags sem uso."""
+"""`knowledge-mcp report` (v6): o relatório para o plumb-reflect — nunca abertos há 60 dias,
+arquivados (candidatos a remover), buscas vazias e tags sem uso."""
 
 import dataclasses
 import json
@@ -43,33 +43,23 @@ def cenario(conn):
     _age(velho, 61)
     aberto = _save("rule/velho-aberto")
     _age(aberto, 61)
-    novo = _save("rule/novo")
-    revisao = _save("rule/revisao", status="review")
-    _age(revisao, 8, field="updated_at")
-    revisao_nova = _save("rule/revisao-nova", status="review")
-    ruim = _save("rule/ruim")
-    bom = _save("rule/bom")
+    _save("rule/novo")
+    _save("rule/arquivado", tags=["archived"])
     cid = Brain().cid
     local_state.count(cid, [aberto], "opened")
-    for _ in range(3):
-        local_state.count(cid, [ruim, bom], "irrelevant")
-    for _ in range(3):
-        local_state.count(cid, [bom], "helped")
     ItemService().search("consulta que nao acha nada", viewpoint=None)
     ItemService().search("Consulta que  nao acha nada", viewpoint=None)
     TagService().create(["sem-uso"])
     _save("rule/com-tag", tags=["usada"])
-    return {"novo": novo, "revisao_nova": revisao_nova}
+    return {}
 
 
 def test_report_json(cenario, capsys):
     data = json.loads(_report(capsys, "--json"))
-    assert set(data) == {"never_opened_60d", "review_over_7d", "high_irrelevant",
-                         "empty_searches", "tags_unused"}
+    assert set(data) == {"never_opened_60d", "archived", "empty_searches", "tags_unused"}
     assert [r["key"] for r in data["never_opened_60d"]] == ["rule/velho"]
-    assert [r["key"] for r in data["review_over_7d"]] == ["rule/revisao"]
-    assert [r["key"] for r in data["high_irrelevant"]] == ["rule/ruim"]
-    for name in ("never_opened_60d", "review_over_7d", "high_irrelevant"):
+    assert [r["key"] for r in data["archived"]] == ["rule/arquivado"]
+    for name in ("never_opened_60d", "archived"):
         row = data[name][0]
         assert row["where"] == "W/P" and row["reason"]
     assert data["empty_searches"] == [{"query": "consulta que nao acha nada", "count": 2}]
@@ -78,12 +68,12 @@ def test_report_json(cenario, capsys):
 
 def test_report_legivel(cenario, capsys):
     out = _report(capsys)
-    assert "rule/velho" in out and "rule/revisao" in out and "rule/ruim" in out
+    assert "rule/velho" in out and "rule/arquivado" in out
     assert "consulta que nao acha nada" in out and "sem-uso" in out
 
 
 def test_report_vazio(conn, capsys):
     data = json.loads(_report(capsys, "--json"))
-    assert data == {"never_opened_60d": [], "review_over_7d": [], "high_irrelevant": [],
-                    "empty_searches": [], "tags_unused": []}
+    assert data == {"never_opened_60d": [], "archived": [], "empty_searches": [],
+                    "tags_unused": []}
     assert "nada a revisar" in _report(capsys).lower()

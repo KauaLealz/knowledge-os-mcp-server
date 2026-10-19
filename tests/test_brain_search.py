@@ -3,11 +3,8 @@
 O contrato completo da busca v2 está em test_search_service.py (serviço) e test_search_v2.py
 (ranking)."""
 
-from datetime import timedelta
-
 import pytest
 
-from knowledge_os.services.brain import utcnow
 from knowledge_os.services.item_service import ItemService
 from knowledge_os.storage.search import query_terms, stem, terms
 
@@ -69,8 +66,8 @@ def test_relevancia_vence_ordem_de_gravacao(svc):
     assert svc.search("redis cache", viewpoint=VP)["results"][0]["id"] == alvo.id
 
 
-def test_keywords_entram_na_busca(svc):
-    it = _mk(svc, title="Valores monetários", keywords="dinheiro centavos BigDecimal")
+def test_tags_entram_na_busca(svc):
+    it = _mk(svc, title="Valores monetários", tags=["dinheiro", "centavos"])
     assert svc.search("centavos", viewpoint=VP)["results"][0]["id"] == it.id
 
 
@@ -91,19 +88,9 @@ def test_resultado_traz_key_tipo_e_where(svc):
     assert (r["key"], r["type"], r["where"]) == ("rule/x", "rule", "W/P")
 
 
-def test_omite_arquivados_e_vencidos(svc, data_dir):
-    velho = _mk(svc, title="Deploy manual", status="archived")
-    eph = _mk(svc, title="Deploy rascunho", ttl_days=1)
-    path = data_dir / eph.path
-    stamp = (utcnow() - timedelta(days=2)).isoformat() + "Z"
-    text = path.read_text(encoding="utf-8")
-    path.write_text(text.replace(eph.updated_at.isoformat() + "Z", stamp), encoding="utf-8")
-    assert _ids(svc.search("deploy", viewpoint=VP)) == []
-    todos = set(_ids(svc.search("deploy", viewpoint=VP, status=["archived", "expired"])))
-    assert todos == {velho.id, eph.id}
-
-
-def test_vencimento_e_updated_at_mais_ttl(svc):
-    eph = _mk(svc, ttl_days=7)
-    assert eph.expires_at == eph.updated_at + timedelta(days=7)
-    assert timedelta(days=6) < eph.expires_at - utcnow() <= timedelta(days=7)
+def test_omite_arquivados(svc):
+    arq = _mk(svc, title="Deploy manual", tags=["archived"])
+    ativo = _mk(svc, title="Deploy novo")
+    assert _ids(svc.search("deploy", viewpoint=VP)) == [ativo.id]
+    todos = set(_ids(svc.search("deploy", viewpoint=VP, tags=["archived"])))
+    assert todos == {arq.id}

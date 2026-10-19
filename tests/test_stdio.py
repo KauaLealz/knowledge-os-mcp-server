@@ -14,7 +14,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 ROOT = Path(__file__).resolve().parent.parent
-EXPECTED_TOOLS = 32
+EXPECTED_TOOLS = 31  # v6: sem item_feedback
 
 
 @pytest.fixture

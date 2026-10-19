@@ -366,8 +366,7 @@ def _recent(args: argparse.Namespace) -> int:
         {
             "action": "created" if r.created_at >= since_utc else "updated",
             "workspace": r.workspace, "project": r.project, "key": r.key, "type": r.type,
-            "subtype": r.subtype, "title": r.title, "summary": r.summary,
-            "source": r.source, "status": r.status, "origin": r.origin,
+            "title": r.title, "summary": r.summary, "tags": sorted(r.tags or []),
         }
         for r in records
     ]
@@ -377,51 +376,40 @@ def _recent(args: argparse.Namespace) -> int:
         print("(nenhum item novo ou alterado)")
     else:
         for d in data:
-            src = f" [{d['source']}]" if d["source"] else ""
-            kind = f"{d['type']}/{d['subtype']}" if d["subtype"] else d["type"]
-            print(f"- {d['action']} · {d['workspace']}/{d['project']} · {kind} · "
-                  f"{d['title']} — {d['summary']}{src}")
+            tags = f" [{', '.join(d['tags'])}]" if d["tags"] else ""
+            print(f"- {d['action']} · {d['workspace']}/{d['project']} · {d['type']} · "
+                  f"{d['title']} — {d['summary']}{tags}")
     return 0
 
 
 def report_data(connection_id: str | None = None) -> dict[str, list[dict[str, Any]]]:
-    """O relatório para o plumb-dream (V2_MVP.md §10), da conexão inteira.
+    """O relatório para o plumb-reflect, da conexão inteira (v6).
 
-    `never_opened_60d` (criado há mais de 60 dias e nunca aberto), `review_over_7d` (em
-    `review` sem mudança há mais de 7 dias), `high_irrelevant` (`irrelevant` ≥ 3 e maior que
-    `helped`) — cada um `{key, id, where, reason}`, sem arquivados —, `empty_searches`
+    `never_opened_60d` (criado há mais de 60 dias e nunca aberto), `archived` (itens com a tag
+    `archived`, candidatos a remover) — cada um `{key, id, where, reason}` —, `empty_searches`
     (`[{query, count}]`) e `tags_unused` (`[{name, reason}]`, tags do vocabulário sem item).
     """
-    from knowledge_os.services import scope as scope_mod
-    from knowledge_os.services.brain import Brain, utcnow
+    from knowledge_os.services.brain import Brain, Snapshot, utcnow
     from knowledge_os.services.tag_service import TagService
     from knowledge_os.storage import local_state
 
     brain = Brain(connection_id)
     usage = brain.usage()
     now = utcnow()
-    out: dict[str, list[dict[str, Any]]] = {
-        "never_opened_60d": [], "review_over_7d": [], "high_irrelevant": []}
+    out: dict[str, list[dict[str, Any]]] = {"never_opened_60d": [], "archived": []}
 
     def row(record: Any, reason: str) -> dict[str, Any]:
-        return {"key": record.key, "id": record.id, "where": scope_mod.where(record),
+        return {"key": record.key, "id": record.id, "where": Snapshot.where(record),
                 "reason": reason}
 
     for r in sorted(brain.snapshot.records.values(), key=lambda r: (r.key or "", r.path)):
-        if r.status == "archived":
+        if "archived" in (r.tags or []):
+            out["archived"].append(row(r, f"arquivado desde {r.updated_at:%Y-%m-%d}"))
             continue
-        use = usage.get(r.id) or {}
-        opened = int(use.get("opened") or 0)
+        opened = int((usage.get(r.id) or {}).get("opened") or 0)
         if r.created_at <= now - timedelta(days=REPORT_NEVER_OPENED_DAYS) and opened == 0:
             out["never_opened_60d"].append(
                 row(r, f"criado em {r.created_at:%Y-%m-%d} e nunca aberto"))
-        if r.status == "review" and r.updated_at <= now - timedelta(days=REPORT_REVIEW_DAYS):
-            out["review_over_7d"].append(
-                row(r, f"em review desde {r.updated_at:%Y-%m-%d}"))
-        irrelevant, helped = int(use.get("irrelevant") or 0), int(use.get("helped") or 0)
-        if irrelevant >= REPORT_IRRELEVANT_MIN and irrelevant > helped:
-            out["high_irrelevant"].append(
-                row(r, f"irrelevant {irrelevant} × helped {helped}"))
     searches = [{"query": s["query"], "count": s["count"]}
                 for s in local_state.empty_searches(brain.cid)]
     tags = [{"name": t["name"], "reason": "nenhum item usa"}
@@ -431,8 +419,7 @@ def report_data(connection_id: str | None = None) -> dict[str, list[dict[str, An
 
 _REPORT_TITLES = (
     ("never_opened_60d", "Nunca abertos (criados há mais de 60 dias)"),
-    ("review_over_7d", "Em review há mais de 7 dias"),
-    ("high_irrelevant", "Alta taxa de irrelevante"),
+    ("archived", "Arquivados (candidatos a remover)"),
     ("empty_searches", "Buscas que voltaram vazias"),
     ("tags_unused", "Tags sem uso"),
 )

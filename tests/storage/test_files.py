@@ -13,12 +13,9 @@ from knowledge_os.storage.files import FileStore, ItemRecord
 def _rec(id_: str = "id-1", **over) -> ItemRecord:
     base = dict(
         id=id_, key=f"regra/{id_}", workspace="Polara", project="App", subject=None,
-        type="rule", subtype=None, scope=None, title="Titulo", status="active",
-        tags=[], links=[], scope_paths=[], ttl_days=None, keywords=None, source=None,
-        origin="agent", verified_at=None, verified_commit=None,
+        type="rule", title="Titulo", tags=[], links=[],
         created_at=datetime(2026, 1, 1, 10, 0, 0),
-        updated_at=datetime(2026, 1, 2, 10, 0, 0), relations=[], summary="Resumo",
-        content="Corpo\n",
+        updated_at=datetime(2026, 1, 2, 10, 0, 0), summary="Resumo", content="Corpo\n",
     )
     base.update(over)
     return ItemRecord(**base)
@@ -35,9 +32,9 @@ def store(tmp_path) -> FileStore:
 
 
 def test_write_e_leitura_ida_e_volta(store):
-    original = _rec(tags=["java"], subject="Pagamentos", subtype="security", scope="global",
-                    links=[{"title": "Doc", "url": "https://d"}], origin="user",
-                    verified_at=datetime(2026, 1, 3, 8, 0, 0), verified_commit="abc", ttl_days=9)
+    original = _rec(tags=["java", "security"], subject="Pagamentos",
+                    links=[{"url": "https://d", "title": "Doc"}, {"path": "src/pay/**"},
+                           {"item": "rule/outra", "rel": "depends_on"}])
     rel = store.write(original)
     assert rel == "polara/app/regra/id-1.md"
     assert (store.root / rel).is_file()
@@ -174,8 +171,7 @@ def test_raiz_inexistente_e_vazia(tmp_path):
 
 @pytest.mark.parametrize(
     "linha",
-    ["title: 2024", "id: [a]", "relations: [x]", "tags: [1, x]", "links: {a: b}",
-     "ttl_days: sete", "type: note"],
+    ["title: 2024", "id: [a]", "tags: [1, x]", "links: {a: b}", "type: note"],
 )
 def test_arquivo_com_tipo_inesperado_vai_para_errors_sem_derrubar(store, linha):
     from knowledge_os.services.brain import Draft, Snapshot
@@ -195,50 +191,12 @@ def test_arquivo_com_tipo_inesperado_vai_para_errors_sem_derrubar(store, linha):
     Draft(snap).files()  # o rascunho não quebra
 
 
-def test_record_v2_sem_campos_antigos():
+def test_record_v6_sem_campos_antigos():
     from knowledge_os.storage.files import record_text
 
-    for gone in ("memory_class", "labels", "importance", "confidence"):
+    for gone in ("memory_class", "labels", "importance", "confidence", "subtype", "scope",
+                 "status", "origin", "ttl_days", "keywords", "source", "relations"):
         assert gone not in ItemRecord.__dataclass_fields__
     _rel, text = record_text(_rec())
-    assert "memory_class" not in text and "labels" not in text and "origin: agent" in text
-
-
-ANTIGO = """---
-key: gotcha/appdata
-id: 7390762d-7570-46b1-95e9-bbd47202b89b
-workspace: Global
-project: Geral
-type: knowledge
-title: Rename em AppData falha
-status: active
-memory_class: longterm
-tags: []
-labels: [official]
-scope_paths: []
-keywords: ebadf rename appdata
-created_at: '2026-10-05T18:01:54Z'
-updated_at: '2026-10-05T18:01:54Z'
-relations: []
-summary: Nas sessões do agente, renomear arquivo dentro de AppData falha.
----
-Sintomas: EBADF.
-"""
-
-
-def test_arquivo_antigo_lido_como_v2_e_regravado_em_v2(store):
-    alvo = store.root / "global" / "geral" / "gotcha" / "appdata.md"
-    alvo.parent.mkdir(parents=True)
-    alvo.write_text(ANTIGO, encoding="utf-8")
-    store.refresh()
-    assert store.errors == {}
-    got = store.get("7390762d-7570-46b1-95e9-bbd47202b89b")
-    assert (got.type, got.subtype, got.status, got.origin) == (
-        "howto", "troubleshoot", "review", "user")
-    assert got.tags == ["official"]
-    assert got.id in store.index  # o índice de busca recebeu o item
-    store.write(got)
-    texto = alvo.read_text(encoding="utf-8")
-    assert "memory_class" not in texto and "labels" not in texto
-    assert "type: howto" in texto and "subtype: troubleshoot" in texto
-    assert FileStore(store.root).get(got.id) == got
+    for gone in ("memory_class", "labels", "origin", "scope", "status:", "subtype", "ttl_days"):
+        assert gone not in text

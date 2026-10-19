@@ -159,7 +159,7 @@ class TestItemSavePr:
         # a pasta continua na branch principal: o item só aparece depois do merge + sync
         with pytest.raises(NotFoundError):
             svc.get_by_key("polara", "app", "regra/money")
-        assert svc.search(everywhere=True, status=["active", "archived", "review"])["results"] == []
+        assert svc.search(everywhere=True)["results"] == []
 
         # a branch foi criada e empurrada de verdade no bare, com o arquivo
         branches = subprocess.run(
@@ -320,7 +320,7 @@ class TestRelationDeletePublished:
         svc = ItemService(connection_id=conn.id)
         svc.save([dict(ENTRY), {**ENTRY, "key": "regra/outra", "title": "Outra",
                                 "content": "Outra regra."}])
-        rel = [{"source": "regra/outra", "type": "related_to", "target": "regra/money"}]
+        rel = [{"source": "regra/outra", "type": "relates_to", "target": "regra/money"}]
         relations = RelationService(connection_id=conn.id)
         relations.create(rel, viewpoint=("polara", "app"))
 

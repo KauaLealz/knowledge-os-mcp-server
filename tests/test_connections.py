@@ -242,10 +242,10 @@ def test_data_invalida_vai_para_parse_errors_e_offset_nao_derruba(svc):
     folder = Path(conn.path)
     (folder / "w" / "p").mkdir(parents=True)
     item = {"id": "8f3e2c0a-0000-0000-0000-000000000001", "type": "rule", "title": "T",
-            "summary": "S", "content": "c", "status": "active", "origin": "agent",
+            "summary": "S", "content": "c",
             "created_at": datetime(2026, 1, 1), "updated_at": datetime(2026, 1, 1)}
     raw = serialize_item(item, workspace_name="w", project_name="p", subject_name=None,
-                         relations=[], tags=[])
+                         links=[], tags=[])
     ok = raw.replace("created_at: '2026-01-01T00:00:00Z'",
                      "created_at: '2020-01-01T00:00:00+03:00'")
     assert ok != raw

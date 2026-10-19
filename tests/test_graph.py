@@ -1,4 +1,7 @@
-"""GraphService: vizinhança por hop, limite, filtros e sinal de uso."""
+"""GraphService v6: vizinhança por hop, limite, filtros e sinal de uso. Relações são links
+item→item (depends_on/relates_to); grafo é da conexão inteira."""
+
+from datetime import datetime
 
 import pytest
 
@@ -9,8 +12,8 @@ from knowledge_os.services.graph import GraphService
 from .test_relations_v2 import VP, rec, seed
 
 
-def rel(type_, target):
-    return {"type": type_, "target": target}
+def link(type_, target):
+    return {"item": target, "rel": type_}
 
 
 @pytest.fixture
@@ -18,11 +21,10 @@ def grafo(conn):
     """A -> B -> C; A aponta também para x1..x29 (30 vizinhos diretos)."""
     xs = [rec(f"x{i}", title=f"X {i}") for i in range(1, 30)]
     seed(
-        rec("a", relations=[rel("depends_on", "howto/b"), *(rel("references", f"rule/{x.id}")
-                                                           for x in xs)]),
-        rec("b", relations=[rel("supersedes", "rule/c")], type="howto", subtype="procedure",
-            key="howto/b"),
-        rec("c", status="archived"),
+        rec("a", links=[link("depends_on", "howto/b"),
+                        *(link("relates_to", f"rule/{x.id}") for x in xs)]),
+        rec("b", links=[link("relates_to", "rule/c")], type="howto", key="howto/b"),
+        rec("c"),
         *xs,
     )
 
@@ -53,15 +55,16 @@ def test_depth_2_inclui_c(grafo):
     out = graph(depth=2, limit=100)
     assert "rule/c" in keys_of(out, 2)
     assert out["total_by_hop"] == {"1": 30, "2": 1}
-    assert {"from": "howto/b", "type": "supersedes", "to": "rule/c"} in out["edges"]
+    assert {"from": "howto/b", "type": "relates_to", "to": "rule/c"} in out["edges"]
 
 
 def test_filtra_arestas_por_relation_types(grafo):
-    out = graph(depth=2, limit=100, relation_types=["supersedes"])
-    assert out["edges"] == []  # a não toca b por supersedes; nada alcançado
-    out = graph(keys=("howto/b",), depth=1, relation_types=["supersedes"])
-    assert out["edges"] == [{"from": "howto/b", "type": "supersedes", "to": "rule/c"}]
+    out = graph(keys=("howto/b",), depth=1, relation_types=["relates_to"])
+    assert out["edges"] == [{"from": "howto/b", "type": "relates_to", "to": "rule/c"}]
     assert keys_of(out) == {"howto/b", "rule/c"}
+    # a toca b por depends_on, não por relates_to
+    out = graph(keys=("rule/a",), depth=1, relation_types=["depends_on"])
+    assert {"from": "rule/a", "type": "depends_on", "to": "howto/b"} in out["edges"]
 
 
 def test_direction_out_e_in(grafo):
@@ -75,21 +78,15 @@ def test_direction_out_e_in(grafo):
 
 def test_types_filtra_os_nos(grafo):
     out = graph(depth=2, limit=100, types=["howto"])
-    assert keys_of(out) == {"rule/a", "howto/b"}  # c e os x (rule) ficam de fora
+    assert keys_of(out) == {"rule/a", "howto/b"}
     assert out["edges"] == [{"from": "rule/a", "type": "depends_on", "to": "howto/b"}]
-
-
-def test_arquivado_entra_com_status(grafo):
-    out = graph(keys=("howto/b",), direction="out")
-    (c,) = [n for n in out["nodes"] if n["key"] == "rule/c"]
-    assert c["status"] == "archived" and c["hop"] == 1
 
 
 def test_formato_do_no(grafo):
     out = graph(keys=("howto/b",), direction="out")
     (b,) = [n for n in out["nodes"] if n["hop"] == 0]
-    assert set(b) == {"key", "id", "type", "subtype", "title", "summary", "scope", "status", "hop"}
-    assert (b["id"], b["type"], b["subtype"], b["scope"]) == ("b", "howto", "procedure", "scoped")
+    assert set(b) == {"key", "id", "type", "title", "summary", "hop"}
+    assert (b["id"], b["type"]) == ("b", "howto")
 
 
 def test_resolve_por_id_e_varias_keys(grafo):
@@ -126,9 +123,8 @@ def test_ordena_por_sinal_de_uso_depois_updated_at(grafo):
 
 
 def test_desempate_por_updated_at_mais_recente(conn):
-    from datetime import datetime
     seed(
-        rec("a", relations=[rel("related_to", "rule/velho"), rel("related_to", "rule/novo")]),
+        rec("a", links=[link("relates_to", "rule/velho"), link("relates_to", "rule/novo")]),
         rec("velho", updated_at=datetime(2026, 1, 1)),
         rec("novo", updated_at=datetime(2026, 6, 1)),
     )
@@ -146,20 +142,9 @@ def test_nos_devolvidos_contam_como_abertos_exceto_os_de_entrada(grafo):
     assert _opened("c") == 1 and _opened("b") == 0
 
 
-def test_item_fora_do_alcance_nao_aparece_no_grafo(conn):
+def test_itens_linkados_aparecem_no_grafo(conn):
     seed(
-        rec("a", relations=[rel("related_to", "oculto"), rel("related_to", "rule/b")]),
+        rec("a", links=[link("relates_to", "rule/b")]),
         rec("b"),
-        rec("oculto", "W", "Q"),  # scoped em outro project
     )
-    out = graph()
-    assert keys_of(out) == {"rule/a", "rule/b"}
-
-
-def test_everywhere_ignora_o_alcance(conn):
-    seed(
-        rec("a", relations=[rel("related_to", "oculto")]),
-        rec("oculto", "W", "Q"),  # scoped em outro project: fora do alcance de P
-    )
-    assert keys_of(graph()) == {"rule/a"}
-    assert keys_of(graph(everywhere=True)) == {"rule/a", "rule/oculto"}
+    assert {"rule/a", "rule/b"} <= keys_of(graph())

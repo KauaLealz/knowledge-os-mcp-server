@@ -52,15 +52,3 @@ def test_post_com_lugar_cru_no_corpo_vale_o_do_campo_validado(client, mk):
     assert r.status_code == 201, r.text
     assert (r.json()["workspace_id"], r.json()["project_id"]) == (ws["id"], dm["id"])
     assert [w["name"] for w in client.get("/api/workspaces").json()] == ["WS"]
-
-
-def test_feedback_com_key_no_corpo_vale_para_o_item_da_rota(client, mk):
-    ws = mk.ws()
-    dm = mk.project(ws["id"])
-    a = mk.item(ws["id"], dm["id"], "A", key="rule/a")
-    b = mk.item(ws["id"], dm["id"], "B", key="rule/b")
-    r = client.post(f"/api/items/{a['id']}/feedback",
-                    json={"key": "rule/b", "outcome": "wrong", "note": "errado"})
-    assert r.status_code == 200, r.text
-    assert client.get(f"/api/items/{a['id']}").json()["status"] == "review"
-    assert client.get(f"/api/items/{b['id']}").json()["status"] == "active"

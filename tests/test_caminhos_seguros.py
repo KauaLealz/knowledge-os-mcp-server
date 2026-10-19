@@ -42,11 +42,9 @@ def _frontmatter(key: str | None = "regra/x", id_: str = "id-1", **extra: str) -
 def _rec(**over) -> ItemRecord:
     base = dict(
         id="id-1", key="regra/x", workspace="Polara", project="App", subject=None,
-        type="rule", subtype=None, scope=None, title="T", status="active", tags=[], links=[],
-        scope_paths=[], ttl_days=None, keywords=None, source=None, origin="agent",
-        verified_at=None, verified_commit=None,
+        type="rule", title="T", tags=[], links=[],
         created_at=datetime(2026, 1, 1), updated_at=datetime(2026, 1, 1),
-        relations=[], summary="s", content="c\n",
+        summary="s", content="c\n",
     )
     base.update(over)
     return ItemRecord(**base)
@@ -140,8 +138,7 @@ def test_arquivo_com_key_maliciosa_vai_para_errors_e_nao_e_regravado_fora(conn, 
                          "key": "regra/alvo", "title": "Alvo", "summary": "s",
                          "content": "c"}])
     ruim = root / "polara" / "app" / "ruim.md"
-    ruim.write_text(_frontmatter(key="'a/../../../../fora'", id_="id-ruim",
-                                 relations="[{type: related_to, target: regra/alvo}]"),
+    ruim.write_text(_frontmatter(key="'a/../../../../fora'", id_="id-ruim"),
                     encoding="utf-8")
     brain = Brain()
     assert brain.snapshot.get("id-ruim") is None

@@ -14,12 +14,12 @@ from .test_relations_v2 import VP, entry, rec, seed, text_of
 @pytest.fixture
 def ab(conn):
     seed(rec("a"), rec("b"))
-    RelationService().create([entry(type_="references")], viewpoint=VP)
+    RelationService().create([entry(type_="relates_to")], viewpoint=VP)
 
 
 def test_id_da_relacao_e_estavel(ab):
     (first,) = RelationService().list("a")
-    RelationService().create([entry(type_="references")], viewpoint=VP)
+    RelationService().create([entry(type_="relates_to")], viewpoint=VP)
     (second,) = RelationService().list("a")
     assert first.id == second.id
 
@@ -30,7 +30,7 @@ def test_apagar_o_alvo_tira_a_relacao_da_origem(ab):
         d.remove("b")
         brain.commit(d, "remove b")
     assert RelationService().list("a") == []
-    assert "relations: []" in text_of("a")
+    assert "links: []" in text_of("a")
 
 
 def test_mover_o_alvo_de_project_troca_a_key_pelo_id(ab):
@@ -40,5 +40,5 @@ def test_mover_o_alvo_de_project_troca_a_key_pelo_id(ab):
         brain.commit(d, "move b")
     (rel,) = RelationService().list("a")
     assert rel.target_item_id == "b"
-    assert "target: b" in text_of("a")
+    assert "item: b" in text_of("a")
 

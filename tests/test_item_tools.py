@@ -20,7 +20,7 @@ def linked(conn):
 
 def test_save_get_search_delete(linked):
     (row,) = tools.item_save([{"key": "rule/money", **RULE}], repo=PROJECT)
-    assert (row["action"], row["scope"], row["key"]) == ("created", "scoped", "rule/money")
+    assert (row["action"], row["key"]) == ("created", "rule/money")
     (got,) = tools.item_get(keys=["rule/money"], repo=PROJECT)
     assert got["id"] == row["id"] and got["where"] == "W/app"
     found = tools.item_search(query="money", repo=PROJECT)

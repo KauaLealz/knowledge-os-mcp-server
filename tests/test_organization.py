@@ -1,11 +1,8 @@
-"""Organização v2 (V2_MVP.md §4, §9): `scope` em workspace/project/subject (create, update,
-merge), `update` no lugar de `rename`, `rows()` para os `*_list` e a herança vista pelo
-`Snapshot` (o alcance muda sem mover arquivo de item)."""
+"""Organização v6: workspace/project/subject por nome e descrição (create, update, merge),
+`rows()` para os `*_list`. Sem scope (o alcance vem da hierarquia; ver test_scope.py)."""
 
 import pytest
 
-from knowledge_os.exceptions import ValidationError
-from knowledge_os.services import scope as scope_mod
 from knowledge_os.services.brain import Brain
 from knowledge_os.services.item_service import ItemService
 from knowledge_os.services.project_service import ProjectService
@@ -25,215 +22,112 @@ def _meta(data_dir, *parts):
     return (data_dir.joinpath(*parts) / ".knowledge.yaml").read_text(encoding="utf-8")
 
 
-def _effective(item_id):
-    snap = Brain().snapshot
-    return snap.effective_scope(snap.require(item_id))
+# ---- create / update ------------------------------------------------------------------------
 
 
-def _md_files(data_dir):
-    return sorted(p.relative_to(data_dir).as_posix() for p in data_dir.rglob("*.md")
-                  if ".git" not in p.parts)
+def test_create_grava_nome_e_descricao(conn, data_dir):
+    WorkspaceService().create("E", "empresa")
+    assert "name: E" in _meta(data_dir, "e") and "description: empresa" in _meta(data_dir, "e")
+    ProjectService().create("e", "Q", "proj")
+    assert "name: Q" in _meta(data_dir, "e", "q")
+    sj = SubjectService().create("e", "q", "git", "comandos")
+    assert sj.name == "git" and sj.description == "comandos"
+    assert "name: git" in _meta(data_dir, "e", "q")
 
 
-# ---- create com scope -----------------------------------------------------------------------
-
-
-def test_create_grava_scope_no_knowledge_yaml(conn, data_dir):
-    ws = WorkspaceService().create("E", "empresa", scope="global")
-    assert ws.scope == "global" and "scope: global" in _meta(data_dir, "e")
-    pj = ProjectService().create("e", "Q", scope="workspace")
-    assert pj.scope == "workspace" and "scope: workspace" in _meta(data_dir, "e", "q")
-    sj = SubjectService().create("e", "q", "git", "comandos", scope="global")
-    assert sj.scope == "global" and sj.description == "comandos"
-    meta = _meta(data_dir, "e", "q")
-    assert "name: git" in meta and "description: comandos" in meta
-
-
-def test_create_sem_scope_nao_define_e_herda(conn, data_dir):
-    WorkspaceService().create("E", scope="global")
-    pj = ProjectService().create("e", "Q")
-    assert pj.scope is None and "scope" not in _meta(data_dir, "e", "q")
-    assert _effective(_item("E", "Q")) == "global"
-
-
-@pytest.mark.parametrize("call", [
-    lambda: WorkspaceService().create("E", scope="projeto"),
-    lambda: ProjectService().create("e", "Q", scope="todos"),
-    lambda: SubjectService().create("e", "q", "s", scope="x"),
-])
-def test_scope_invalido_lista_os_validos(conn, call):
+def test_update_nome_e_descricao(conn):
     WorkspaceService().create("E")
-    ProjectService().create("e", "Q")
-    with pytest.raises(ValidationError, match="scoped, workspace, global"):
-        call()
+    ws = WorkspaceService().update("E", new_name="Empresa", description="d")
+    assert (ws.id, ws.name, ws.description) == ("empresa", "Empresa", "d")
+    pj = ProjectService().create("empresa", "Q")
+    pj = ProjectService().update("empresa", "Q", new_name="Q2", description="dq")
+    assert (pj.id, pj.name, pj.description) == ("q2", "Q2", "dq")
 
 
-# ---- update ---------------------------------------------------------------------------------
-
-
-def test_workspace_update_scope_muda_o_alcance_sem_mover_arquivo(conn, data_dir):
-    item_id = _item("E", "Q")
-    before = _md_files(data_dir)
-    assert scope_mod.distance(Brain().snapshot, Brain().snapshot.require(item_id),
-                              ("w", "p")) is None
-    ws = WorkspaceService().update("E", scope="global")
-    assert ws.scope == "global" and ws.name == "E"
-    snap = Brain().snapshot
-    assert scope_mod.distance(snap, snap.require(item_id), ("w", "p")) == scope_mod.ELSEWHERE
-    assert _md_files(data_dir) == before
-
-
-def test_project_update_scope_workspace_vale_no_workspace_e_nao_fora(conn):
-    item_id = _item("W", "Q")
-    ProjectService().update("w", "Q", scope="workspace")
-    snap = Brain().snapshot
-    record = snap.require(item_id)
-    assert scope_mod.distance(snap, record, ("w", "p")) == scope_mod.SAME_WORKSPACE
-    assert scope_mod.distance(snap, record, ("e", "x")) is None
-
-
-def test_subject_update_scope_global_aparece_em_outro_workspace(conn, data_dir):
-    item_id = _item("W", "Q", subject="git")
-    sj = SubjectService().update("w", "q", "git", scope="global")
-    assert sj.scope == "global"
-    assert "scope: global" in _meta(data_dir, "w", "q")
-    snap = Brain().snapshot
-    assert scope_mod.distance(snap, snap.require(item_id), ("e", "x")) == scope_mod.ELSEWHERE
-
-
-def test_scope_explicito_no_project_vence_o_do_workspace(conn):
-    item_id = _item("E", "Q")
-    WorkspaceService().update("E", scope="global")
-    ProjectService().update("e", "q", scope="scoped")
-    assert _effective(item_id) == "scoped"
-
-
-def test_update_scope_vazio_volta_a_herdar(conn, data_dir):
-    item_id = _item("E", "Q")
-    WorkspaceService().update("E", scope="global")
-    ProjectService().update("e", "q", scope="scoped")
-    ProjectService().update("e", "q", scope="")
-    assert "scope" not in _meta(data_dir, "e", "q") and _effective(item_id) == "global"
-
-
-def test_update_scope_invalido(conn):
-    _item("E", "Q", subject="s")
-    for call in (lambda: WorkspaceService().update("E", scope="x"),
-                 lambda: ProjectService().update("e", "q", scope="x"),
-                 lambda: SubjectService().update("e", "q", "s", scope="x")):
-        with pytest.raises(ValidationError, match="scoped, workspace, global"):
-            call()
-
-
-def test_update_nome_descricao_e_scope_juntos(conn, data_dir):
-    _item("E", "Q")
-    ws = WorkspaceService().update("E", new_name="Empresa", description="d", scope="workspace")
-    assert (ws.id, ws.name, ws.description, ws.scope) == ("empresa", "Empresa", "d", "workspace")
-    pj = ProjectService().update("empresa", "Q", new_name="Q2", description="dq", scope="global")
-    assert (pj.id, pj.name, pj.description, pj.scope) == ("q2", "Q2", "dq", "global")
-    meta = _meta(data_dir, "empresa", "q2")
-    assert "name: Q2" in meta and "scope: global" in meta
-
-
-def test_update_so_descricao_mantem_nome_e_scope(conn):
-    WorkspaceService().create("E", scope="global")
+def test_update_so_descricao_mantem_nome(conn):
+    WorkspaceService().create("E")
     ws = WorkspaceService().update("E", description="nova")
-    assert (ws.name, ws.description, ws.scope) == ("E", "nova", "global")
+    assert (ws.name, ws.description) == ("E", "nova")
 
 
-def test_subject_update_renomeia_e_mantem_scope(conn):
+def test_subject_update_renomeia(conn):
     item_id = _item("W", "P", subject="s1")
-    SubjectService().update("w", "p", "s1", scope="global")
     sj = SubjectService().update("w", "p", "s1", new_name="s2")
-    assert (sj.name, sj.scope) == ("s2", "global")
+    assert sj.name == "s2"
     assert ItemService().get(item_id).subject == "s2"
-    assert _effective(item_id) == "global"
 
 
-def test_rename_saiu(conn):
+def test_rename_e_export_sairam(conn):
     for svc in (WorkspaceService(), ProjectService(), SubjectService()):
         assert not hasattr(svc, "rename")
         assert not hasattr(svc, "export")
 
 
-# ---- merge mantém o scope -------------------------------------------------------------------
+# ---- merge ----------------------------------------------------------------------------------
 
 
-def test_workspace_merge_leva_o_scope_do_project(conn):
+def test_workspace_merge_leva_os_projects(conn):
     WorkspaceService().create("Src")
     WorkspaceService().create("Tgt")
-    ProjectService().create("src", "P", scope="global")
+    ProjectService().create("src", "P")
     WorkspaceService().merge("Src", "Tgt")
-    assert ProjectService().get("tgt", "p").scope == "global"
+    assert ProjectService().get("tgt", "p").name == "P"
 
 
-def test_project_merge_scope_do_destino_prevalece(conn):
+def test_project_merge_junta_os_itens(conn):
     _item("W", "Src")
-    ProjectService().create("w", "Tgt", scope="workspace")
-    ProjectService().update("w", "Src", scope="global")
-    SubjectService().create("w", "src", "git", scope="global")
+    ProjectService().create("w", "Tgt")
     ProjectService().merge("w", "Src", "Tgt")
-    assert ProjectService().get("w", "tgt").scope == "workspace"
-    assert SubjectService().get("w", "tgt", "git").scope == "global"
+    assert any(r.project == "Tgt" for r in Brain().snapshot.items_in("w", "tgt"))
 
 
-def test_workspace_merge_com_colisao_scope_do_destino(conn):
-    WorkspaceService().create("Src")
-    WorkspaceService().create("Tgt")
-    ProjectService().create("src", "P", scope="global")
-    ProjectService().create("tgt", "P", scope="workspace")
-    WorkspaceService().merge("Src", "Tgt")
-    assert ProjectService().get("tgt", "p").scope == "workspace"
-
-
-def test_subject_merge_scope_do_destino_prevalece(conn):
+def test_subject_merge(conn):
     _item("W", "P", subject="a")
-    SubjectService().create("w", "p", "b", scope="workspace")
-    SubjectService().update("w", "p", "a", scope="global")
+    SubjectService().create("w", "p", "b")
     SubjectService().merge("w", "p", "a", "b")
-    assert SubjectService().get("w", "p", "b").scope == "workspace"
+    assert SubjectService().get("w", "p", "b").name == "b"
 
 
 # ---- rows -----------------------------------------------------------------------------------
 
 
-def test_workspace_rows(conn):
-    WorkspaceService().create("E", "empresa", scope="global")
+def test_workspace_rows_sem_scope(conn):
+    WorkspaceService().create("E", "empresa")
     _item("E", "Q")
     _item("E", "R", key="rule/y")
     WorkspaceService().create("Vazio")
     rows = WorkspaceService().rows()
-    assert rows == [
-        {"id": "e", "name": "E", "description": "empresa", "scope": "global",
-         "scope_explicit": "global", "items": 2, "projects": 2},
-        {"id": "vazio", "name": "Vazio", "description": None, "scope": "scoped",
-         "scope_explicit": None, "items": 0, "projects": 0},
-    ]
+    by_id = {r["id"]: r for r in rows}
+    assert by_id["e"]["name"] == "E" and by_id["e"]["items"] == 2 and by_id["e"]["projects"] == 2
+    assert by_id["vazio"]["items"] == 0
+    for r in rows:
+        assert "scope" not in r and "scope_explicit" not in r
 
 
-def test_project_rows_com_subjects_e_scope_herdado(conn):
-    WorkspaceService().create("E", scope="workspace")
+def test_project_rows_com_subjects(conn):
+    WorkspaceService().create("E")
     _item("E", "Q", subject="git")
     _item("E", "Q", key="rule/y")
-    ProjectService().create("e", "R", "outro", scope="global")
     SubjectService().create("e", "q", "api")
     rows = ProjectService().rows("E")
-    assert rows == [
-        {"id": "q", "workspace_id": "e", "name": "Q", "description": None,
-         "scope": "workspace", "scope_explicit": None, "items": 2, "subjects": ["api", "git"]},
-        {"id": "r", "workspace_id": "e", "name": "R", "description": "outro",
-         "scope": "global", "scope_explicit": "global", "items": 0, "subjects": []},
-    ]
+    q = next(r for r in rows if r["id"] == "q")
+    assert q["items"] == 2 and sorted(q["subjects"]) == ["api", "git"]
+    assert "scope" not in q
 
 
-def test_subject_rows(conn):
-    ProjectService().create(WorkspaceService().create("W").id, "P", scope="workspace")
+def test_subject_rows_sem_scope(conn):
+    ProjectService().create(WorkspaceService().create("W").id, "P")
     _item("W", "P", subject="git")
-    SubjectService().create("w", "p", "api", "rotas", scope="global")
+    SubjectService().create("w", "p", "api", "rotas")
     rows = SubjectService().rows("W", "P")
-    assert rows == [
-        {"id": "api", "name": "api", "description": "rotas", "scope": "global",
-         "scope_explicit": "global", "items": 0},
-        {"id": "git", "name": "git", "description": None, "scope": "workspace",
-         "scope_explicit": None, "items": 1},
-    ]
+    by_id = {r["id"]: r for r in rows}
+    assert by_id["git"]["items"] == 1 and by_id["api"]["description"] == "rotas"
+    for r in rows:
+        assert "scope" not in r
+
+
+@pytest.mark.parametrize("call", [
+    lambda: WorkspaceService().create("E"),
+])
+def test_smoke_create(conn, call):
+    assert call()

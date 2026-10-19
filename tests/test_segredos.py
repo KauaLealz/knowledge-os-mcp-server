@@ -115,7 +115,7 @@ def test_item_save_recusa_o_valor_sem_ecoar(server, field):  # noqa: F811
     call(server, "repo", action="link", repo=PROJECT, workspace="Org", project="app")
     with pytest.raises(ToolError) as exc:
         call(server, "item_save", repo=PROJECT, items=[{**SECRET, field: VALUE}])
-    assert "UI" in str(exc.value) and VALUE not in str(exc.value)
+    assert "fill_url" in str(exc.value) and VALUE not in str(exc.value)
 
 
 def test_nenhuma_leitura_devolve_o_valor(linked):

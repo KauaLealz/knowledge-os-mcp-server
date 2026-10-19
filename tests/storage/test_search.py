@@ -11,10 +11,8 @@ from knowledge_os.storage.search import Candidate, SearchIndex, search, stem, te
 def _rec(id_: str, **over) -> ItemRecord:
     base = dict(
         id=id_, key=None, workspace="W", project="P", subject=None, type="howto",
-        subtype=None, scope=None, title="Titulo", status="active", tags=[], links=[],
-        scope_paths=[], ttl_days=None, keywords=None, source=None, origin="agent",
-        verified_at=None, verified_commit=None, created_at=datetime(2026, 1, 1),
-        updated_at=datetime(2026, 1, 1), relations=[], summary="Resumo", content="Conteudo",
+        title="Titulo", tags=[], links=[], created_at=datetime(2026, 1, 1),
+        updated_at=datetime(2026, 1, 1), summary="Resumo", content="Conteudo",
     )
     base.update(over)
     return ItemRecord(**base)
@@ -55,8 +53,8 @@ def test_peso_do_titulo_acima_do_corpo():
     assert res[0].score > res[1].score > 0
 
 
-def test_keywords_entram_na_busca():
-    alvo = _rec("a", title="Valores monetários", keywords="dinheiro centavos BigDecimal")
+def test_tags_entram_na_busca():
+    alvo = _rec("a", title="Valores monetários", tags=["dinheiro", "centavos"])
     assert _ids(search(_c(alvo, _rec("b")), "centavos", 10)) == ["a"]
 
 

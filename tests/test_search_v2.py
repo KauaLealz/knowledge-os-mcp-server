@@ -22,10 +22,8 @@ from knowledge_os.storage.search import (
 def _rec(id_: str, **over) -> ItemRecord:
     base = dict(
         id=id_, key=None, workspace="W", project="P", subject=None, type="howto",
-        subtype=None, scope=None, title="Titulo", status="active", tags=[], links=[],
-        scope_paths=[], ttl_days=None, keywords=None, source=None, origin="agent",
-        verified_at=None, verified_commit=None, created_at=datetime(2026, 1, 1),
-        updated_at=datetime(2026, 1, 1), relations=[], summary="Resumo", content="Conteudo",
+        title="Titulo", tags=[], links=[], created_at=datetime(2026, 1, 1),
+        updated_at=datetime(2026, 1, 1), summary="Resumo", content="Conteudo",
     )
     base.update(over)
     return ItemRecord(**base)
@@ -42,7 +40,7 @@ def _ids(hits) -> list[str]:
 # ------------------------------------------------------------------ campos e pesos
 
 
-@pytest.mark.parametrize("field", ["title", "keywords", "summary", "content"])
+@pytest.mark.parametrize("field", ["title", "summary", "content"])
 def test_campos_de_texto_indexados(field):
     alvo = _rec("a", **{field: "observabilidade"})
     hits = search(_c(alvo, _rec("b")), "observabilidade", 10)
@@ -87,13 +85,10 @@ def test_key_pesa_menos_que_titulo_e_mais_que_content():
     assert _ids(hits) == ["titulo", "key", "corpo"]
 
 
-def test_tag_e_subtipo_achados_por_texto():
+def test_tag_achada_por_texto():
     tag = _rec("tag", tags=["lgpd"])
-    sub = _rec("sub", type="rule", subtype="decision")
-    hits = search(_c(tag, sub, _rec("nada")), "lgpd", 10)
+    hits = search(_c(tag, _rec("nada")), "lgpd", 10)
     assert _ids(hits) == ["tag"] and hits[0].matched_in == ["tags"]
-    hits = search(_c(tag, sub, _rec("nada")), "decision", 10)
-    assert _ids(hits) == ["sub"] and hits[0].matched_in == ["subtype"]
 
 
 def test_snippet_curto_com_o_termo():
@@ -153,14 +148,6 @@ def test_distancia_ordena_igual_texto():
     assert hits[2].score == pytest.approx(hits[0].score * 0.7)
 
 
-def test_review_perde_peso_e_fica_depois_do_igual():
-    rev = _rec("rev", title="Cache de sessao", status="review")
-    ativo = _rec("ativo", title="Cache de sessao")
-    hits = search(_c(rev, ativo), "cache", 10)
-    assert _ids(hits) == ["ativo", "rev"]
-    assert hits[1].score == pytest.approx(hits[0].score * 0.6)
-
-
 def test_boost_multiplica():
     a, b = _rec("a", title="Fila de eventos"), _rec("b", title="Fila de eventos")
     hits = search([Candidate(a), Candidate(b, boost=1.2)], "fila", 10)
@@ -172,7 +159,7 @@ def test_boost_multiplica():
 
 
 def test_paths_match_glob():
-    rec = _rec("a", scope_paths=["src/payments/**", "docs/*.md"])
+    rec = _rec("a", links=[{"path": "src/payments/**"}, {"path": "docs/*.md"}])
     assert paths_match(rec, ["src/payments/a.py"])
     assert paths_match(rec, ["src/payments/deep/x/b.py"])
     assert paths_match(rec, ["./src\\payments\\a.py"])
@@ -185,7 +172,7 @@ def test_paths_match_glob():
 
 def test_paths_sobe_no_ranking_e_traz_excerpt():
     longo = " ".join(f"palavra{i}" for i in range(200))
-    com = _rec("com", title="Idempotencia no webhook", scope_paths=["src/payments/**"],
+    com = _rec("com", title="Idempotencia no webhook", links=[{"path": "src/payments/**"}],
                content=longo)
     sem = _rec("sem", title="Idempotencia no webhook", content=longo)
     hits = search(_c(sem, com), "idempotencia", 10, paths=["src/payments/a.py"])
@@ -200,7 +187,7 @@ def test_paths_sobe_no_ranking_e_traz_excerpt():
 
 
 def test_excerpt_curto_vem_inteiro():
-    rec = _rec("a", title="Regra", scope_paths=["src/**"], content="Use Decimal.")
+    rec = _rec("a", title="Regra", links=[{"path": "src/**"}], content="Use Decimal.")
     (hit,) = search(_c(rec), "regra", 10, paths=["src/x.py"])
     assert hit.excerpt == "Use Decimal."
 
@@ -212,7 +199,7 @@ def test_sem_consulta_ordena_por_distancia_paths_e_updated_at():
     velho = _rec("velho", updated_at=datetime(2026, 1, 1))
     novo = _rec("novo", updated_at=datetime(2026, 3, 1))
     longe = _rec("longe", updated_at=datetime(2026, 9, 1))
-    casado = _rec("casado", scope_paths=["src/**"], updated_at=datetime(2025, 1, 1))
+    casado = _rec("casado", links=[{"path": "src/**"}], updated_at=datetime(2025, 1, 1))
     cands = [Candidate(velho), Candidate(longe, distance=0.7), Candidate(novo),
              Candidate(casado, distance=0.85)]
     hits = search(cands, "", 10, paths=["src/a.py"])
@@ -223,12 +210,11 @@ def test_sem_consulta_ordena_por_distancia_paths_e_updated_at():
     assert [h.score for h in hits] == pytest.approx([1.275, 1.0, 1.0, 0.7])
 
 
-def test_sem_consulta_review_e_boost():
-    rev = _rec("rev", status="review")
-    ok = _rec("ok")
-    hot = _rec("hot")
-    hits = search([Candidate(rev), Candidate(ok), Candidate(hot, boost=1.3)], "  ", 10)
-    assert _ids(hits) == ["hot", "ok", "rev"]
+def test_sem_consulta_boost():
+    ok = _rec("ok", updated_at=datetime(2026, 1, 1))
+    hot = _rec("hot", updated_at=datetime(2026, 1, 1))
+    hits = search([Candidate(ok), Candidate(hot, boost=1.3)], "  ", 10)
+    assert _ids(hits) == ["hot", "ok"]
 
 
 # ------------------------------------------------------------------ AND/OR e stopwords

@@ -4,12 +4,10 @@ segredos, supersedes, ttl, nomes de workspace/project e itens duplicados na past
 O contrato do `save` v2 (validação, avisos, upsert, mover) está em test_items_v2.py.
 """
 
-from datetime import timedelta
 
 import pytest
 
 from knowledge_os.exceptions import NotFoundError, ValidationError
-from knowledge_os.services.brain import utcnow
 from knowledge_os.services.item_service import ItemService
 from knowledge_os.services.relation_service import RelationService
 from knowledge_os.services.secret_guard import find_secret
@@ -98,29 +96,6 @@ def test_placeholder_nao_e_segredo(texto):
     assert find_secret(texto) is None
 
 
-def test_supersedes_arquiva_o_antigo(svc, sample_workspace, sample_project):
-    loc = (sample_workspace.id, sample_project.id)
-    velho, novo = svc.save([{**FIELDS, "key": "howto/deploy", "type": "howto",
-                             "title": "Deploy manual"},
-                            {**FIELDS, "key": "howto/deploy-ci", "type": "howto",
-                             "title": "Deploy no CI"}], default_location=loc)
-    RelationService().create([{"source": "howto/deploy-ci", "type": "supersedes",
-                               "target": "howto/deploy"}], viewpoint=loc)
-    assert svc.get(velho["id"]).status == "archived"
-    found = svc.search("deploy", viewpoint=loc)["results"]
-    assert [r["id"] for r in found] == [novo["id"]]
-
-
-def test_ttl_renovado_conta_de_novo(svc, sample_workspace, sample_project):
-    item = svc.create(workspace_id=sample_workspace.id, project_id=sample_project.id,
-                      ttl_days=1, **FIELDS)
-    assert item.expires_at == item.updated_at + timedelta(days=1)
-    renewed = svc.update(item.id, ttl_days=30)
-    assert renewed.expires_at > item.expires_at
-    assert timedelta(days=29) < renewed.expires_at - utcnow() <= timedelta(days=30)
-    assert svc.update(item.id, ttl_days=None).expires_at is None
-
-
 def test_project_e_workspace_do_lote_reaproveitados(svc, sample_workspace, sample_project):
     svc.save([{"workspace": sample_workspace.name, "project": sample_project.name,
                "key": "rule/x", **FIELDS}])
@@ -144,7 +119,7 @@ def test_apagar_workspace_e_project_com_tags_relacoes_e_link(conn, data_dir):
     svc.save([{"workspace": "W", "project": "D", "key": "rule/a", **FIELDS, "tags": ["t"]}])
     svc.save([{"workspace": "W", "project": "D2", "key": "rule/b", **FIELDS},
               {"workspace": "W", "project": "D2", "key": "rule/b2", **FIELDS}])
-    RelationService().create([{"source": "rule/b", "type": "related_to",
+    RelationService().create([{"source": "rule/b", "type": "relates_to",
                                "target": "rule/b2"}], viewpoint=("w", "d2"))
     RepoService().link("github.com/o/r", "W", "D")
     assert ProjectService().delete("w", "D2") is True
