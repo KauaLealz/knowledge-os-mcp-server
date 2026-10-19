@@ -122,17 +122,12 @@ def test_readme_traz_a_taxonomia_do_model():
 
 
 @pytest.mark.parametrize("doc", DOCS)
-def test_docs_usam_tipos_subtipos_e_scopes_do_model(doc):
+def test_docs_usam_tipos_e_relacoes_do_model(doc):
     text = _text(doc)
-    subtypes = {s for subs in model.TYPES.values() for s in subs}
     for kind in re.findall(r'"type":\s*"(\w+)"', text):
-        assert kind in model.TYPES or kind in model.RELATION_TYPES, kind  # item ou relação
-    for sub in re.findall(r'"subtype":\s*"(\w+)"', text):
-        assert sub in subtypes, sub
-    for scope in re.findall(r'scope="(\w*)"', text) + re.findall(r'"scope":\s*"(\w+)"', text):
-        assert scope == "" or scope in model.SCOPES, scope
-    for sc in model.SCOPES:
-        assert sc in text
+        assert kind in model.TYPES or kind in model.LINK_RELATIONS, kind  # item ou link
+    # v6: docs nao citam subtype nem scope (removidos).
+    assert '"subtype"' not in text and 'scope="' not in text and '"scope"' not in text
     for key in re.findall(r'"key":\s*"(\w+)/', text):
         assert key in model.TYPES, key
 

@@ -8,15 +8,15 @@ sessão injeta o pacote do projeto e o fechamento de cada mudança grava o que v
 - **Só arquivos, num repositório git seu:** cada conexão é uma pasta (repositório git) que você
   escolhe; cada item é um arquivo Markdown com frontmatter YAML, e cada escrita é um commit. O
   que está na pasta é a verdade; não há banco nem índice para reconstruir.
-- **Alcance explícito (`scope`):** cada item diz onde vale — só no project, no workspace inteiro
-  ou em qualquer lugar — e a busca, o pacote e o grafo respeitam isso.
+- **Alcance pela hierarquia:** o item vale onde mora — workspace, project ou subject — e abaixo;
+  a busca, o pacote e o grafo respeitam isso, sem campo de scope.
 - **Busca explicada, sem embeddings, que acerta em PT-BR:** em memória, sem acento, por radical e
   prefixo, entende identificadores (`ItemService.saveBatch` acha "service" e "batch") e diz por
   que cada resultado veio (`matched_in`, `snippet`, `where`).
 - **Escrita em lote e idempotente:** `item_save` grava até 20 itens numa publicação; a `key`
   estável regrava sem duplicar.
-- **Aprende com o uso:** `item_feedback` registra o que ajudou, o que não serviu e o que está
-  velho; o ranking e o relatório de revisão usam isso.
+- **Corrige-se com o uso:** item errado ou velho, o agente ajusta ou remove (é git, dá para
+  voltar) — sem um sistema de feedback à parte.
 - **Segredos sem passar pelo modelo:** o agente cria o segredo vazio, você preenche na UI local e
   ele é usado por `knowledge-mcp run`, que entrega o valor só ao processo filho.
 - **Seguro:** recusa segredos em itens comuns; operações destrutivas pedem confirmação e mostram
@@ -70,8 +70,8 @@ leitura traduz o formato antigo e a próxima gravação de cada item já sai no 
 ## Onde ficam os dados
 
 - **Na pasta de cada conexão** (o repositório git que você escolheu): todos os itens, como
-  `<workspace>/<project>/<key>.md`, os `.knowledge.yaml` (descrição e `scope` de workspaces,
-  projects e subjects, e o vocabulário de tags) e os valores de segredos cifrados em `.secrets/`
+  `<workspace>/<project>/<key>.md`, os `.knowledge.yaml` (descrição de workspaces, projects e
+  subjects, e o vocabulário de tags) e os valores de segredos cifrados em `.secrets/`
   (fora do git: nunca entram nele).
 - **No home** (`KNOWLEDGE_OS_HOME`, padrão `~/.knowledge-os`), só estado desta máquina:
   `connections.json` (as conexões e a padrão), `repos.json` (repositório local → conexão,
@@ -87,81 +87,64 @@ push, clone.
 ```
 Workspace = contexto de trabalho     ex.: Polara (empresa), Pessoal
  └── Project = um repositório          ex.: app, synapse
-      └── Subject (opcional)           agrupador de assunto dentro do project, ex.: pagamentos
-           └── Item: type · subtype · key · title · summary · content · scope · scope_paths ...
+      └── Subject (opcional)           conceito dentro do project, ex.: pagamentos
+           └── Item: type · key · title · summary · content · tags · links
 ```
 
-O item **mora** no project em que foi salvo; **onde vale** é o `scope`. Cinco tipos, cada um
-com subtipos opcionais; status, scope, origin, relações e feedback são conjuntos fechados (a
-taxonomia abaixo é a mesma que o servidor envia ao agente nas instruções):
+O item **mora** num nível da hierarquia (workspace, project ou subject) e **vale onde mora e
+abaixo** — não há campo de scope. Cinco tipos; a nuance e o ciclo vão em **tags** (a taxonomia
+abaixo é a mesma que o servidor envia ao agente nas instruções):
 
-| Tipo | Subtipos (opcionais) |
+| Tipo | Guarda |
 |---|---|
-| `rule` | `code`, `pattern`, `security`, `business`, `process`, `decision` |
-| `howto` | `procedure`, `troubleshoot` |
-| `context` | `product`, `map`, `stack`, `glossary`, `environment` |
-| `spec` | `change`, `setup`, `dream` |
-| `secret` | — |
+| `rule` | o que deve ser seguido + o porquê (convenção, decisão, regra de negócio) |
+| `howto` | passos repetíveis ou diagnóstico (sintoma/causa/solução) |
+| `context` | pano de fundo: produto, mapa, stack, glossário, ambiente |
+| `work` | o trabalho: plano/spec + decisões (o porquê durável); ciclo por tag |
+| `secret` | referência a um segredo (sem o valor) |
 
 | Campo | Valores |
 |---|---|
-| status | `active`, `review`, `archived`; só `spec`: `draft`, `done` (`expired` é derivado do ttl) |
-| scope | `scoped`, `workspace`, `global` (sem valor: herda subject → project → workspace; nada explícito = `scoped`) |
-| origin | `user`, `code`, `agent` (padrão `agent`) |
-| relação | `related_to`, `depends_on`, `implements`, `references`, `supersedes`, `derived_from` |
-| feedback (outcome) | `helped`, `irrelevant`, `wrong`, `outdated`, `verified` |
+| tags de ciclo | `draft`, `active`, `done`, `archived` |
+| tags de nuance (base, extensível) | `decision`, `troubleshoot`, `security`, `pattern`, `map`, `glossary`, `product`, `environment`, `business`, `process` |
+| link item→item (`rel`) | `depends_on`, `relates_to` |
 
 Key: `<tipo>/<nome>` (nome em minúsculas com `-`); fora do padrão grava com aviso, e a key de um item existente nunca muda.
 
-Modelo do `content` (só avisa): `rule/decision` → `## Por quê`, `## Alternativa descartada`; `rule/pattern` → `Arquivo-modelo:`; `howto/troubleshoot` → `## Sintoma`, `## Causa`, `## Solução`; `context/environment` → ao menos um item em `links`.
+Alcance: o item vale onde mora na hierarquia (workspace → project → subject) e abaixo. Não há `scope`, `status`, `subtype`, `origin` nem expiração — a nuance e o ciclo vão em `tags`.
 
-### Scope e herança
+`links` (unificado): `{item, rel}` liga a outro item; `{url[, title]}` a uma URL; `{path}` a um arquivo/glob do repositório.
 
-| `scope` | Vale para |
-|---|---|
-| `scoped` | só o project onde o item mora |
-| `workspace` | todos os projects do mesmo workspace |
-| `global` | qualquer repositório, de qualquer workspace |
+### Alcance pela hierarquia
 
-O scope efetivo de um item é o primeiro explícito subindo item → subject → project → workspace;
-nada explícito é `scoped`. `workspace_update`, `project_update` e `subject_update` com `scope=`
-mudam o alcance de tudo que herda, sem mover arquivo. Na busca, o item do project do repositório
-pesa 1.0; o de scope `workspace` de outro project do mesmo workspace, 0.85; o `global` de fora,
-0.7; o resto é invisível.
-
-> **O scope não é fronteira de segurança.** Ele decide o que a busca e o pacote do hook mostram,
-> não quem pode ler: `item_get(ids=[...])` e `item_search(everywhere=True)` leem a conexão
-> inteira. A exceção é `secret`: o segredo **nunca herda** scope (sem `scope` próprio vale só no
-> project dele, mesmo num workspace `global`), e o `knowledge-mcp run` só entrega o valor de um
-> segredo de fora do project do repositório quando o item declara `scope: workspace`/`global`.
-> Merge e delete de workspace, project ou subject gravam o scope que o item tinha como explícito
-> quando ele mudaria de alcance (`scope_changes` na resposta).
+Um item no nível do **workspace** vale em todos os projects dele; no **project**, só nele; no
+**subject**, só nele. Na busca, quanto mais perto do project do repositório, maior o peso; o que
+está fora do alcance é invisível. `item_get(ids=[...])` e `item_search(everywhere=True)` leem a
+conexão inteira. Um segredo vale pelo mesmo alcance: para usá-lo fora do seu project, guarde-o no
+nível do workspace.
 
 ### Ciclo de vida
 
 Sem aprovação: o que o agente grava já vale. Para corrigir, regrave pela mesma `key`; para
-aposentar, `status: "archived"` ou uma relação `supersedes` (que arquiva o alvo). Itens
-`archived` e vencidos (`ttl_days`) saem da busca e do contexto; `review` continua aparecendo,
-depois e marcado. O servidor nunca apaga sozinho: `item_delete` sem chaves lista candidatos
-(vencidos, arquivados há 90 dias, em revisão há 14, nunca abertos, marcados como irrelevantes) e
-só remove com `confirm=True`; item `origin: "user"` nunca é candidato.
+aposentar, a tag `archived`. Itens com a tag `archived` saem da busca e do contexto. O servidor
+nunca apaga sozinho: `item_delete` sem chaves lista candidatos (arquivados ou nunca abertos há
+muito tempo) e só remove com `confirm=True`.
 
-## Ferramentas (32)
+## Ferramentas (31)
 
 | Ferramenta | Faz |
 |---|---|
 | `connection_create` · `connection_list` · `connection_delete` | cria (a única forma de criar), lista ou tira do cadastro uma conexão — apagar não mexe na pasta |
-| `workspace_list` · `workspace_create` · `workspace_update` · `workspace_merge` · `workspace_delete` | organização dos workspaces; `create`/`update` aceitam `description` e `scope` |
+| `workspace_list` · `workspace_create` · `workspace_update` · `workspace_merge` · `workspace_delete` | organização dos workspaces; `create`/`update` aceitam `description` |
 | `project_list` · `project_create` · `project_update` · `project_merge` · `project_delete` | o mesmo, por workspace (a lista traz os subjects) |
 | `subject_list` · `subject_create` · `subject_update` · `subject_merge` · `subject_delete` | o mesmo, por project |
 | `repo` | `action="link"`, `"list"`, `"unlink"` ou `"sync"`: liga o repositório a um workspace/project, ou puxa o que mudou no remote |
-| `item_search` | busca explicada pelo alcance, até 5 consultas por chamada, com `paths`, `scope` e filtros |
+| `item_search` | busca explicada pela hierarquia, até 5 consultas por chamada, com `paths`, `types` e `tags` |
 | `item_get` | itens completos por keys ou ids, vários de uma vez |
 | `item_save` | cria, atualiza, regrava por `key`, move; até 20 itens, atômico |
 | `item_delete` | candidatos à limpeza, prévia e remoção com `confirm=True` |
-| `item_feedback` | diz o que cada item fez por você (`helped`, `irrelevant`, `wrong`, `outdated`, `verified`) |
-| `item_graph` | vizinhança por relações, até 3 saltos |
-| `relation_create` · `relation_delete` | relações em lote entre itens |
+| `item_graph` | vizinhança por links item↔item, até 3 saltos |
+| `relation_create` · `relation_delete` | links `depends_on`/`relates_to` em lote entre itens |
 | `tag_list` · `tag_create` · `tag_update` · `tag_delete` | tags gerenciadas: contagem, renomear/mesclar, prévia ao apagar |
 | `health_check` | versão, conexões, arquivos que não leram e `gh` autenticado |
 
@@ -202,29 +185,28 @@ knowledge-mcp --version
 Os subcomandos do cérebro não carregam o servidor MCP: o hook responde em ~1 s.
 
 **Pacote de contexto** (`context`): pelo mesmo alcance da busca, nesta ordem — Em foco (o que
-casa `--paths`/`--query`, com o começo do `content`), Em revisão, Segurança (`rule/security`),
-Regras por subtipo, Contexto, Como fazer (só títulos), Specs ativas, Segredos (estado e como
-usar) e Regras com escopo (as de `scope_paths` que casam). Item de fora do project do
-repositório leva a origem (`[global]` ou `[<workspace>]`). Respeita o orçamento em tokens e lista
-o que ficou de fora. Sem conexão, devolve o exemplo de `connection_create`; o hook nunca derruba
-a sessão.
+casa `--paths`/`--query`, com o começo do `content`), Segurança (tag `security`), Regras,
+Contexto, Como fazer (só títulos), Trabalho ativo (`work`), Segredos (estado e como usar) e
+Regras por arquivo (as com um link `{path}` que casa). Item de fora do project do repositório
+leva de onde vem (`[<workspace>]`). Respeita o orçamento em tokens e lista o que ficou de fora.
+Sem conexão, devolve o exemplo de `connection_create`; o hook nunca derruba a sessão.
 
-**Relatório** (`report --json`): `never_opened_60d`, `review_over_7d`, `high_irrelevant`,
+**Relatório** (`report --json`): `never_opened_60d`, `archived` (candidatos a remover),
 `empty_searches` (as buscas que voltaram vazias, com contagem) e `tags_unused`, cada lista com
 `key`, `where` e o motivo.
 
 ## UI
 
 `knowledge-mcp ui` (ou o servidor MCP, que já a sobe) abre uma UI local em
-`http://127.0.0.1:8765`. Mostra os itens com tipo e subtipo, o scope (com o herdado indicado), a
-marca de "em revisão", `links`, `origin` e as ligações do item em grafo; as tags com contagem; a
-organização em workspaces, projects e subjects com `scope`; e as conexões, com o caminho da pasta.
+`http://127.0.0.1:8765`. Mostra os itens com tipo e tags, `links` e as ligações do item em grafo;
+as tags com contagem; a organização em workspaces, projects e subjects; e as conexões, com o
+caminho da pasta.
 É também onde você preenche o valor de um segredo. Só escuta em `127.0.0.1`.
 
 ## Segredos
 
 Token, senha ou chave de API viram um item `secret` (key `secret/<nome>`), no mesmo esquema do
-resto: no project do repositório, ou com `scope` maior para compartilhar. O fluxo:
+resto: no project do repositório, ou num nível mais alto da hierarquia para compartilhar. O fluxo:
 
 1. O agente grava o item **sem valor** (`item_save` recusa qualquer campo de valor) e a resposta
    traz `fill_url`, o link da UI local direto no item.

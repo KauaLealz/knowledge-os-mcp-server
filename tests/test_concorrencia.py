@@ -120,8 +120,9 @@ def test_contexto_nao_cai_quando_o_contador_nao_consegue_gravar(conn, monkeypatc
     from knowledge_os.services.context_service import ContextService  # pacote: fase 5
 
     RepoService().link("github.com/org/app", "W", "D")
-    ItemService().save([{"key": "k", "type": "howto", "title": "t", "summary": "s",
-                         "content": "c", "scope_paths": ["src/**"]}], default_location=("W", "D"))
+    ItemService().save([{"key": "howto/k", "type": "howto", "title": "t", "summary": "s",
+                         "content": "c", "links": [{"path": "src/**"}]}],
+                       default_location=("W", "D"))
 
     def boom(*_a, **_k):
         raise OSError("disco cheio")

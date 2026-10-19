@@ -181,14 +181,13 @@ def test_valor_so_em_item_secret(linked):
         SecretService().set_value(rid, VALUE)
 
 
-def test_resolve_procura_no_repo_no_geral_e_no_global(linked):
+def test_resolve_no_repo(linked):
     items = ItemService()
-    out = items.save([{**SECRET, "workspace": "Global", "project": "Geral",
-                       "scope": "global"}])
-    SecretService().set_value(out[0]["id"], VALUE)
+    repo = _secret()
+    SecretService().set_value(repo, VALUE)
     item, value = SecretService().resolve(PROJECT, "segredo/npm-token")
-    assert value == VALUE and item.id == out[0]["id"]
-    assert items.get(item.id).access_count == 1  # uso conta
+    assert value == VALUE and item.id == repo
+    assert items.get(repo).access_count == 1  # uso conta
 
 
 def test_resolve_sem_valor_aponta_o_link(linked):
@@ -341,11 +340,11 @@ def test_valor_trocado_de_linha_no_arquivo_nao_vira_outro_segredo(linked):
         SecretService().resolve(PROJECT, "segredo/aws")
 
 
-def test_resolve_prefere_o_repo_ao_global(linked):
+def test_resolve_so_no_alcance(linked):
+    # Segredo com a mesma key noutro workspace nao e alcancado; vale o do repo.
     items = ItemService()
-    glob = items.save([{**SECRET, "workspace": "Global", "project": "Geral",
-                        "scope": "global"}])[0]["id"]
-    SecretService().set_value(glob, "global-" + VALUE)
+    fora = items.save([{**SECRET, "workspace": "Outra", "project": "Geral"}])[0]["id"]
+    SecretService().set_value(fora, "fora-" + VALUE)
     repo = _secret()
     SecretService().set_value(repo, "repo-" + VALUE)
     assert SecretService().resolve(PROJECT, "segredo/npm-token")[1] == "repo-" + VALUE

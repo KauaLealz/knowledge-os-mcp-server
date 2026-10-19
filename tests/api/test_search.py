@@ -34,8 +34,7 @@ def test_search_everywhere_ve_todos_os_workspaces(client, mk):
     other = mk.ws("Outro WS")
     pj = mk.project(other["id"], "P")
     mk.item(other["id"], pj["id"], "Fora conditional")
-    every = {h["title"] for h in _search(client, query="conditional", everywhere="true")[
-        "results"]}
+    every = {h["title"] for h in _search(client, query="conditional")["results"]}
     assert every == {"Item", "Fora conditional"}
     so_ws = {h["title"] for h in _search(client, query="conditional",
                                          workspace_id=ws["id"])["results"]}

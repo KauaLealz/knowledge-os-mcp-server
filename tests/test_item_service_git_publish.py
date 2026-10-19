@@ -329,4 +329,4 @@ class TestRelationDeletePublished:
         check = tmp_path / "check"
         _git(tmp_path, "clone", "-q", str(bare_repo), str(check))
         content = (check / "polara" / "app" / "regra" / "outra.md").read_text(encoding="utf-8")
-        assert "relations: []" in content or "relations: []\n" in content.replace("\n\n", "\n")
+        assert "links: []" in content and "regra/money" not in content
