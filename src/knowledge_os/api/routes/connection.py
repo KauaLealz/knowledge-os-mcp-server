@@ -11,7 +11,11 @@ from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 
 from knowledge_os.api.schemas.requests import ConnectionUpdate
-from knowledge_os.api.schemas.responses import ConnectionResponse, ConnectionTestResponse
+from knowledge_os.api.schemas.responses import (
+    ConnectionHealth,
+    ConnectionResponse,
+    ConnectionTestResponse,
+)
 from knowledge_os.exceptions import NotFoundError
 from knowledge_os.services.connection_service import Connection, ConnectionService
 
@@ -69,6 +73,14 @@ def _view(conn: Connection) -> dict[str, Any]:
 @router.get("/connections", response_model=list[ConnectionResponse])
 def list_connections():
     return [_view(c) for c in ConnectionService().list()]
+
+
+# Antes de /connections/{id}, para "health" não ser lido como id.
+@router.get("/connections/health", response_model=list[ConnectionHealth])
+def connections_health():
+    """Cada conexão com o caminho da pasta, se é repositório git (`ok`) e os `.md` que a
+    leitura ignorou (`parse_errors`)."""
+    return ConnectionService().health()
 
 
 @router.get("/connections/{id}", response_model=ConnectionResponse)

@@ -1,30 +1,26 @@
-"""Schemas Pydantic de Workspace."""
+"""Schemas Pydantic de workspace (v6): nome e descrição (sem `scope` — o alcance vem da
+hierarquia: um item no workspace vale para tudo abaixo)."""
 
-from datetime import datetime
-
-from pydantic import BaseModel, ConfigDict, Field, RootModel
+from pydantic import BaseModel
 
 
 class WorkspaceCreate(BaseModel):
-    """Entrada para criação de workspace."""
-
-    name: str = Field(min_length=1, max_length=255)
+    name: str
     description: str | None = None
 
 
-class WorkspaceResponse(BaseModel):
-    """Workspace retornado pelas tools."""
+class WorkspaceUpdate(BaseModel):
+    """`PUT /workspaces/{id}`: só o que vier muda (`name` renomeia)."""
 
-    model_config = ConfigDict(from_attributes=True)
+    name: str | None = None
+    description: str | None = None
+
+
+class WorkspaceRow(BaseModel):
+    """`WorkspaceService.rows()`."""
 
     id: str
     name: str
-    description: str | None
-    created_at: datetime | None
-    updated_at: datetime | None
-
-
-class WorkspaceListResponse(RootModel[list[WorkspaceResponse]]):
-    """Lista de workspaces."""
-
-    root: list[WorkspaceResponse]
+    description: str | None = None
+    items: int
+    projects: int

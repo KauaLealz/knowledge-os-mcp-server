@@ -1,5 +1,5 @@
-// Página de Subject: itens de um assunto, agrupados por tipo, com filtros e busca (mesmo
-// mixin de listagem de Workspace/Project).
+// Subject page: a subject's items, with filters and search (same listing mixin as
+// Workspace/Project). v6 has no scope.
 import { hrefs } from '../router.js';
 import { listingMixin, mix } from './listing.js';
 
@@ -19,12 +19,12 @@ export function register(Alpine) {
           this.loadItems();
           this.initListing();
         },
-        /** Link para a tela de grafo deste assunto. */
+        /** Link to this subject's graph screen. */
         graphHref() {
           const p = this.app.route.params;
           return hrefs.subjectGraph(this.app.connId, p.ws, p.pj, p.subj);
         },
-        /** Sobe um nível: pro project deste assunto. */
+        /** Up one level: to the subject's project. */
         backHref() {
           const p = this.app.route.params;
           return hrefs.project(this.app.connId, p.ws, p.pj);

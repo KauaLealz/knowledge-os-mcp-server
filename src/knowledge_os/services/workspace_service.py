@@ -1,8 +1,9 @@
-"""Workspace service: criar, listar, renomear, mesclar, remover e exportar workspaces.
+"""Workspace service: criar, listar, atualizar (nome, descrição), mesclar e remover.
 
-Um workspace é uma pasta da conexão (o slug do nome); o nome de exibição e a descrição ficam
-no `.knowledge.yaml` dela. Renomear, mesclar e remover regravam/movem os arquivos dos itens e
-publicam tudo de uma vez.
+Um workspace é uma pasta da conexão (o slug do nome); o nome de exibição e a descrição ficam no
+`.knowledge.yaml` dela. v6 não tem `scope`: o alcance de um item vem de onde ele mora na
+hierarquia (workspace → project → subject), não de um campo herdado. Renomear, mesclar e remover
+regravam/movem os arquivos dos itens e publicam tudo de uma vez.
 """
 
 from __future__ import annotations
@@ -11,14 +12,7 @@ import dataclasses
 import logging
 from typing import Any
 
-from knowledge_os.exceptions import NotFoundError, ValidationError
-from knowledge_os.services._common import (
-    EXPORT_VERSION,
-    item_to_dict,
-    project_to_dict,
-    utc_now_iso,
-    workspace_to_dict,
-)
+from knowledge_os.exceptions import ValidationError
 from knowledge_os.services.brain import (
     Brain,
     Draft,
@@ -32,6 +26,13 @@ from knowledge_os.services.item_file import slugify
 from knowledge_os.storage import local_state
 
 logger = logging.getLogger(__name__)
+
+
+def apply_meta(data: dict[str, Any], description: str | None) -> dict[str, Any]:
+    """Aplica a descrição a um dicionário de metadados (v6: não há mais `scope`)."""
+    if description is not None:
+        data["description"] = description
+    return data
 
 
 def relink(connection_id: str, ws_id: str, pj_id: str | None, *, workspace: str | None,
@@ -86,15 +87,13 @@ class WorkspaceService:
         return Brain(self._connection_id)
 
     def create(self, name: str, description: str | None = None) -> Workspace:
-        """Cria um workspace. Levanta ValidationError se o nome (ou o slug dele) já existe."""
+        """Cria um workspace. ValidationError se o nome (ou o slug dele) já existe."""
         name = check_name(name, "workspace")
         brain = self._brain()
         with brain.editing() as d:
             if d.find_workspace(slugify(name)) is not None:
                 raise ValidationError(f"Workspace já existe: {name}")
-            data: dict[str, Any] = {"name": name}
-            if description is not None:
-                data["description"] = description
+            data = apply_meta({"name": name}, description)
             d.set_meta(meta_location(slugify(name)), data)
             brain.commit(d, f"knowledge-os: cria workspace {name}")
         logger.info("Workspace criado: %s", name)
@@ -104,43 +103,41 @@ class WorkspaceService:
         """Workspaces por nome."""
         return self._brain().snapshot.workspaces()
 
+    def rows(self) -> list[dict[str, Any]]:
+        """Para `workspace_list`/API: `[{id, name, description, items, projects}]` por nome."""
+        snap = self._brain().snapshot
+        counts: dict[str, int] = {}
+        for record in snap.records.values():
+            ws_id = slugify(record.workspace or "")
+            counts[ws_id] = counts.get(ws_id, 0) + 1
+        return [{"id": ws.id, "name": ws.name, "description": ws.description,
+                 "items": counts.get(ws.id, 0), "projects": len(snap.projects(ws.id))}
+                for ws in snap.workspaces()]
+
     def get(self, name: str) -> Workspace:
         """Workspace por nome ou id. NotFoundError se não existe."""
         return self._brain().snapshot.workspace(name)
 
-    def update(self, ref: str, name: str, description: str | None = None) -> Workspace:
-        """Troca o nome (movendo a pasta, se o slug mudar) e, se informada, a descrição."""
+    def update(self, ref: str, new_name: str | None = None,
+               description: str | None = None) -> Workspace:
+        """Troca o nome (movendo a pasta, se o slug mudar) e/ou a descrição; o que vier None
+        fica como está."""
+        new_name = check_name(new_name, "workspace") if new_name is not None else None
         brain = self._brain()
         with brain.editing() as d:
             ws = d.workspace(ref)
-            new = self._rename_in(d, ws, check_name(name, "workspace"))
-            if description is not None:
-                rel = meta_location(slugify(new))
-                d.set_meta(rel, {**d.meta(rel), "name": new, "description": description})
-            result = brain.commit(d, f"knowledge-os: atualiza workspace {new}")
-        if not is_published(result):
-            return Workspace(slugify(new), new, description or ws.description, ws.created_at,
-                             ws.updated_at)
-        relink(brain.cid, ws.id, None, workspace=new)
-        return brain.snapshot.workspace(slugify(new))
-
-    def rename(self, name: str, new_name: str) -> Workspace:
-        """Renomeia um workspace. ValidationError se new_name já existe."""
-        new_name = check_name(new_name, "workspace")
-        brain = self._brain()
-        with brain.editing() as d:
-            ws = d.workspace(name)
-            self._rename_in(d, ws, new_name)
-            result = brain.commit(
-                d, f"knowledge-os: renomeia workspace {ws.name} -> {new_name}"
-            )
+            name = self._rename_in(d, ws, new_name) if new_name is not None else ws.name
+            rel = meta_location(slugify(name))
+            d.set_meta(rel, apply_meta({**d.meta(rel), "name": name}, description))
+            result = brain.commit(d, f"knowledge-os: atualiza workspace {name}")
         if not is_published(result):
             # Em revisão: a pasta e a ligação dos repositórios só mudam depois do merge.
-            return Workspace(slugify(new_name), new_name, ws.description, ws.created_at,
+            return Workspace(slugify(name), name, description or ws.description, ws.created_at,
                              ws.updated_at)
-        relink(brain.cid, ws.id, None, workspace=new_name)
-        logger.info("Workspace renomeado: %s -> %s", name, new_name)
-        return brain.snapshot.workspace(slugify(new_name))
+        if slugify(name) != ws.id or name != ws.name:
+            relink(brain.cid, ws.id, None, workspace=name)
+        logger.info("Workspace atualizado: %s -> %s", ref, name)
+        return brain.snapshot.workspace(slugify(name))
 
     @staticmethod
     def _rename_in(d: Draft, ws: Workspace, new_name: str) -> str:
@@ -156,7 +153,7 @@ class WorkspaceService:
         d.set_meta(meta_location(new_id), {**meta, "name": new_name})
         return new_name
 
-    def merge(self, source: str, target: str) -> dict[str, int]:
+    def merge(self, source: str, target: str) -> dict[str, Any]:
         """Move todos os projects de source para target e apaga source.
 
         Projects homônimos (mesmo nome em source e target) são mesclados (itens e subjects
@@ -210,28 +207,3 @@ class WorkspaceService:
             relink(brain.cid, ws.id, None, workspace=None)
         logger.info("Workspace removido: %s", name)
         return True
-
-    def export(self, name: str) -> dict[str, Any]:
-        """Retorna {manifest, workspace_data} pronto para empacotar em ZIP."""
-        brain = self._brain()
-        snap = brain.snapshot
-        ws = snap.find_workspace(name)
-        if ws is None:
-            raise NotFoundError(f"Workspace não encontrado: {name}")
-        projects = [project_to_dict(p) for p in snap.projects(ws.id)]
-        records = sorted(snap.items_in(ws.id), key=lambda r: (r.created_at, r.path))
-        items = [item_to_dict(i) for i in brain.views(records)]
-        return {
-            "manifest": {
-                "version": EXPORT_VERSION,
-                "type": "workspace",
-                "name": ws.name,
-                "exported_at": utc_now_iso(),
-                "counts": {"projects": len(projects), "items": len(items)},
-            },
-            "workspace_data": {
-                "workspace": workspace_to_dict(ws),
-                "projects": projects,
-                "items": items,
-            },
-        }

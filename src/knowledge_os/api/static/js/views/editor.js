@@ -1,10 +1,12 @@
-// Edição inline do item (textarea mono + preview) e modais Novo item / workspace / project.
+// Inline item editing (mono textarea + preview) and the New item / workspace / project modals.
+// v6 fields: type, key, title, summary, content, tags, links. Nuance and lifecycle live in
+// tags; there is no subtype/scope/status/ttl/origin. The API validates (service message).
 import { api } from '../api.js';
 import { go, hrefs } from '../router.js';
 import { renderTo } from '../markdown.js';
-import { ITEM_TYPES } from '../util.js';
+import { ITEM_TYPES, linksToText, textToLinks } from '../util.js';
 
-const EDITABLE = ['title', 'type', 'summary', 'content', 'tags'];
+const EDITABLE = ['title', 'type', 'summary', 'content', 'tags', 'links'];
 
 const splitTags = (t) => String(t).split(',').map((x) => x.trim()).filter(Boolean);
 
@@ -12,30 +14,29 @@ function pick(item) {
   const out = {};
   for (const k of EDITABLE) out[k] = item[k] ?? '';
   out.tags = (item.tags || []).join(', ');
+  out.links = linksToText(item.links);
   return out;
 }
 
 const blank = (v) => v === '' || v === null || v === undefined;
 
-/** Campos que mudaram (título, resumo e conteúdo em branco não contam). Tags viram lista. */
+/** Changed fields (empty title/summary/content do not count). Tags and links become lists. */
 function changes(draft, saved) {
   const out = {};
   for (const k of EDITABLE) {
-    if (k === 'tags') {
-      if (draft.tags !== saved.tags) out.tags = splitTags(draft.tags);
-      continue;
-    }
-    if (blank(draft[k])) continue;
-    if (draft[k] !== saved[k]) out[k] = draft[k];
+    if (draft[k] === saved[k]) continue;
+    if (k === 'tags') out.tags = splitTags(draft.tags);
+    else if (k === 'links') out.links = textToLinks(draft.links);
+    else if (!blank(draft[k])) out[k] = draft[k];
   }
   return out;
 }
 
 export function register(Alpine) {
   Alpine.data('itemEditor', (item, applyUpdate) => {
-    let beforeUnload = null; // fora do estado reativo
+    let beforeUnload = null; // outside reactive state
     return {
-      // Segredo só nasce pelo agente; ao editar um, o tipo dele continua na lista.
+      // A secret is only born through the agent; when editing one, its type stays in the list.
       types: item.type === 'secret' ? ['secret', ...ITEM_TYPES] : ITEM_TYPES,
       draft: pick(item),
       saved: pick(item),
@@ -82,8 +83,8 @@ export function register(Alpine) {
           this.app.toast('Nothing to save');
           return;
         }
-        if (blank(this.draft.title) || blank(this.draft.summary) || blank(this.draft.content)) {
-          this.error = 'Title, summary and content cannot be empty.';
+        if (blank(this.draft.title) || blank(this.draft.summary)) {
+          this.error = 'Title and summary cannot be empty.';
           return;
         }
         this.saving = true;
@@ -91,9 +92,10 @@ export function register(Alpine) {
         try {
           const updated = await api('PUT', `/items/${item.id}`, { body: changes(this.draft, this.saved) });
           this.saved = pick(updated);
+          this.draft = pick(updated);
           applyUpdate(updated);
           this.app.toast('Changes saved');
-          this.app.loadTree(); // atualiza updated_at na árvore
+          this.app.loadTree(); // refresh updated_at in the tree
         } catch (e) {
           this.error = e.message;
         } finally {
@@ -130,7 +132,7 @@ export function register(Alpine) {
         description: '',
         workspace_id: p.ws || this.app.workspaces[0]?.id || '',
         project_id: p.pj || this.projects[0]?.id || '',
-        type: 'knowledge',
+        type: 'rule',
         title: '',
         summary: '',
         content: '',
@@ -181,7 +183,11 @@ export function register(Alpine) {
       if (!f.workspace_id) throw new Error('Choose the workspace.');
       if (!f.name.trim()) throw new Error('Enter the project name.');
       const pj = await api('POST', '/projects', {
-        body: { workspace_id: f.workspace_id, name: f.name.trim(), description: f.description.trim() || null },
+        body: {
+          workspace_id: f.workspace_id,
+          name: f.name.trim(),
+          description: f.description.trim() || null,
+        },
       });
       await this.app.loadTree(f.workspace_id);
       this.app.expanded[pj.id] = true;
@@ -195,14 +201,13 @@ export function register(Alpine) {
       const ws = this.app.route.params.ws;
       if (!ws) throw new Error('Open a workspace before creating an item.');
       if (!f.project_id) throw new Error('Choose the project (create one if there isn\'t one yet).');
-      for (const [k, label] of [['title', 'title'], ['summary', 'summary'], ['content', 'content']]) {
+      for (const [k, label] of [['title', 'title'], ['summary', 'summary']]) {
         if (!String(f[k]).trim()) throw new Error(`Enter the ${label}.`);
       }
       const body = {
         workspace_id: ws,
         project_id: f.project_id,
         type: f.type,
-        memory_class: 'longterm', // a UI não expõe classe de memória: itens novos nascem duradouros
         title: f.title.trim(),
         summary: f.summary.trim(),
         content: f.content,

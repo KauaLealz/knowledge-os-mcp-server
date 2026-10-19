@@ -89,7 +89,7 @@ def test_workspace_delete_em_pr_mantem_enc_e_ligacao(pr_conn, gh_mock):
 
 
 def test_workspace_rename_em_pr_nao_mexe_na_ligacao(pr_conn, gh_mock):
-    WorkspaceService(pr_conn["cid"]).rename("Org", "Nova")
+    WorkspaceService(pr_conn["cid"]).update("Org", new_name="Nova")
     gh_mock.assert_called_once()
     _intacto(pr_conn)
 

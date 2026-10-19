@@ -1,4 +1,4 @@
-// Página de Project: itens do project agrupados por tipo, com filtros e busca.
+// Project page: the project's items, with filters and search. v6 has no scope.
 import { hrefs } from '../router.js';
 import { listingMixin, mix } from './listing.js';
 
@@ -18,12 +18,12 @@ export function register(Alpine) {
           this.loadItems();
           this.initListing();
         },
-        /** Link para a tela de grafo deste project. */
+        /** Link to this project's graph screen. */
         graphHref() {
           const p = this.app.route.params;
           return hrefs.projectGraph(this.app.connId, p.ws, p.pj);
         },
-        /** Sobe um nível: pro workspace. */
+        /** Up one level: to the workspace. */
         backHref() {
           return hrefs.ws(this.app.connId, this.app.route.params.ws);
         },

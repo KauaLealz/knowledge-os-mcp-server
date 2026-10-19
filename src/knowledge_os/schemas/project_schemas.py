@@ -1,32 +1,50 @@
-"""Schemas Pydantic de Project."""
+"""Schemas Pydantic de project e subject (v6): nome e descrição (sem `scope` — o alcance vem
+da hierarquia)."""
 
-from datetime import datetime
-
-from pydantic import BaseModel, ConfigDict, Field, RootModel
+from pydantic import BaseModel
 
 
 class ProjectCreate(BaseModel):
-    """Entrada para criação de project."""
-
-    workspace_id: str = Field(min_length=1)
-    name: str = Field(min_length=1, max_length=255)
+    workspace_id: str
+    name: str
     description: str | None = None
 
 
-class ProjectResponse(BaseModel):
-    """Project retornado pelas tools."""
+class ProjectUpdate(BaseModel):
+    """`PUT /projects/{id}`: só o que vier muda (`name` renomeia)."""
 
-    model_config = ConfigDict(from_attributes=True)
+    name: str | None = None
+    description: str | None = None
+
+
+class ProjectRow(BaseModel):
+    """`ProjectService.rows()`."""
 
     id: str
     workspace_id: str
     name: str
-    description: str | None
-    created_at: datetime | None
-    updated_at: datetime | None
+    description: str | None = None
+    items: int
+    subjects: list[str]
 
 
-class ProjectListResponse(RootModel[list[ProjectResponse]]):
-    """Lista de projects."""
+class SubjectCreate(BaseModel):
+    workspace_id: str
+    project_id: str
+    name: str
+    description: str | None = None
 
-    root: list[ProjectResponse]
+
+class SubjectUpdate(ProjectUpdate):
+    """`PUT /subjects/{id}`: só o que vier muda (`name` renomeia)."""
+
+
+class SubjectRow(BaseModel):
+    """`SubjectService.rows()` + o local."""
+
+    id: str
+    workspace_id: str
+    project_id: str
+    name: str
+    description: str | None = None
+    items: int

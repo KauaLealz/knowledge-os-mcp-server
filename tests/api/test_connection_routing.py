@@ -54,8 +54,8 @@ def test_data_routes_follow_header(api, tmp_path):
     dm = api.post("/api/projects", headers=_hdr(a),
                   json={"workspace_id": ws["id"], "name": "D"}).json()
     item = api.post("/api/items", headers=_hdr(a), json={
-        "workspace_id": ws["id"], "project_id": dm["id"], "type": "knowledge",
-        "memory_class": "longterm", "title": "T", "summary": "s", "content": "c"})
+        "workspace_id": ws["id"], "project_id": dm["id"], "type": "rule",
+        "title": "T", "summary": "s", "content": "c"})
     assert item.status_code == 201, item.text
     assert api.get(f"/api/items/{item.json()['id']}", headers=_hdr(a)).status_code == 200
     assert api.get(f"/api/items/{item.json()['id']}", headers=_hdr(b)).status_code == 404

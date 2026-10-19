@@ -1,6 +1,94 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — Unreleased
+
+Redesenho do modelo de conhecimento (v2). Não há compatibilidade nas ferramentas, na API nem na
+UI; só a **leitura de arquivos** traduz o formato antigo (ver "Migração").
+
+### Alterado (quebra de compatibilidade)
+
+- **Cinco tipos, com subtipos.** `rule` (`code`, `pattern`, `security`, `business`, `process`,
+  `decision`), `howto` (`procedure`, `troubleshoot`), `context` (`product`, `map`, `stack`,
+  `glossary`, `environment`), `spec` (`change`, `setup`, `dream`) e `secret`. Substituem os tipos
+  `rule`, `insight`, `procedure`, `pattern`, `knowledge`, `context`, `task` e `secret` anteriores.
+  Key no padrão `<tipo>/<nome>` (fora dele grava com aviso); o segredo passa a usar `secret/<nome>`.
+- **Alcance por `scope`.** `scoped` (só o project), `workspace` ou `global`, definido no item, no
+  subject, no project ou no workspace, com herança nessa ordem (nada explícito = `scoped`). O
+  item mora onde foi salvo e vale onde o scope manda; `workspace_update`, `project_update` e
+  `subject_update` aceitam `scope=` e mudam o alcance de tudo que herda, sem mover arquivo. Busca,
+  pacote, grafo, `item_get` e `item_save` usam o mesmo resolvedor (`services/scope.py`): mesmo
+  project 1.0, scope `workspace` de outro project do workspace 0.85, `global` de fora 0.7.
+- **Status:** `active`, `review`, `archived` (só `spec`: também `draft` e `done`); `expired` é
+  derivado do `ttl_days`. Campo novo `origin` (`user`, `code`, `agent`), `links`
+  (`{title, url}`), `verified_at` e `verified_commit`.
+- **`context_get` removido.** O pacote do projeto vem do hook (`knowledge-mcp context`); sob demanda,
+  `item_search(repo=".")` sem consulta devolve o essencial em grupos (segurança, regras, contexto,
+  specs). A palavra `sensivel` em `keywords` perdeu o efeito: sensível é `rule/security`.
+- **Labels removidos** (`label_list`, `label_create`, `label_delete`); as tags passam a ser
+  gerenciadas. Saem também `workspace_rename`, `project_rename` e `subject_rename` (viram `*_update`
+  com `new_name`).
+- **Campos removidos:** `memory_class`, `importance`, `confidence`, `labels`, `level` e a promoção
+  de classe de memória. Item temporário continua possível com `ttl_days`, mas o servidor não
+  apaga mais nada sozinho (a manutenção diária saiu): o vencido some da busca e aparece em
+  `status=["expired"]`.
+- **Ferramentas em lote.** `item_save`, `item_get`, `item_delete`, `item_feedback`,
+  `relation_create` e `relation_delete` recebem listas (até 20; `item_get` e `item_delete` por
+  `keys`/`ids`), atômicas. `item_save` deixou de aceitar relações embutidas e de aceitar campo
+  desconhecido (erro com a lista dos válidos).
+- **`item_search` explicada.** Parâmetros novos: `queries` (até 5), `paths`, `scope`, `subtypes`,
+  `origin`, `workspace`, `everywhere`; cada resultado traz `scope`, `where`, `matched_in` e
+  `snippet` (com `paths`, também `excerpt` e `scope_paths`). Relevância BM25 com pesos por campo
+  (título 6, keywords 4, summary 3, tags 3, subtipo 2, content 1), identificadores indexados pelas
+  partes (camelCase, snake_case, pontos) e idf sempre positivo (variante do Lucene), de modo que
+  um termo presente em mais da metade do acervo ainda ranqueia pelos campos.
+- **API e UI** no modelo novo: tipos com subtipo, scope (com o herdado), marca de revisão, `links`,
+  `origin`, tags com contagem e o caminho da conexão; sem labels, classe de memória, importância
+  nem confiança. O grafo da ficha do item mostra também relações com outros projects
+  (`GET /api/items/{id}/graph` ignora o alcance).
+
+### Adicionado
+
+- **32 ferramentas**: `item_delete` em três passos (candidatos,
+  prévia, `confirm`), **`item_feedback`** (`helped`, `irrelevant`, `wrong`, `outdated`,
+  `verified`), **`item_graph`** (vizinhança até 3 saltos, com `truncated` e `total_by_hop`),
+  **`tag_update`** (renomeia ou mescla), `tag_create`/`tag_delete` com prévia, e
+  `workspace_*`/`project_*`/`subject_*` com `list`, `create`, `update`, `merge` e `delete`.
+  Contrato conferido por teste: nomes, docstrings (uso, retorno, exemplo) e os documentos só
+  citam ferramentas que existem.
+- **Sinais de uso** locais (fora do git): `shown`, `opened`, `helped`, `irrelevant`, `wrong`,
+  `outdated`, `verified` por item e as buscas que voltaram vazias (`searches/<conexão>.jsonl`).
+  Entram no ranking e no relatório.
+- **`knowledge-mcp report --json`**: nunca abertos há 60 dias, em revisão há mais de 7, muito
+  irrelevantes, buscas vazias e tags sem uso.
+- **Pacote do hook v2** (`knowledge-mcp context`): seções Em foco, Em revisão, Segurança, Regras
+  por subtipo, Contexto, Como fazer, Specs ativas, Segredos e Regras com escopo, com a origem
+  nos itens de fora do project.
+- **`health_check`** devolve as conexões e os arquivos que não leram (`parse_errors`).
+- Instruções do MCP (`mcp/INSTRUCTIONS.md`) geradas da taxonomia do `model.py`.
+
+### Corrigido
+
+- Nota de `wrong`/`outdated` num item de `content` vazio deixava linhas em branco no início, e
+  notas seguidas empilhavam linhas em branco; agora a nota entra sem linha em branco inicial e
+  notas consecutivas ficam na mesma citação.
+- O idf do BM25 zerava a relevância em acervo pequeno (termo em mais da metade dos itens).
+
+### Removido
+
+- `context_get`, `label_*`, `*_rename`, `memory_service` (promoção de classe), `label_service` e a
+  manutenção diária de itens `ephemeral`; os campos `memory_class`, `importance`, `confidence` e
+  `labels` e as rotas de labels da API (agora 404).
+
+### Migração
+
+Não há script. Ao **ler** um arquivo no formato antigo, o servidor o traduz: `insight` → `rule/decision`;
+`procedure` → `howto/procedure`; `knowledge` → `howto/troubleshoot` com status `review`; `pattern` →
+`rule/pattern`; `task` → `spec`; `rule` com `sensivel` em `keywords` → `rule/security`; status
+`superseded`/`deprecated` → `archived`; `labels` somadas às `tags`; `memory_class`, `importance`
+e `confidence` descartados (um `ephemeral` mantém o `ttl_days`); `origin` ausente vira `user` em
+arquivo antigo e `agent` nos novos. A regravação de cada item já sai no formato novo.
+
+## Antes da 0.3.0 (sem banco de dados)
 
 ### Alterado (quebra de compatibilidade) — sem banco de nenhum tipo
 

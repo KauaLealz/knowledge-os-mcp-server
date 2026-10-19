@@ -1,14 +1,18 @@
+"""Projects e subjects pela API (v6: sem scope; listas por `rows()`)."""
+
+
 def test_list_empty(client):
     assert client.get("/api/projects").json() == []
 
 
 def test_create_get(client, mk):
     ws = mk.ws()
-    body = {"workspace_id": ws["id"], "name": "D", "description": "x"}
-    r = client.post("/api/projects", json=body)
-    assert r.status_code == 201
+    r = client.post("/api/projects", json={"workspace_id": ws["id"], "name": "D",
+                                           "description": "x"})
+    assert r.status_code == 201, r.text
     d = r.json()
-    assert d["workspace_id"] == ws["id"]
+    assert d["workspace_id"] == ws["id"] and d["subjects"] == [] and d["items"] == 0
+    assert "scope" not in d and "scope_explicit" not in d
     assert client.get(f"/api/projects/{d['id']}").json()["name"] == "D"
 
 
@@ -37,11 +41,11 @@ def test_get_missing_is_404(client):
     assert client.get("/api/projects/nope").status_code == 404
 
 
-def test_update(client, mk):
-    d = mk.project(mk.ws()["id"], "Old")
-    r = client.put(f"/api/projects/{d['id']}", json={"name": "New", "description": "D"})
-    assert r.status_code == 200
-    assert (r.json()["name"], r.json()["description"]) == ("New", "D")
+def test_update_nome(client, mk):
+    ws = mk.ws()
+    pj = mk.project(ws["id"], "D")
+    r = client.put(f"/api/projects/{pj['id']}", json={"name": "D2", "description": "y"})
+    assert r.status_code == 200 and (r.json()["name"], r.json()["description"]) == ("D2", "y")
 
 
 def test_update_missing_is_404(client):
@@ -56,22 +60,53 @@ def test_update_duplicate_is_422(client, mk):
 
 
 def test_delete(client, mk):
-    d = mk.project(mk.ws()["id"])
-    assert client.delete(f"/api/projects/{d['id']}").status_code == 204
-    assert client.get(f"/api/projects/{d['id']}").status_code == 404
+    ws = mk.ws()
+    pj = mk.project(ws["id"], "D")
+    assert client.delete(f"/api/projects/{pj['id']}").status_code == 204
+    assert client.get(f"/api/projects/{pj['id']}").status_code == 404
 
 
 def test_delete_missing_is_404(client):
     assert client.delete("/api/projects/nope").status_code == 404
 
 
-def test_stats(client, mk):
-    _, dm, _ = mk.tree()
-    r = client.get(f"/api/projects/{dm['id']}/stats")
-    assert r.json() == {"items": 1}
+def test_mesmo_project_em_dois_workspaces_pede_workspace_id(client, mk):
+    a, b = mk.ws("A"), mk.ws("B")
+    mk.project(a["id"], "Geral")
+    mk.project(b["id"], "Geral")
+    assert client.get("/api/projects/geral").status_code == 422
+    assert client.get("/api/projects/geral", params={"workspace_id": "b"}).json()[
+        "workspace_id"] == "b"
 
 
-def test_stats_missing_is_404(client):
-    assert client.get("/api/projects/nope/stats").status_code == 404
+# ---- subjects -------------------------------------------------------------------------------
 
 
+def test_subject_create_list_update_delete(client, mk):
+    ws = mk.ws()
+    pj = mk.project(ws["id"], "P")
+    sj = mk.subject(ws["id"], pj["id"], "Pix", description="pagamentos")
+    assert (sj["name"], sj["description"], sj["items"]) == ("Pix", "pagamentos", 0)
+    assert "scope" not in sj
+    mk.item(ws["id"], pj["id"], "No pix", subject_id=sj["id"])
+    r = client.get("/api/subjects", params={"workspace_id": ws["id"], "project_id": pj["id"]})
+    assert r.status_code == 200 and [(s["name"], s["items"]) for s in r.json()] == [("Pix", 1)]
+    q = {"workspace_id": ws["id"], "project_id": pj["id"]}
+    r = client.put(f"/api/subjects/{sj['id']}", params=q, json={"name": "PIX novo"})
+    assert r.status_code == 200 and r.json()["name"] == "PIX novo"
+    assert client.get("/api/projects/p").json()["subjects"] == ["PIX novo"]
+    assert client.delete("/api/subjects/pix-novo", params=q).status_code == 204
+    assert client.get("/api/subjects", params=q).json() == []
+    assert client.delete("/api/subjects/pix-novo", params=q).status_code == 404
+
+
+def test_subject_duplicado_e_project_inexistente(client, mk):
+    ws = mk.ws()
+    pj = mk.project(ws["id"], "P")
+    mk.subject(ws["id"], pj["id"], "S")
+    r = client.post("/api/subjects",
+                    json={"workspace_id": ws["id"], "project_id": pj["id"], "name": "S"})
+    assert r.status_code == 422
+    r = client.post("/api/subjects",
+                    json={"workspace_id": ws["id"], "project_id": "nope", "name": "S"})
+    assert r.status_code == 404

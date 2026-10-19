@@ -2,7 +2,11 @@
 
 - `repos.json`: repositório local -> conexão/workspace/project
   (`{repo_key: {connection_id, workspace, project, created_at, updated_at}}`).
-- `usage/<connection_id>.json`: contador de uso por item (`{item_id: {uses, last_used}}`).
+- `usage/<connection_id>.json`: sinais de uso por item (`{item_id: {shown, opened,
+  last_used_at, helped, wrong, outdated, irrelevant, verified}}`). O formato antigo
+  (`{uses, last_used}`) é lido (`uses` vira `opened`) e regravado no novo na escrita seguinte.
+- `searches/<connection_id>.jsonl`: uma linha `{ts, query}` por busca que voltou vazia
+  (`empty_searches` agrega para o relatório).
 
 Nada disso vai para o repositório de dados: é preferência e telemetria local. O home é lido a
 cada chamada (os testes trocam `config.KNOWLEDGE_HOME`). Gravação atômica (temporário +
@@ -31,7 +35,12 @@ logger = logging.getLogger(__name__)
 
 _REPOS_FILE = "repos.json"
 _USAGE_DIR = "usage"
+_SEARCHES_DIR = "searches"
+COUNTERS = ("shown", "opened", "helped", "wrong", "outdated", "irrelevant", "verified")
+# Uso de verdade (abrir, ajudar) renova `last_used_at`; aparecer numa busca não.
+_TOUCHES = ("opened", "helped")
 _lock = threading.RLock()  # threads deste processo (UI + MCP)
+MAX_LOGGED_QUERY = 200  # caracteres de uma busca vazia que vão para `searches/<conn>.jsonl`
 
 
 @contextmanager
@@ -137,26 +146,51 @@ def delete_repo(repo_key: str) -> bool:
 # --------------------------------------------------------------------------- uso
 
 
-def _usage_path(connection_id: str) -> Path:
+def _state_path(folder: str, connection_id: str, suffix: str) -> Path:
     if not connection_id or _hidden_or_nested(connection_id):
-        raise ValueError(f"connection_id inválido para arquivo de uso: {connection_id!r}")
-    return Path(config.KNOWLEDGE_HOME) / _USAGE_DIR / f"{connection_id}.json"
+        raise ValueError(f"connection_id inválido para estado local: {connection_id!r}")
+    return Path(config.KNOWLEDGE_HOME) / folder / f"{connection_id}{suffix}"
+
+
+def _usage_path(connection_id: str) -> Path:
+    return _state_path(_USAGE_DIR, connection_id, ".json")
 
 
 def _hidden_or_nested(name: str) -> bool:
     return name.startswith(".") or "/" in name or "\\" in name
 
 
+def _int(value: Any) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
+
+
+def _entry(raw: Any) -> dict[str, Any]:
+    """Contadores de um item no formato novo (lê também `{uses, last_used}`)."""
+    raw = raw if isinstance(raw, dict) else {}
+    out: dict[str, Any] = {name: _int(raw.get(name)) for name in COUNTERS}
+    if "opened" not in raw and "uses" in raw:
+        out["opened"] = _int(raw.get("uses"))
+    last = raw.get("last_used_at") or raw.get("last_used")
+    out["last_used_at"] = last if isinstance(last, str) and last else None
+    return out
+
+
 def get_usage(connection_id: str) -> dict[str, dict[str, Any]]:
-    """Contadores de uso dos itens da conexão (`{item_id: {uses, last_used}}`)."""
+    """Sinais dos itens da conexão: `{item_id: {shown, opened, last_used_at, helped, ...}}`."""
     data, _ok = _read(_usage_path(connection_id))
-    return {k: v for k, v in data.items() if isinstance(v, dict)}
+    return {k: _entry(v) for k, v in data.items() if isinstance(v, dict)}
 
 
-def track(connection_id: str, ids: Iterable[str]) -> None:
-    """Soma um uso a cada item. Best-effort: qualquer falha é logada e ignorada."""
+def count(connection_id: str, ids: Iterable[str], field: str = "opened") -> None:
+    """Soma 1 ao contador `field` de cada item (`opened`/`helped` renovam `last_used_at`).
+
+    Best-effort: qualquer falha (inclusive `field` fora de `COUNTERS`) é logada e ignorada —
+    contador nunca derruba a operação que o chamou.
+    """
     try:
-        ids = list(dict.fromkeys(ids))
+        if field not in COUNTERS:
+            raise ValueError(f"contador desconhecido: {field!r} (válidos: {', '.join(COUNTERS)})")
+        ids = list(dict.fromkeys(i for i in ids if i))
         if not ids:
             return
         path = _usage_path(connection_id)
@@ -164,10 +198,78 @@ def track(connection_id: str, ids: Iterable[str]) -> None:
             data, ok = _read(path)
             now = _now()
             for item_id in ids:
-                entry = data.get(item_id)
-                uses = entry.get("uses", 0) if isinstance(entry, dict) else 0
-                data[item_id] = {"uses": (uses if isinstance(uses, int) else 0) + 1,
-                                 "last_used": now}
+                entry = _entry(data.get(item_id))
+                entry[field] += 1
+                if field in _TOUCHES:
+                    entry["last_used_at"] = now
+                data[item_id] = entry
             _write(path, data, was_valid=ok)
     except Exception as exc:  # noqa: BLE001 - contador nunca derruba a operação
-        logger.warning("Falha ao registrar uso em %s: %s", connection_id, exc)
+        logger.warning("Falha ao registrar %s em %s: %s", field, connection_id, exc)
+
+
+def track(connection_id: str, ids: Iterable[str], field: str = "opened") -> None:
+    """Compatível com a assinatura antiga: soma `opened` (ou o `field` dado)."""
+    count(connection_id, ids, field)
+
+
+# --------------------------------------------------------------------------- buscas vazias
+
+
+def _searches_path(connection_id: str) -> Path:
+    return _state_path(_SEARCHES_DIR, connection_id, ".jsonl")
+
+
+def log_empty_search(connection_id: str, query: str) -> None:
+    """Registra uma busca que voltou vazia (`{ts, query}`). Best-effort, como o contador.
+
+    Consulta com cara de segredo (o agente colou um token na busca) não é registrada, e a
+    gravada é cortada em `MAX_LOGGED_QUERY` caracteres: o arquivo fica no home, legível pelo
+    relatório, e não é lugar de credencial.
+    """
+    from knowledge_os.services.secret_guard import find_secret
+
+    try:
+        query = " ".join((query or "").split())
+        if not query or find_secret(query):
+            return
+        query = query[:MAX_LOGGED_QUERY]
+        path = _searches_path(connection_id)
+        line = json.dumps({"ts": _now(), "query": query}, ensure_ascii=False)
+        with _locked():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8", newline="\n") as fh:
+                fh.write(line + "\n")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Falha ao registrar busca vazia em %s: %s", connection_id, exc)
+
+
+def empty_searches(connection_id: str) -> list[dict[str, Any]]:
+    """Buscas vazias agregadas por consulta (sem caixa nem espaços extras):
+    `[{query, count, last_at}]`, da mais repetida para a menos (empate: a mais recente)."""
+    try:
+        raw = _searches_path(connection_id).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return []
+    except OSError as exc:
+        logger.warning("Não foi possível ler as buscas vazias de %s: %s", connection_id, exc)
+        return []
+    agg: dict[str, dict[str, Any]] = {}
+    for line in raw.splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(row, dict) or not isinstance(row.get("query"), str):
+            continue
+        query = " ".join(row["query"].split()).casefold()
+        if not query:
+            continue
+        entry = agg.setdefault(query, {"query": query, "count": 0, "last_at": None})
+        entry["count"] += 1
+        ts = row.get("ts") if isinstance(row.get("ts"), str) else None
+        if ts and (entry["last_at"] is None or ts > entry["last_at"]):
+            entry["last_at"] = ts
+    rows = sorted(agg.values(), key=lambda e: e["last_at"] or "", reverse=True)
+    rows.sort(key=lambda e: e["count"], reverse=True)
+    return rows

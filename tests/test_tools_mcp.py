@@ -1,5 +1,6 @@
-"""Ferramentas MCP ponta a ponta, pelo protocolo (cliente em memória): os tools de tools.py
-(mais health_check, registrado à parte em main.py — não entra no fixture `server`)."""
+"""Ferramentas MCP v6 ponta a ponta, pelo protocolo (cliente em memória): as 31 de `tools.py`
+(sem `item_feedback`), cada uma orquestrando o serviço dela. Alcance por hierarquia (o item
+vale onde mora na árvore workspace → project → subject e abaixo); não há scope/subtype/status."""
 
 import asyncio
 import json
@@ -12,7 +13,8 @@ from fastmcp.exceptions import ToolError
 from knowledge_os.mcp import tools
 
 PROJECT = "github.com/org/app"
-RULE = {"type": "rule", "memory_class": "working", "summary": "resumo", "content": "corpo"}
+OTHER = "github.com/org/outro"
+RULE = {"type": "rule", "summary": "resumo", "content": "corpo"}
 
 
 @pytest.fixture
@@ -31,7 +33,7 @@ def call(server: FastMCP, tool: str, /, **args: Any) -> Any:
     if result.data is not None:
         return result.data
     if not result.content:
-        return []  # ferramentas com retorno `Any` não estruturam uma lista vazia
+        return []
     return json.loads(result.content[0].text)
 
 
@@ -41,279 +43,268 @@ def fails(server: FastMCP, tool: str, /, **args: Any) -> str:
     return str(exc.value)
 
 
-def test_nomes_e_documentacao(server):
-    async def names() -> dict[str, str]:
-        async with Client(server) as client:
-            return {t.name: t.description or "" for t in await client.list_tools()}
-
-    tools_ = asyncio.run(names())
-    assert set(tools_) == {
-        "workspace_list", "workspace_create", "workspace_rename", "workspace_merge",
-        "workspace_delete",
-        "project_list", "project_create", "project_rename", "project_merge", "project_delete",
-        "subject_list", "subject_create", "subject_rename", "subject_merge", "subject_delete",
-        "repo",
-        "context_get", "item_search", "item_get", "item_save",
-        "item_delete", "relation_create", "relation_delete",
-        "tag_list", "tag_create", "tag_delete", "label_list", "label_create", "label_delete",
-        "connection_create", "connection_list", "connection_delete",
-    }
-    for name, doc in tools_.items():
-        assert "**Use quando:**" in doc and "**Retorna:**" in doc, name
+def link(server: FastMCP, repo: str, workspace: str, project: str) -> None:
+    call(server, "repo", action="link", repo=repo, workspace=workspace, project=project)
 
 
-def test_fluxo_do_plumb(server):
-    """Ligar projeto → contexto → gravar em lote → buscar → ler → promover → substituir."""
-    assert call(server, "context_get", repo=PROJECT)["linked"] is False
-    call(server, "repo", action="link", repo=PROJECT, workspace="Polara", project="app")
-
-    saved = call(server, "item_save", repo=PROJECT, items=[
-        {"key": "regra/money", **RULE, "title": "Money em pagamentos",
-         "scope_paths": ["src/payments/**"], "source": "PAY-142"},
-        {"key": "decisao/pix", "type": "insight", "memory_class": "working",
-         "title": "Pix vencido é recusado", "summary": "Recusar, não estornar",
-         "content": "Porque o financeiro revisa caso a caso."},
-        {"key": "proc/deploy", "type": "procedure", "memory_class": "working",
-         "title": "Deploy manual", "summary": "passo a passo antigo", "content": "..."},
-    ])
-    assert [s["action"] for s in saved] == ["created"] * 3
-
-    ctx = call(server, "context_get", repo=PROJECT, paths=["src/payments/Charge.java"])
-    md = ctx["markdown"]
-    assert "Money em pagamentos" in md and "Pix vencido" in md and "Deploy manual" in md
-
-    found = call(server, "item_search", query="pagamento", repo=PROJECT)
-    assert found[0]["key"] == "regra/money" and "content" not in found[0]
-
-    (full,) = call(server, "item_get", keys=["regra/money"], repo=PROJECT)
-    assert full["content"] == "corpo" and full["scope_paths"] == ["src/payments/**"]
-
-    again = call(server, "item_save", repo=PROJECT, items=[
-        {"id": full["id"], "memory_class": "longterm"},
-        {"key": "proc/deploy-ci", "type": "procedure", "memory_class": "working",
-         "title": "Deploy no CI", "summary": "pipeline", "content": "...",
-         "relations": [{"type": "supersedes", "target": "proc/deploy"}]},
-    ])
-    assert again[0]["action"] == "updated" and again[1]["relations"] == 1
-    (promoted,) = call(server, "item_get", ids=[full["id"]])
-    assert promoted["memory_class"] == "longterm"
-    titles = [r["title"] for r in call(server, "item_search", query="deploy", repo=PROJECT)]
-    assert titles == ["Deploy no CI"]  # o substituído saiu da busca
-    assert "Deploy manual" in [
-        r["title"] for r in call(server, "item_search", query="deploy", repo=PROJECT,
-                                 include_inactive=True)]
+@pytest.fixture
+def chain(server):
+    """W/app (o repositório) e W/outro; uma regra em cada project. O alcance é por hierarquia:
+    de W/app só se enxerga app (e seus subjects), não o project outro."""
+    link(server, PROJECT, "W", "app")
+    link(server, OTHER, "W", "outro")
+    call(server, "item_save", repo=PROJECT, items=[
+        {"key": "rule/money", **RULE, "title": "Money em pagamentos",
+         "links": [{"path": "src/payments/**"}], "content": "Use Money, nunca double."},
+        {"key": "rule/dois", **RULE, "title": "Segunda regra de pagamentos"}])
+    call(server, "item_save", repo=OTHER, items=[
+        {"key": "rule/so-outro", **RULE, "title": "Regra só de outro pagamentos"}])
+    return server
 
 
-def test_item_save_modos_e_erros(server):
-    call(server, "repo", action="link", repo=PROJECT, workspace="Polara", project="app")
-    first = call(server, "item_save", repo=PROJECT,
-                 items=[{**RULE, "title": "Cache com Redis"}])
-    assert first[0]["action"] == "created" and "similar" not in first[0]
-    second = call(server, "item_save", repo=PROJECT,
-                  items=[{**RULE, "title": "Redis como cache"}])
-    assert second[0]["similar"][0]["title"] == "Cache com Redis"
-
-    unchanged = call(server, "item_save", repo=PROJECT,
-                     items=[{"key": "k", **RULE, "title": "T"}])
-    assert unchanged[0]["action"] == "created"
-    assert call(server, "item_save", repo=PROJECT,
-                items=[{"key": "k", "summary": "resumo"}])[0]["action"] == "unchanged"
-
-    eph = call(server, "item_save", repo=PROJECT, items=[
-        {"key": "nota", **RULE, "title": "Nota", "memory_class": "ephemeral", "ttl_days": 1}])
-    (before,) = call(server, "item_get", ids=[eph[0]["id"]])
-    call(server, "item_save", items=[{"id": eph[0]["id"], "ttl_days": 30}])
-    (after,) = call(server, "item_get", ids=[eph[0]["id"]])
-    assert after["expires_at"] > before["expires_at"]
-
-    msg = fails(server, "item_save", repo=PROJECT,
-                items=[{"key": "s", **RULE, "title": "x", "content": "password=Segredo123!"}])
-    assert "segredo" in msg and "Segredo123" not in msg
-
-    msg = fails(server, "item_save", repo=PROJECT, items=[
-        {"key": "ok", **RULE, "title": "ok"}, {"key": "ruim", **RULE, "title": "x", "type": "?"}])
-    assert "Entrada 1" in msg
-    gone = call(server, "item_get", keys=["ok"], repo=PROJECT)
-    assert gone == [{"key": "ok", "missing": True}]  # o lote foi desfeito
-
-    assert "repo" in fails(server, "item_save", items=[{**RULE, "title": "sem lugar"}])
-    assert "não ligado" in fails(server, "item_search", query="x", repo="github.com/o/n")
+# ---- item_save / item_get / item_search ---------------------------------------------------
 
 
-def test_administracao(server):
-    saved = call(server, "item_save", items=[
-        {"workspace": "W", "project": "D", "key": "a", **RULE, "title": "A", "tags": ["x"]},
-        {"workspace": "W", "project": "D", "key": "b", **RULE, "title": "B",
-         "relations": [{"type": "related_to", "target": "a"}]},
-    ])
-    tree = call(server, "workspace_list")
-    assert tree == [{"name": "W", "description": None, "items": 2, "projects": 1}]
-    assert call(server, "project_list", workspace="W") == [{"name": "D", "items": 2}]
+def test_item_get_resolve_keys_pela_cadeia(chain):
+    got = call(chain, "item_get", keys=["rule/money", "rule/so-outro"], repo=PROJECT)
+    assert got[0].get("where") == "W/app"
+    assert got[0]["content"] == "Use Money, nunca double."
+    # rule/so-outro mora em W/outro, fora do alcance de W/app: não resolve pela key daqui.
+    assert got[1] == {"key": "rule/so-outro", "missing": True}
+    assert call(chain, "item_get", keys=["rule/so-outro"], workspace="W", project="outro")[0][
+        "title"]
+    assert call(chain, "item_get", ids=[got[0]["id"]])[0]["key"] == "rule/money"
 
-    assert {"x"} <= {t["name"] for t in call(server, "tag_list")}
-    lab = call(server, "label_create", name="lgpd")
-    assert call(server, "label_delete", id=lab["id"])["status"]
 
-    (item_b,) = call(server, "item_get", ids=[saved[1]["id"]])
-    rel_id = item_b["relations"][0]["id"]
-    assert call(server, "relation_delete", relation_id=rel_id)["status"] == "deleted"
+def test_item_save_upsert_por_key_e_lote_de_21(chain):
+    (before,) = call(chain, "item_get", keys=["rule/money"], repo=PROJECT)
+    (row,) = call(chain, "item_save", repo=PROJECT,
+                  items=[{"key": "rule/money", "summary": "Valores sempre em Money"}])
+    assert row["action"] == "updated" and row["id"] == before["id"] and row["warnings"] == []
+    assert call(chain, "item_save", repo=PROJECT, items=[
+        {"key": "rule/money", "summary": "Valores sempre em Money"}])[0]["action"] == "unchanged"
+    many = [{"key": f"rule/r{i}", **RULE, "title": f"R{i}"} for i in range(21)]
+    assert "no máximo 20" in fails(chain, "item_save", repo=PROJECT, items=many)
+    assert "no máximo 20" in fails(chain, "item_get", keys=[f"rule/r{i}" for i in range(21)],
+                                   repo=PROJECT)
 
-    created = call(server, "relation_create", source_item_id=saved[0]["id"],
-                   target_item_id=saved[1]["id"], relation_type="related_to")
-    assert created["relation_type"] == "related_to"
 
-    preview = call(server, "workspace_delete", name="W")
-    assert preview == {"status": "preview", "would_delete": {"workspace": "W", "projects": 1,
-                                                            "items": 2}}
-    assert call(server, "workspace_list")  # nada apagado sem confirm
-    call(server, "workspace_delete", name="W", confirm=True)
+def test_item_save_tag_nova_avisa(server):
+    link(server, PROJECT, "W", "app")
+    (row,) = call(server, "item_save", repo=PROJECT, items=[
+        {"key": "rule/pix", "type": "rule", "title": "Pix vencido",
+         "summary": "Recusar", "content": "Recusar.", "tags": ["pix-novo"]}])
+    assert "pix-novo" in " ".join(row["warnings"])
+
+
+def test_item_search_cadeia_de_alcance(chain):
+    found = call(chain, "item_search", query="pagamentos", repo=PROJECT)
+    by_key = {r["key"]: r for r in found["results"]}
+    # De W/app só se enxerga app; não o project outro.
+    assert set(by_key) == {"rule/money", "rule/dois"}
+    assert by_key["rule/money"]["where"] == "W/app" and "content" not in by_key["rule/money"]
+    whole = call(chain, "item_search", query="pagamentos", workspace="W")
+    assert {r["key"] for r in whole["results"]} == {"rule/money", "rule/dois", "rule/so-outro"}
+    everything = call(chain, "item_search", query="pagamentos", everywhere=True)
+    assert "rule/so-outro" in {r["key"] for r in everything["results"]}
+
+
+def test_item_search_queries_em_lote_e_paths(chain):
+    out = call(chain, "item_search", queries=["money", "segunda"], repo=PROJECT)
+    assert [g["query"] for g in out["groups"]] == ["money", "segunda"]
+    assert "no máximo 5" in fails(chain, "item_search", queries=list("abcdef"), repo=PROJECT)
+    (hit, *_) = call(chain, "item_search", query="money", repo=PROJECT,
+                     paths=["src/payments/Charge.java"])["results"]
+    assert hit["key"] == "rule/money" and "path" in hit["matched_in"]
+    assert hit["excerpt"].startswith("Use Money")
+
+
+def test_item_search_sem_consulta_traz_o_essencial(chain):
+    out = call(chain, "item_search", repo=PROJECT)
+    assert "rule/money" in {r["key"] for g in out["groups"] for r in g["results"]}
+
+
+def test_item_search_pasta_nao_ligada_so_globais_com_sugestao(chain):
+    out = call(chain, "item_search", query="pagamentos")
+    assert 'repo(action="link"' in out["suggestion"]
+
+
+# ---- item_delete --------------------------------------------------------------------------
+
+
+def test_item_delete_candidatos_previa_e_confirm(chain):
+    call(chain, "item_save", repo=PROJECT, items=[
+        {"key": "rule/velha", **RULE, "title": "Velha", "tags": ["archived"]},
+        {"key": "rule/aponta", **RULE, "title": "Aponta",
+         "links": [{"item": "rule/velha", "rel": "relates_to"}]}])
+    assert "candidates" in call(chain, "item_delete", repo=PROJECT)
+    preview = call(chain, "item_delete", repo=PROJECT, keys=["rule/velha"])
+    assert preview["status"] == "preview"
+    assert call(chain, "item_get", keys=["rule/velha"], repo=PROJECT)[0]["title"] == "Velha"
+    gone = call(chain, "item_delete", repo=PROJECT, keys=["rule/velha"], confirm=True)
+    assert gone["status"] == "deleted" and len(gone["ids"]) == 1
+    assert call(chain, "item_get", keys=["rule/velha"], repo=PROJECT)[0]["missing"] is True
+
+
+# ---- relações (links item→item) e grafo --------------------------------------------------
+
+
+def test_relation_create_delete_e_item_graph(chain):
+    rel = {"source": "rule/money", "type": "depends_on", "target": "rule/dois"}
+    assert call(chain, "relation_create", repo=PROJECT, items=[rel])[0]["action"] == "created"
+    assert call(chain, "relation_create", repo=PROJECT, items=[rel])[0]["action"] == "unchanged"
+    graph = call(chain, "item_graph", keys=["rule/money"], repo=PROJECT)
+    assert {n["key"]: n["hop"] for n in graph["nodes"]} == {"rule/money": 0, "rule/dois": 1}
+    assert graph["edges"] == [{"from": "rule/money", "type": "depends_on", "to": "rule/dois"}]
+    only_in = call(chain, "item_graph", keys=["rule/money"], repo=PROJECT, direction="in")
+    assert [n["key"] for n in only_in["nodes"]] == ["rule/money"]
+    assert call(chain, "relation_delete", repo=PROJECT, items=[rel])[0]["action"] == "deleted"
+    assert call(chain, "item_graph", keys=["rule/money"], repo=PROJECT)["edges"] == []
+    msg = fails(chain, "relation_create", repo=PROJECT, items=[{**rel, "type": "usa"}])
+    assert "depends_on" in msg and "relates_to" in msg
+    assert "no máximo 5" in fails(chain, "item_graph", keys=list("abcdef"), repo=PROJECT)
+
+
+# ---- tags ---------------------------------------------------------------------------------
+
+
+def test_tags_gerenciadas(server):
+    link(server, PROJECT, "W", "app")
+    assert call(server, "tag_create", names=["lgpd", "pix"]) == {"created": ["lgpd", "pix"],
+                                                                 "existing": []}
+    call(server, "item_save", repo=PROJECT, items=[
+        {"key": "rule/a", **RULE, "title": "A", "tags": ["pix"]}])
+    assert call(server, "tag_list") == [{"name": "lgpd", "count": 0}, {"name": "pix", "count": 1}]
+    assert call(server, "tag_update", name="pix", new_name="pagamento-pix") == {
+        "renamed": 1, "merged": False}
+    assert call(server, "item_get", keys=["rule/a"], repo=PROJECT)[0]["tags"] == ["pagamento-pix"]
+    preview = call(server, "tag_delete", names=["pagamento-pix"])
+    assert preview == {"status": "preview", "tags": [{"name": "pagamento-pix", "items": 1}]}
+    assert call(server, "tag_delete", names=["pagamento-pix"], confirm=True)["status"] == "deleted"
+    assert call(server, "tag_list") == [{"name": "lgpd", "count": 0}]
+    assert "lgpd" in fails(server, "tag_delete", names=["nao-existe"])
+
+
+# ---- organização --------------------------------------------------------------------------
+
+
+def test_workspace_crud_e_previa(server):
+    ws = call(server, "workspace_create", name="Polara", description="cliente")
+    assert (ws["name"], ws["description"]) == ("Polara", "cliente")
+    call(server, "workspace_create", name="Velho")
+    assert [r["name"] for r in call(server, "workspace_list")] == ["Polara", "Velho"]
+    up = call(server, "workspace_update", name="Velho", new_name="Antigo")
+    assert up["name"] == "Antigo"
+    call(server, "item_save", items=[
+        {"workspace": "Antigo", "project": "p", "key": "rule/a", **RULE, "title": "A"}])
+    preview = call(server, "workspace_delete", name="Antigo")
+    assert preview == {"status": "preview",
+                       "would_delete": {"workspace": "Antigo", "projects": 1, "items": 1}}
+    assert len(call(server, "workspace_list")) == 2
+    assert call(server, "workspace_merge", source="Antigo", target="Polara") == {
+        "merged_projects": 1, "renamed_collisions": 0}
+    done = call(server, "workspace_delete", name="Polara", confirm=True)
+    assert done["status"] == "deleted" and done["items"] == 1
     assert call(server, "workspace_list") == []
 
 
-def test_workspace_project_subject_rename_e_merge(server):
-    call(server, "item_save", items=[
-        {"workspace": "src-ws", "project": "src-pj", "key": "a", **RULE, "title": "A"},
-    ])
-    call(server, "workspace_create", name="tgt-ws")
-
-    renamed_pj = call(server, "project_rename", workspace="src-ws",
-                      name="src-pj", new_name="pj2")
-    assert renamed_pj["name"] == "pj2"
-
-    renamed_sj = call(server, "subject_create", workspace="src-ws", project="pj2",
-                      name="s1")
-    assert renamed_sj["name"] == "s1"
-    renamed_sj2 = call(server, "subject_rename", workspace="src-ws", project="pj2",
-                       name="s1", new_name="s2")
-    assert renamed_sj2["name"] == "s2"
-
-    result = call(server, "workspace_merge", source="src-ws", target="tgt-ws")
-    assert result == {"merged_projects": 1, "renamed_collisions": 0}
-    assert [p["name"] for p in call(server, "project_list", workspace="tgt-ws")] == \
-        ["pj2"]
-    assert fails(server, "workspace_rename", name="nao-existe", new_name="x")
-
-
-def test_subject_delete_preview_nao_apaga_item(server):
-    call(server, "item_save", items=[
-        {"workspace": "W", "project": "D", "key": "a", **RULE, "title": "A",
-         "subject": "assunto-x"},
-    ])
-    preview = call(server, "subject_delete", workspace="W", project="D",
-                   name="assunto-x")
-    assert preview == {"status": "preview", "would_delete": {"subject": "assunto-x",
-                                                              "items_sem_assunto": 1}}
-    deleted = call(server, "subject_delete", workspace="W", project="D",
-                   name="assunto-x", confirm=True)
-    assert deleted["status"] == "deleted"
-    (item,) = call(server, "item_get", keys=["a"], workspace="W", project="D")
-    assert item["id"]  # item continua existindo
+def test_project_e_subject_crud(server):
+    call(server, "workspace_create", name="W")
+    pj = call(server, "project_create", workspace="W", name="app")
+    assert pj["name"] == "app"
+    call(server, "project_create", workspace="W", name="app-old")
+    up = call(server, "project_update", workspace="W", name="app-old", description="legado")
+    assert up["description"] == "legado"
+    call(server, "subject_create", workspace="W", project="app", name="pagamentos")
+    call(server, "subject_create", workspace="W", project="app", name="pagto")
+    assert call(server, "subject_update", workspace="W", project="app", name="pagto",
+                new_name="cobranca")["name"] == "cobranca"
+    call(server, "item_save", items=[{"workspace": "W", "project": "app", "subject": "cobranca",
+                                      "key": "rule/a", **RULE, "title": "A"}])
+    subjects = call(server, "subject_list", workspace="W", project="app")
+    assert [(s["name"], s["items"]) for s in subjects] == [("cobranca", 1), ("pagamentos", 0)]
+    assert call(server, "subject_merge", workspace="W", project="app", source="cobranca",
+                target="pagamentos") == {"merged_items": 1}
+    call(server, "subject_delete", workspace="W", project="app", name="pagamentos", confirm=True)
+    (item,) = call(server, "item_get", keys=["rule/a"], workspace="W", project="app")
+    assert item["subject"] is None
+    assert call(server, "project_merge", workspace="W", source="app-old", target="app")
+    call(server, "project_delete", workspace="W", name="app", confirm=True)
+    assert call(server, "project_list", workspace="W") == []
 
 
-def test_repo_list_unlink_e_candidate_match(server):
+# ---- repo / connection --------------------------------------------------------------------
+
+
+def test_repo_link_list_unlink_candidate_e_sync(server):
     call(server, "workspace_create", name="AI8")
     out = call(server, "repo", action="link", repo="path:/tmp/ai8-repo-x", workspace="ai8",
                project="algo")
     assert out == {"status": "candidate",
                    "candidate_match": {"field": "workspace", "input": "ai8", "candidate": "AI8"}}
-
-    # Mesmo slug = mesma pasta: confirmar liga ao workspace que já existe.
     confirmed = call(server, "repo", action="link", repo="path:/tmp/ai8-repo-x",
                      workspace="ai8", project="algo", confirm_new=True)
     assert confirmed["workspace"] == "AI8"
-
-    links = call(server, "repo", action="list", workspace="ai8")
-    assert links == [{"repo_key": "path:/tmp/ai8-repo-x", "workspace": "AI8", "project": "algo"}]
-
+    assert call(server, "repo", action="list", workspace="ai8") == [
+        {"repo_key": "path:/tmp/ai8-repo-x", "workspace": "AI8", "project": "algo"}]
     assert call(server, "repo", action="unlink",
                 repo="path:/tmp/ai8-repo-x")["status"] == "deleted"
-    assert call(server, "repo", action="list", workspace="ai8") == []
-    assert "não ligado" in fails(server, "repo", action="unlink", repo="path:/tmp/ai8-repo-x")
+    assert call(server, "repo", action="sync") == {"synced": False}
 
 
-def test_busca_sem_projeto_usa_o_da_pasta_e_nao_vaza(server, monkeypatch):
-    call(server, "repo", action="link", repo=PROJECT, workspace="Polara", project="app")
-    call(server, "item_save", repo=PROJECT, items=[
-        {"key": "a", **RULE, "title": "Segredo de cobrança do app"}])
-    call(server, "repo", action="link", repo="github.com/org/outro", workspace="Outra",
-         project="o")
-    call(server, "item_save", repo="github.com/org/outro", items=[
-        {"key": "b", **RULE, "title": "Segredo de cobrança do outro"}])
-
-    def titles(**kw: Any) -> set[str]:
-        return {r["title"] for r in call(server, "item_search", query="cobrança", **kw)}
-
-    assert len(titles()) == 2  # pasta não ligada: busca em todos (comportamento anterior)
-    from knowledge_os.services.repo_service import RepoService
-    real = RepoService.resolve
-    monkeypatch.setattr(RepoService, "resolve", lambda self, p: real(
-        self, PROJECT if p == "." else p))
-    assert titles() == {"Segredo de cobrança do app"}  # pasta ligada: só o projeto
-    assert len(titles(everywhere=True)) == 2
+def test_connection_create_list_delete(_isolated_home, tmp_path):
+    m = FastMCP(name="t")
+    tools.register(m)
+    created = call(m, "connection_create", name="Pessoal", path=str(tmp_path / "pasta"))
+    assert created["name"] == "Pessoal" and created["is_default"] is True
+    assert [c["name"] for c in call(m, "connection_list")] == ["Pessoal"]
+    assert call(m, "connection_delete", id=created["id"]) == {"status": "deleted",
+                                                             "id": created["id"]}
+    assert call(m, "connection_list") == []
+    assert (tmp_path / "pasta").is_dir()
 
 
-def test_item_get_conta_uso(server):
-    call(server, "repo", action="link", repo=PROJECT, workspace="W", project="app")
-    call(server, "item_save", repo=PROJECT, items=[{"key": "r", "title": "R", **RULE}])
-    assert call(server, "item_get", keys=["r"], repo=PROJECT)[0]["access_count"] == 0
-    assert call(server, "item_get", keys=["r"], repo=PROJECT)[0]["access_count"] == 1
+# ---- health_check -------------------------------------------------------------------------
 
 
-def test_item_search_filtra_por_subject(server):
-    call(server, "repo", action="link", repo=PROJECT, workspace="Polara", project="app")
-    call(server, "item_save", repo=PROJECT, items=[
-        {"key": "a", **RULE, "title": "Item do assunto X", "subject": "assunto-x"},
-        {"key": "b", **RULE, "title": "Item do assunto Y", "subject": "assunto-y"},
-        {"key": "c", **RULE, "title": "Item sem assunto"},
-    ])
-    titles = {r["title"] for r in call(server, "item_search", query="Item", repo=PROJECT,
-                                        project="app", subject="assunto-x")}
-    assert titles == {"Item do assunto X"}
-    assert "subject" in fails(server, "item_search", query="Item", subject="assunto-x")
+def test_health_check_com_md_quebrado(server, data_dir):
+    call(server, "item_save", items=[
+        {"workspace": "W", "project": "p", "key": "rule/a", **RULE, "title": "A"}])
+    (data_dir / "w" / "p" / "quebrado.md").write_text("---\nid: [sem fim\n---\n", encoding="utf-8")
+    report = call(server, "health_check")
+    assert set(report) >= {"status", "version", "connections", "gh_authenticated"}
+    (conn,) = report["connections"]
+    assert conn["name"] == "Teste" and conn["ok"] is True
+    assert [e["path"] for e in conn["parse_errors"]] == ["w/p/quebrado.md"]
 
 
-def test_item_save_move_por_id_preserva_id_created_at_e_access_count(server):
-    call(server, "repo", action="link", repo=PROJECT, workspace="Polara", project="app")
-    saved = call(server, "item_save", repo=PROJECT,
-                 items=[{"key": "a", **RULE, "title": "Vai mudar de lugar"}])
-    item_id = saved[0]["id"]
-    # item_get conta uso: a leitura "antes" já bumpa o access_count em 1.
-    (before,) = call(server, "item_get", ids=[item_id])
-
-    moved = call(server, "item_save", items=[
-        {"id": item_id, "workspace": "OutroWorkspace", "project": "outro-project"}])
-    assert moved[0]["action"] == "updated"
-
-    (after,) = call(server, "item_get", ids=[item_id])
-    assert after["id"] == before["id"]
-    assert after["created_at"] == before["created_at"]
-    # Só o item_get seguinte bumpou de novo: o move em si não mexeu no access_count.
-    assert after["access_count"] == before["access_count"] + 1
-    assert after["workspace_id"] != before["workspace_id"]
-    assert after["project_id"] != before["project_id"]
-    assert after["subject_id"] is None  # mudou de project sem informar subject: zera
-
-    found = call(server, "item_search", query="mudar", workspace="OutroWorkspace")
-    assert found and found[0]["id"] == item_id
+# ---- erros que dizem como corrigir --------------------------------------------------------
 
 
-def test_item_save_move_so_o_subject(server):
-    call(server, "repo", action="link", repo=PROJECT, workspace="Polara", project="app")
-    saved = call(server, "item_save", repo=PROJECT,
-                 items=[{"key": "a", **RULE, "title": "Vai ganhar assunto"}])
-    item_id = saved[0]["id"]
-    (before,) = call(server, "item_get", ids=[item_id])
+def test_repo_nao_ligado_diz_a_chamada_que_resolve(server):
+    hint = 'repo(action="link", repo="github.com/o/n")'
+    entry = {"key": "rule/x", **RULE, "title": "X"}
+    assert hint in fails(server, "item_save", repo="github.com/o/n", items=[entry])
+    rel = {"source": "rule/x", "type": "relates_to", "target": "rule/y"}
+    assert hint in fails(server, "relation_create", repo="github.com/o/n", items=[rel])
+    assert "repo" in fails(server, "item_save", items=[entry])
 
-    moved = call(server, "item_save", items=[{"id": item_id, "subject": "novo-assunto"}])
-    assert moved[0]["action"] == "updated"
 
-    (after,) = call(server, "item_get", ids=[item_id])
-    assert after["id"] == before["id"]
-    assert after["created_at"] == before["created_at"]
-    assert after["workspace_id"] == before["workspace_id"]
-    assert after["project_id"] == before["project_id"]
-    assert after["subject_id"] is not None
+def test_tipo_invalido_lista_os_validos(server):
+    link(server, PROJECT, "W", "app")
+    msg = fails(server, "item_save", repo=PROJECT, items=[
+        {"key": "rule/ok", **RULE, "title": "ok"},
+        {"key": "rule/x", **RULE, "title": "x", "type": "insight"}])
+    assert "Entrada 1" in msg and "rule, howto, context, work, secret" in msg
+    assert call(server, "item_get", keys=["rule/ok"], repo=PROJECT) == [
+        {"key": "rule/ok", "missing": True}]  # o lote foi desfeito
+    assert "desconhecido" in fails(server, "item_save", repo=PROJECT,
+                                   items=[{"key": "rule/x", **RULE, "title": "x", "scope": "x"}])
 
-    found = call(server, "item_search", query="assunto", repo=PROJECT, project="app",
-                 subject="novo-assunto")
-    assert found and found[0]["id"] == item_id
+
+def test_sem_conexao_diz_como_criar(_isolated_home):
+    m = FastMCP(name="t")
+    tools.register(m)
+    for tool, args in [("item_search", {"query": "x"}), ("workspace_list", {}),
+                       ("tag_list", {})]:
+        assert "connection_create" in fails(m, tool, **args), tool

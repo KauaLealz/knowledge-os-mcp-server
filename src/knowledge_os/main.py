@@ -22,81 +22,20 @@ from knowledge_os.config import (  # noqa: E402
     ensure_home,
     validate_config,
 )
-from knowledge_os.exceptions import (  # noqa: E402
-    ConfigError,
-    NotFoundError,
-    StorageError,
-    ValidationError,
-)
+from knowledge_os.exceptions import ConfigError, StorageError  # noqa: E402
 
 logger = logging.getLogger(__name__)
-
-from knowledge_os import __version__  # noqa: E402
 
 _MCP_DIR = Path(__file__).resolve().parent / "mcp"
 INSTRUCTIONS_FILE = _MCP_DIR / "INSTRUCTIONS.md"
 
 # Inicializar FastMCP (as instructions chegam ao agente no handshake do protocolo e entram
-# no contexto de toda sessão).
+# no contexto de toda sessão). O arquivo é gerado por `mcp/instructions.py`.
 mcp = FastMCP(name="knowledge-mcp", instructions=INSTRUCTIONS_FILE.read_text(encoding="utf-8"))
 
 
-def check_connection() -> dict[str, object]:
-    """Estado da conexão padrão: existe? a pasta está acessível? é um repositório git?"""
-    from knowledge_os.services.git_repo_service import GitRepoService
-    from knowledge_os.storage.access import resolve_connection
-
-    try:
-        conn = resolve_connection()
-    except (ConfigError, NotFoundError, ValidationError) as exc:
-        return {"status": "error", "connection": None, "message": str(exc)}
-    root = conn.clone_path()
-    exists = root.is_dir()
-    is_git = exists and GitRepoService(root).is_git_repo()
-    if not exists:
-        message = f"Pasta da conexão inacessível: {root}"
-    elif not is_git:
-        message = f"A pasta da conexão não é um repositório git: {root}"
-    else:
-        message = "ok"
-    return {
-        "status": "ok" if is_git else "error",
-        "connection": {
-            "id": conn.id,
-            "name": conn.name,
-            "path": str(root),
-            "exists": exists,
-            "is_git_repo": is_git,
-        },
-        "message": message,
-    }
-
-
-@mcp.tool()
-def health_check() -> dict[str, object]:
-    """Verifica a saúde do servidor MCP e da conexão padrão.
-
-    **Use quando:** Diagnosticar falhas ou confirmar que o servidor está operacional.
-    **Retorna:** {status: ok|error, connection: {id, name, path, exists, is_git_repo} | null,
-    message, version, gh_authenticated: true|false}.
-    **Exemplo:** health_check()
-    **Notas:** `status` é ok quando há conexão padrão e a pasta dela é um repositório git
-    acessível; sem conexão, `message` diz como criar uma. `gh_authenticated` é um
-    pré-requisito de publicação (`gh auth status`): só afeta connections com `remote_url` e
-    `review_mode="pr"`.
-    """
-    from knowledge_os.services import gh_cli
-
-    return {
-        **check_connection(),
-        "version": __version__,
-        "gh_authenticated": gh_cli.is_authenticated(),
-    }
-
-
 def register_all_tools() -> None:
-    """Registra as 13 ferramentas de `tools.py` (sem conceito de perfil) — `health_check`,
-    a 14ª, já está decorada acima, direto neste módulo."""
+    """Registra as 32 ferramentas de `mcp/tools.py` (inclusive `health_check`)."""
     from knowledge_os.mcp import tools
 
     tools.register(mcp)
@@ -127,16 +66,6 @@ def _report_connections_safely() -> None:
         report_connections()
     except Exception as exc:  # noqa: BLE001 - diagnóstico não pode derrubar o servidor
         print(f"Diagnóstico de conexões falhou: {exc}", file=sys.stderr)
-
-
-def _run_daily_safely() -> None:
-    """Manutenção diária para rodar em thread: erro vira log, nunca exceção."""
-    try:
-        from knowledge_os.services.maintenance import run_daily
-
-        run_daily()
-    except Exception:  # noqa: BLE001 - manutenção não pode derrubar o servidor
-        logger.warning("Manutenção diária falhou", exc_info=True)
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -282,7 +211,6 @@ def main(argv: list[str] | None = None) -> int:
         # Diagnóstico das conexões em segundo plano: uma conexão fora do ar não pode
         # atrasar o handshake (o cliente MCP desiste em ~30 s).
         threading.Thread(target=_report_connections_safely, daemon=True).start()
-        threading.Thread(target=_run_daily_safely, daemon=True).start()
         if ui_enabled():
             global _background_ui
             _background_ui = BackgroundUI()

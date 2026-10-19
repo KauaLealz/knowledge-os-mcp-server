@@ -1,7 +1,7 @@
-"""Project service: criar, listar, renomear, mesclar, remover e exportar projects.
+"""Project service: criar, listar, atualizar (nome, descrição), mesclar e remover.
 
-Um project é uma pasta dentro da do workspace (o slug do nome); nome de exibição, descrição e
-os subjects sem item ficam no `.knowledge.yaml` dela.
+Um project é uma pasta dentro da do workspace (o slug do nome); nome de exibição, descrição e os
+subjects (`[{name, description?}]`) ficam no `.knowledge.yaml` dela. v6 não tem `scope`.
 """
 
 from __future__ import annotations
@@ -11,12 +11,6 @@ import logging
 from typing import Any
 
 from knowledge_os.exceptions import NotFoundError, ValidationError
-from knowledge_os.services._common import (
-    EXPORT_VERSION,
-    item_to_dict,
-    project_to_dict,
-    utc_now_iso,
-)
 from knowledge_os.services.brain import (
     Brain,
     Draft,
@@ -28,7 +22,7 @@ from knowledge_os.services.brain import (
     utcnow,
 )
 from knowledge_os.services.item_file import slugify
-from knowledge_os.services.workspace_service import relink
+from knowledge_os.services.workspace_service import apply_meta, relink
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +33,7 @@ def _subject_key(entry: Any) -> str:
 
 def merge_project_in(
     d: Draft, src_ws: Workspace, src: Project, tgt_ws: Workspace, tgt: Project
-) -> dict[str, int]:
+) -> dict[str, Any]:
     """Move os itens (e subjects) de `src` para `tgt` e apaga `src`, no rascunho.
 
     Subjects homônimos: os itens passam para o subject de `tgt`. Os demais vão junto com o
@@ -83,9 +77,7 @@ class ProjectService:
             ws = d.workspace(workspace_id)
             if d.find_project(ws.id, slugify(name)) is not None:
                 raise ValidationError(f"Project já existe no workspace: {name}")
-            data: dict[str, Any] = {"name": name}
-            if description is not None:
-                data["description"] = description
+            data = apply_meta({"name": name}, description)
             d.set_meta(meta_location(ws.id, slugify(name)), data)
             brain.commit(d, f"knowledge-os: cria project {ws.name}/{name}")
         logger.info("Project criado: %s (workspace %s)", name, workspace_id)
@@ -94,6 +86,20 @@ class ProjectService:
     def list(self, workspace_id: str) -> list[Project]:
         """Projects do workspace, por nome."""
         return self._brain().snapshot.projects(workspace_id)
+
+    def rows(self, workspace: str) -> list[dict[str, Any]]:
+        """Para `project_list`/API: `[{id, workspace_id, name, description, items,
+        subjects: [nomes]}]` por nome."""
+        snap = self._brain().snapshot
+        ws = snap.workspace(workspace)
+        counts: dict[str, int] = {}
+        for record in snap.items_in(ws.id):
+            pj_id = slugify(record.project or "")
+            counts[pj_id] = counts.get(pj_id, 0) + 1
+        return [{"id": pj.id, "workspace_id": ws.id, "name": pj.name,
+                 "description": pj.description, "items": counts.get(pj.id, 0),
+                 "subjects": [sj.name for sj in snap.subjects(ws.id, pj.id)]}
+                for pj in snap.projects(ws.id)]
 
     def list_all(self) -> list[Project]:
         """Projects de todos os workspaces."""
@@ -117,41 +123,38 @@ class ProjectService:
             )
         return found[0]
 
-    def rename(self, workspace_id: str, name: str, new_name: str) -> Project:
-        """Renomeia um project dentro do workspace. ValidationError se new_name já existe."""
-        return self.update(workspace_id, name, new_name)
-
-    def update(
-        self, workspace_id: str, ref: str, name: str, description: str | None = None
-    ) -> Project:
-        """Troca o nome (movendo a pasta, se o slug mudar) e, se informada, a descrição."""
-        name = check_name(name, "project")
+    def update(self, workspace_id: str, ref: str, new_name: str | None = None,
+               description: str | None = None) -> Project:
+        """Troca o nome (movendo a pasta, se o slug mudar) e/ou a descrição; o que vier None
+        fica como está."""
+        name_given = check_name(new_name, "project") if new_name is not None else None
         brain = self._brain()
         with brain.editing() as d:
             ws = d.workspace(workspace_id)
             pj = d.project(ws.id, ref)
+            name = name_given or pj.name
             new_id = slugify(name)
             if new_id != pj.id and d.find_project(ws.id, new_id) is not None:
                 raise ValidationError(f"Project já existe no workspace: {name}")
-            for record in d.items_in(ws.id, pj.id):
-                d.put(dataclasses.replace(record, project=name))
+            if name != pj.name:
+                for record in d.items_in(ws.id, pj.id):
+                    d.put(dataclasses.replace(record, project=name))
             meta = d.meta(meta_location(ws.id, pj.id))
             if new_id != pj.id:
                 d.set_meta(meta_location(ws.id, pj.id), None)
-            meta["name"] = name
-            if description is not None:
-                meta["description"] = description
+            meta = apply_meta({**meta, "name": name}, description)
             d.set_meta(meta_location(ws.id, new_id), meta)
             result = brain.commit(d, f"knowledge-os: atualiza project {ws.name}/{name}")
         if not is_published(result):
             # Em revisão: a pasta e a ligação dos repositórios só mudam depois do merge.
             return Project(new_id, ws.id, name, meta.get("description"), pj.created_at,
                            pj.updated_at)
-        relink(brain.cid, ws.id, pj.id, workspace=ws.name, project=name)
+        if name != pj.name:
+            relink(brain.cid, ws.id, pj.id, workspace=ws.name, project=name)
         logger.info("Project atualizado: %s -> %s (workspace %s)", ref, name, workspace_id)
         return brain.snapshot.project(ws.id, new_id)
 
-    def merge(self, workspace_id: str, source: str, target: str) -> dict[str, int]:
+    def merge(self, workspace_id: str, source: str, target: str) -> dict[str, Any]:
         """Move os itens de source para target e apaga source (mesmo workspace).
 
         Subjects homônimos são mesclados; os demais passam para target com o mesmo nome.
@@ -193,21 +196,3 @@ class ProjectService:
             relink(brain.cid, ws.id, pj.id, workspace=None)
         logger.info("Project removido: %s", name)
         return True
-
-    def export(self, workspace_id: str, name: str) -> dict[str, Any]:
-        """Retorna {project_data} com o project e seus itens."""
-        brain = self._brain()
-        snap = brain.snapshot
-        pj = snap.find_project(workspace_id, name)
-        if pj is None:
-            raise NotFoundError(f"Project não encontrado: {name}")
-        records = sorted(snap.items_in(pj.workspace_id, pj.id),
-                         key=lambda r: (r.created_at, r.path))
-        return {
-            "project_data": {
-                "version": EXPORT_VERSION,
-                "exported_at": utc_now_iso(),
-                "project": project_to_dict(pj),
-                "items": [item_to_dict(i) for i in brain.views(records)],
-            }
-        }

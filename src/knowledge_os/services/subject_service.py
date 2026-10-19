@@ -1,7 +1,8 @@
 """Subject service: o agrupador opcional de itens dentro de um project.
 
-O subject de um item é o campo `subject` do frontmatter; os subjects sem item ficam na lista
-`subjects` do `.knowledge.yaml` do project.
+O subject de um item é o campo `subject` do frontmatter; a lista `subjects` do
+`.knowledge.yaml` do project guarda os subjects sem item e os que têm descrição
+(`[{name, description?}]`; um nome solto também vale). v6 não tem `scope`.
 """
 
 from __future__ import annotations
@@ -22,12 +23,19 @@ from knowledge_os.services.brain import (
     utcnow,
 )
 from knowledge_os.services.item_file import slugify
+from knowledge_os.services.workspace_service import apply_meta
 
 logger = logging.getLogger(__name__)
 
 
 def _entry_id(entry: Any) -> str:
     return slugify(entry if isinstance(entry, str) else str(entry.get("name") or ""))
+
+
+def _entry(name: str, description: str | None) -> Any:
+    """Entrada da lista `subjects`: só o nome, se não há descrição."""
+    data = apply_meta({"name": name}, description or None)
+    return data if len(data) > 1 else name
 
 
 def _set_subject_meta(
@@ -58,9 +66,8 @@ class SubjectService:
     def _brain(self) -> Brain:
         return Brain(self._connection_id)
 
-    def create(
-        self, workspace_id: str, project_id: str, name: str, description: str | None = None
-    ) -> Subject:
+    def create(self, workspace_id: str, project_id: str, name: str,
+               description: str | None = None) -> Subject:
         """Cria um subject. NotFoundError se o project não existe; ValidationError se duplicado."""
         name = check_name(name, "subject")
         brain = self._brain()
@@ -69,8 +76,7 @@ class SubjectService:
             pj = d.project(ws.id, project_id)
             if d.find_subject(ws.id, pj.id, slugify(name)) is not None:
                 raise ValidationError(f"Subject já existe no project: {name}")
-            entry: Any = {"name": name, "description": description} if description else name
-            _set_subject_meta(d, ws, pj, None, entry)
+            _set_subject_meta(d, ws, pj, None, _entry(name, description))
             brain.commit(d, f"knowledge-os: cria subject {pj.name}/{name}")
         logger.info("Subject criado: %s (project %s)", name, project_id)
         return brain.snapshot.subject(ws.id, pj.id, slugify(name))
@@ -78,6 +84,19 @@ class SubjectService:
     def list(self, workspace_id: str, project_id: str) -> list[Subject]:
         """Subjects do project, por nome."""
         return self._brain().snapshot.subjects(workspace_id, project_id)
+
+    def rows(self, workspace: str, project: str) -> list[dict[str, Any]]:
+        """Para `subject_list`/API: `[{id, name, description, items}]` por nome."""
+        snap = self._brain().snapshot
+        ws = snap.workspace(workspace)
+        pj = snap.project(ws.id, project)
+        counts: dict[str, int] = {}
+        for record in snap.items_in(ws.id, pj.id):
+            if record.subject:
+                counts[slugify(record.subject)] = counts.get(slugify(record.subject), 0) + 1
+        return [{"id": sj.id, "name": sj.name, "description": sj.description,
+                 "items": counts.get(sj.id, 0)}
+                for sj in snap.subjects(ws.id, pj.id)]
 
     def get(self, workspace_id: str, project_id: str, name: str) -> Subject:
         """Subject por nome ou id. NotFoundError se não existe."""
@@ -94,31 +113,35 @@ class SubjectService:
                 counts[key] = counts.get(key, 0) + 1
         return counts
 
-    def rename(self, workspace_id: str, project_id: str, name: str, new_name: str) -> Subject:
-        """Renomeia um subject dentro do project. ValidationError se new_name já existe."""
-        new_name = check_name(new_name, "subject")
+    def update(self, workspace_id: str, project_id: str, ref: str,
+               new_name: str | None = None, description: str | None = None) -> Subject:
+        """Troca o nome (regravando os itens) e/ou a descrição; o que vier None fica como está.
+        ValidationError se new_name já existe."""
+        name_given = check_name(new_name, "subject") if new_name is not None else None
         brain = self._brain()
         with brain.editing() as d:
             ws = d.workspace(workspace_id)
             pj = d.project(ws.id, project_id)
-            sj = d.subject(ws.id, pj.id, name)
-            new_id = slugify(new_name)
+            sj = d.subject(ws.id, pj.id, ref)
+            name = name_given or sj.name
+            new_id = slugify(name)
             if new_id != sj.id and d.find_subject(ws.id, pj.id, new_id) is not None:
-                raise ValidationError(f"Subject já existe no project: {new_name}")
-            for record in d.items_in(ws.id, pj.id, sj.id):
-                d.put(dataclasses.replace(record, subject=new_name, updated_at=utcnow()))
+                raise ValidationError(f"Subject já existe no project: {name}")
+            if name != sj.name:
+                for record in d.items_in(ws.id, pj.id, sj.id):
+                    d.put(dataclasses.replace(record, subject=name, updated_at=utcnow()))
             listed = d.meta(meta_location(ws.id, pj.id)).get("subjects") or []
-            if any(_entry_id(e) == sj.id for e in listed):
-                entry: Any = (
-                    {"name": new_name, "description": sj.description}
-                    if sj.description else new_name
-                )
+            in_meta = any(_entry_id(e) == sj.id for e in listed)
+            new_desc = sj.description if description is None else description
+            entry = _entry(name, new_desc)
+            if in_meta or not isinstance(entry, str):
                 _set_subject_meta(d, ws, pj, sj.id, entry)
-            brain.commit(d, f"knowledge-os: renomeia subject {sj.name} -> {new_name}")
-        logger.info("Subject renomeado: %s -> %s (project %s)", name, new_name, project_id)
+            brain.commit(d, f"knowledge-os: atualiza subject {pj.name}/{name}")
+        logger.info("Subject atualizado: %s -> %s (project %s)", ref, name, project_id)
         return brain.snapshot.subject(ws.id, pj.id, new_id)
 
-    def merge(self, workspace_id: str, project_id: str, source: str, target: str) -> dict[str, int]:
+    def merge(self, workspace_id: str, project_id: str, source: str,
+              target: str) -> dict[str, Any]:
         """Move os itens de source para target e apaga source."""
         brain = self._brain()
         with brain.editing() as d:
@@ -136,8 +159,16 @@ class SubjectService:
         logger.info("Subject mesclado: %s -> %s (project %s)", source, target, project_id)
         return {"merged_items": len(records)}
 
+    @staticmethod
+    def _delete_in(d: Draft, ws: Workspace, pj: Project, sj: Subject) -> None:
+        """Tira o subject dos itens e do `.knowledge.yaml`."""
+        for record in d.items_in(ws.id, pj.id, sj.id):
+            d.put(dataclasses.replace(record, subject=None, updated_at=utcnow()))
+        _set_subject_meta(d, ws, pj, sj.id, None)
+
     def delete(self, workspace_id: str, project_id: str, name: str) -> bool:
-        """Remove o subject, deixando os itens dele sem subject. False se não existe."""
+        """Remove o subject, deixando os itens dele sem subject, num commit. False se não
+        existe."""
         brain = self._brain()
         with brain.editing() as d:
             ws = d.workspace(workspace_id)
@@ -146,9 +177,7 @@ class SubjectService:
             if sj is None:
                 logger.debug("Subject inexistente para delete: %s", name)
                 return False
-            for record in d.items_in(ws.id, pj.id, sj.id):
-                d.put(dataclasses.replace(record, subject=None, updated_at=utcnow()))
-            _set_subject_meta(d, ws, pj, sj.id, None)
+            self._delete_in(d, ws, pj, sj)
             brain.commit(d, f"knowledge-os: remove subject {pj.name}/{sj.name}")
         logger.info("Subject removido: %s", name)
         return True

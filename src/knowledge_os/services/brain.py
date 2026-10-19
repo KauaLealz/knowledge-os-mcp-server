@@ -3,10 +3,15 @@
 Modelo em disco (a pasta é um repositório git):
 
 - Item: `<workspace>/<project>/<key>.md` (ou `_sem-key/<id>.md`), frontmatter YAML com os nomes
-  de workspace/project/subject, tags, labels e relações (`services.item_file`).
+  de workspace/project/subject, tags e relações (`services.item_file`, formato v2).
 - Workspace, project e subject existem pelos itens que os citam ou por um `.knowledge.yaml`:
-  na pasta do workspace (`name`, `description`), na do project (`name`, `description`,
-  `subjects: [...]`). Tags e labels criadas sem item ficam no `.knowledge.yaml` da raiz.
+  na pasta do workspace (`name`, `description`, `scope`), na do project (`name`,
+  `description`, `scope`, `subjects: [{name, description?, scope?}]`). O vocabulário de tags
+  (inclusive as criadas sem item) fica no `.knowledge.yaml` da raiz: `{tags: [...]}`.
+
+Alcance (v6): não há `scope` — o item mora onde foi salvo (workspace/project/subject) e vale
+de onde mora para baixo. `Snapshot.reaches`/`reach`/`reach_distance` decidem o que um ponto de
+vista (ws[/pj[/sj]]) enxerga e com que proximidade.
 
 Ids: workspace, project e subject têm como id o slug do nome (`item_file.slugify`), que é
 também o nome da pasta; o id do project vale dentro do workspace e o do subject dentro do
@@ -27,7 +32,7 @@ import uuid
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -35,8 +40,9 @@ import yaml
 
 from knowledge_os.config import ConnectionConfig
 from knowledge_os.exceptions import NotFoundError, ValidationError
+from knowledge_os.model import segment_problem, short_repr
 from knowledge_os.services.git_repo_service import PublishResult
-from knowledge_os.services.item_file import id_problem, safe_join, slugify
+from knowledge_os.services.item_file import id_problem, load_yaml_text, safe_join, slugify
 from knowledge_os.storage import local_state
 from knowledge_os.storage.access import (
     folder_lock,
@@ -51,7 +57,6 @@ logger = logging.getLogger(__name__)
 
 META_FILE = ".knowledge.yaml"
 SECRETS_DIRNAME = ".secrets"  # pasta da conexão onde o valor cifrado mora (fora do git)
-DEFAULT_LABELS = ("official", "critical", "experimental", "deprecated", "reference")
 _LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 _RELATION_NS = uuid.UUID("5b0f7a8e-3c1d-4f6a-9e2b-7d4c8a1f0e93")
 _editing = threading.local()  # conexões cuja trava entre processos esta thread já tem
@@ -67,18 +72,6 @@ def relation_id(source_id: str, relation_type: str, target_id: str) -> str:
     return str(uuid.uuid5(_RELATION_NS, f"{source_id}|{relation_type}|{target_id}"))
 
 
-def expires_at(record: ItemRecord) -> datetime | None:
-    """Vencimento de um ephemeral: `updated_at` + `ttl_days` (None nas outras classes)."""
-    if record.memory_class != "ephemeral" or not record.ttl_days:
-        return None
-    return record.updated_at + timedelta(days=int(record.ttl_days))
-
-
-def is_expired(record: ItemRecord, now: datetime | None = None) -> bool:
-    end = expires_at(record)
-    return end is not None and end <= (now or utcnow())
-
-
 def is_published(result: PublishResult | None) -> bool:
     """A mudança já vale na pasta? (direto, ou nada a publicar). Em PR/Issue, só depois do
     merge: estado local (`.secrets/*.enc`, `repos.json`) não pode mudar antes disso."""
@@ -86,12 +79,16 @@ def is_published(result: PublishResult | None) -> bool:
 
 
 def check_name(name: str | None, what: str) -> str:
-    """Nome de workspace/project/subject: não vazio e com slug (vira nome de pasta)."""
+    """Nome de workspace/project/subject: não vazio e com slug (vira nome de pasta) que o
+    Windows guarda (sem ponto final nem nome reservado: `model.segment_problem`)."""
     name = (name or "").strip()
     if not name or len(name) > 255:
         raise ValidationError(f"Nome de {what} deve ter de 1 a 255 caracteres")
     if not slugify(name) or slugify(name).startswith((".", "_")):
-        raise ValidationError(f"Nome de {what} inválido: {name!r}")
+        raise ValidationError(f"Nome de {what} inválido: {short_repr(name)}")
+    problem = segment_problem(slugify(name), f"Nome de {what}")
+    if problem:
+        raise ValidationError(problem)
     return name
 
 
@@ -134,9 +131,6 @@ class Tag:
     name: str
 
 
-Label = Tag
-
-
 @dataclass
 class Relation:
     id: str
@@ -148,33 +142,25 @@ class Relation:
 
 @dataclass
 class Item:
-    """Item como os serviços o devolvem: o arquivo + ids, vencimento, uso e `has_value`."""
+    """Item como os serviços o devolvem: o arquivo + ids, uso e `has_value` (v6). O alcance vem
+    de onde o item mora (workspace/project/subject), não de um campo."""
 
     id: str
     key: str | None
     workspace_id: str
-    project_id: str
+    project_id: str | None
     subject_id: str | None
     workspace: str
-    project: str
+    project: str | None
     subject: str | None
     type: str
     title: str
     summary: str
     content: str
-    status: str
-    memory_class: str
     tags: list[str]
-    labels: list[str]
-    scope_paths: list[str]
-    confidence: int | None
-    importance: int | None
-    ttl_days: int | None
-    keywords: str | None
-    source: str | None
+    links: list[dict[str, str]]
     created_at: datetime
     updated_at: datetime
-    expires_at: datetime | None
     path: str
     access_count: int = 0
     last_accessed: datetime | None = None
@@ -184,11 +170,29 @@ class Item:
 # --------------------------------------------------------------------------- leitura
 
 
-def _load_yaml(path: Path) -> dict[str, Any]:
+MAX_META_BYTES = 256 * 1024  # `.knowledge.yaml` maior que isso é ignorado (vai para `errors`)
+
+
+def _load_yaml(path: Path, errors: dict[str, str] | None = None,
+               rel: str | None = None) -> dict[str, Any]:
+    """Um `.knowledge.yaml`; inválido, grande demais ou com alias YAML vira `{}` (e o motivo
+    em `errors[rel]`), sem derrubar a leitura da pasta."""
+    reason: str | None = None
+    data: Any = None
     try:
-        data = yaml.load(path.read_text(encoding="utf-8"), Loader=_LOADER)  # noqa: S506
-    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
-        logger.warning("Ignorando %s inválido: %s", path, exc)
+        size = path.stat().st_size
+        if size > MAX_META_BYTES:
+            reason = f"arquivo grande demais ({size} bytes; máximo {MAX_META_BYTES})"
+        else:
+            data = load_yaml_text(path.read_text(encoding="utf-8"), ".knowledge.yaml")
+    except (OSError, UnicodeDecodeError, ValidationError) as exc:
+        reason = str(exc)[:300]
+    except (MemoryError, RecursionError) as exc:
+        reason = f"arquivo não pôde ser lido ({type(exc).__name__})"
+    if reason is not None:
+        logger.warning("Ignorando %s: %s", path, reason)
+        if errors is not None:
+            errors[rel or path.name] = reason
         return {}
     return data if isinstance(data, dict) else {}
 
@@ -203,18 +207,24 @@ def _visible_dirs(folder: Path) -> list[os.DirEntry[str]]:
         return []
 
 
-def read_metas(root: Path) -> dict[str, dict[str, Any]]:
-    """Todos os `.knowledge.yaml` (raiz, workspaces e projects), por path relativo."""
+def read_metas(root: Path, errors: dict[str, str] | None = None) -> dict[str, dict[str, Any]]:
+    """Todos os `.knowledge.yaml` (raiz, workspaces e projects), por path relativo.
+
+    O que não pôde ser lido entra como `{}` e, com `errors`, o motivo vai para
+    `errors[path relativo]` (o `health_check` mostra junto dos `.md` quebrados).
+    """
     metas: dict[str, dict[str, Any]] = {}
-    if (root / META_FILE).is_file():
-        metas[META_FILE] = _load_yaml(root / META_FILE)
+
+    def load(folder: Path, rel: str) -> None:
+        if (folder / META_FILE).is_file():
+            metas[rel] = _load_yaml(folder / META_FILE, errors, rel)
+
+    load(root, META_FILE)
     for ws in _visible_dirs(root):
         ws_path = Path(ws.path)
-        if (ws_path / META_FILE).is_file():
-            metas[f"{ws.name}/{META_FILE}"] = _load_yaml(ws_path / META_FILE)
+        load(ws_path, f"{ws.name}/{META_FILE}")
         for pj in _visible_dirs(ws_path):
-            if (Path(pj.path) / META_FILE).is_file():
-                metas[f"{ws.name}/{pj.name}/{META_FILE}"] = _load_yaml(Path(pj.path) / META_FILE)
+            load(Path(pj.path), f"{ws.name}/{pj.name}/{META_FILE}")
     return metas
 
 
@@ -305,14 +315,18 @@ class Snapshot:
                 if description is not None:
                     sj.description = description
         for record in sorted(self.records.values(), key=lambda r: (r.created_at, r.path)):
-            if not record.workspace or not record.project:
+            if not record.workspace:
                 continue
-            ws_id, pj_id = slugify(record.workspace), slugify(record.project)
+            ws_id = slugify(record.workspace)
             ws = tree.get(ws_id)
             if ws is None:
                 ws = tree[ws_id] = _Node(ws_id, record.workspace, named=True)
             elif not ws.named:
                 ws.name, ws.named = record.workspace, True
+            if not record.project:
+                ws.touch(record)  # item mora no workspace: toca o nó e não cria project
+                continue
+            pj_id = slugify(record.project)
             pj = ws.children.get(pj_id)
             if pj is None:
                 pj = ws.children[pj_id] = _Node(pj_id, record.project, named=True)
@@ -457,25 +471,108 @@ class Snapshot:
             }
         return self._keys.get((ws_id, pj_id, key))
 
-    # ------------------------------------------------------------------ tags e labels
+    def key_clash(self, ws_id: str, pj_id: str, key: str,
+                  exclude: str | None = None) -> ItemRecord | None:
+        """Outro item do project cuja key difere desta só pela caixa (`Rule/Money` x
+        `rule/money`): no Windows/macOS os dois seriam o mesmo arquivo."""
+        folded = key.casefold()
+        for r in self.records.values():
+            if (r.key and r.id != exclude and r.key != key and r.key.casefold() == folded
+                    and slugify(r.workspace or "") == ws_id
+                    and slugify(r.project or "") == pj_id):
+                return r
+        return None
 
-    def _root_names(self, kind: str) -> list[str]:
-        raw = self.metas.get(META_FILE, {}).get(kind) or []
-        return [str(n).strip() for n in raw if str(n).strip()]
+    # ------------------------------------------------------------------ alcance (hierarquia)
+
+    @staticmethod
+    def _place(record: ItemRecord) -> tuple[str, str | None, str | None]:
+        """Onde o item mora: (ws_id, pj_id|None, sj_id|None) em slugs."""
+        return (
+            slugify(record.workspace or ""),
+            slugify(record.project) if record.project else None,
+            slugify(record.subject) if record.subject else None,
+        )
+
+    def reaches(self, record: ItemRecord, ws_id: str, pj_id: str | None = None,
+                sj_id: str | None = None) -> bool:
+        """O item alcança o ponto de vista (ws_id[/pj_id[/sj_id]])? v6: não há `scope` — vale a
+        hierarquia. Item no nível do workspace vale para tudo abaixo; no project, para o project
+        e seus subjects; num subject, só para aquele subject. Ver o workspace/project inteiro
+        (pj_id/sj_id None) inclui os itens dos níveis abaixo."""
+        iws, ipj, isj = self._place(record)
+        if iws != ws_id:
+            return False
+        if ipj is None:
+            return True
+        if pj_id is None:
+            return True
+        if ipj != pj_id:
+            return False
+        if isj is None:
+            return True
+        if sj_id is None:
+            return True
+        return isj == sj_id
+
+    def reach_distance(self, record: ItemRecord, ws_id: str, pj_id: str | None = None,
+                       sj_id: str | None = None) -> int:
+        """Quão central o item é para o ponto de vista (0 = mais específico; maior = mais
+        genérico). Usado para ordenar a busca/pacote."""
+        _iws, ipj, isj = self._place(record)
+        if ipj is None:
+            return 2  # nível do workspace (mais genérico)
+        if isj is None:
+            return 1  # nível do project
+        if sj_id is not None and isj == sj_id:
+            return 0  # mesmo subject do ponto de vista
+        return 1
+
+    def reach(self, ws_id: str, pj_id: str | None = None,
+              sj_id: str | None = None) -> list[tuple[ItemRecord, int]]:
+        """Itens no alcance do ponto de vista, do mais perto ao mais longe (empate por path)."""
+        found = [
+            (r, self.reach_distance(r, ws_id, pj_id, sj_id))
+            for r in self.records.values()
+            if self.reaches(r, ws_id, pj_id, sj_id)
+        ]
+        found.sort(key=lambda pair: (pair[1], pair[0].path))
+        return found
+
+    def resolve_key(self, key: str, ws_id: str, pj_id: str | None = None,
+                    sj_id: str | None = None) -> ItemRecord | None:
+        """Item pela key no alcance do ponto de vista; um `id` resolve em qualquer lugar."""
+        by_id = self.records.get(key)
+        if by_id is not None:
+            return by_id
+        if pj_id is not None:
+            local = self.by_key(ws_id, pj_id, key)
+            if local is not None:
+                return local
+        for record, _d in self.reach(ws_id, pj_id, sj_id):
+            if record.key == key:
+                return record
+        return None
+
+    @staticmethod
+    def where(record: ItemRecord) -> str:
+        """Onde o item mora: `<workspace>[/<project>[/<subject>]]` (os nomes, como no arquivo)."""
+        parts = [record.workspace or ""]
+        if record.project:
+            parts.append(record.project)
+        if record.subject:
+            parts.append(record.subject)
+        return "/".join(parts)
+
+    # ------------------------------------------------------------------ tags
 
     def tags(self) -> list[Tag]:
-        names = set(self._root_names("tags"))
+        """Vocabulário (`tags` do `.knowledge.yaml` da raiz) + as tags usadas nos itens."""
+        raw = self.metas.get(META_FILE, {}).get("tags") or []
+        names = {str(n).strip() for n in raw if str(n).strip()}
         for r in self.records.values():
             names.update(r.tags or [])
         return [Tag(n, n) for n in sorted(names)]
-
-    def labels(self) -> list[Label]:
-        removed = set(self._root_names("labels_removed"))
-        names = {n for n in DEFAULT_LABELS if n not in removed}
-        names.update(self._root_names("labels"))
-        for r in self.records.values():
-            names.update(r.labels or [])
-        return [Label(n, n) for n in sorted(names)]
 
     # ------------------------------------------------------------------ relações
 
@@ -487,10 +584,13 @@ class Snapshot:
         return self.by_key(slugify(source.workspace or ""), slugify(source.project or ""), ref)
 
     def relations_of(self, record: ItemRecord) -> list[Relation]:
+        """Relações = os links item→item (`{item, rel}`) do item (v6)."""
         out = []
-        for rel in record.relations or []:
-            target = self.resolve_target(record, str(rel.get("target") or ""))
-            rtype = str(rel.get("type") or "")
+        for lk in record.links or []:
+            if "item" not in lk:
+                continue  # link de url/path não é relação entre itens
+            target = self.resolve_target(record, str(lk.get("item") or ""))
+            rtype = str(lk.get("rel") or "")
             if target is None or not rtype:
                 continue
             out.append(Relation(relation_id(record.id, rtype, target.id), record.id, target.id,
@@ -530,10 +630,13 @@ class Draft(Snapshot):
 
     @staticmethod
     def _links_of(snapshot: Snapshot, record: ItemRecord) -> list[_Link]:
+        """Só os links item→item (`{item, rel}`); url/path são preservados à parte."""
         out = []
-        for raw in record.relations or []:
-            target = snapshot.resolve_target(record, str(raw.get("target") or ""))
-            out.append(_Link(str(raw.get("type") or ""), target.id if target else None,
+        for raw in record.links or []:
+            if "item" not in raw:
+                continue
+            target = snapshot.resolve_target(record, str(raw.get("item") or ""))
+            out.append(_Link(str(raw.get("rel") or ""), target.id if target else None,
                              dict(raw)))
         return out
 
@@ -574,13 +677,12 @@ class Draft(Snapshot):
         return len(kept) != len(links)
 
     def _encode_links(self) -> None:
-        """Regrava o `relations` de cada item a partir dos alvos resolvidos.
-
-        Alvo no mesmo workspace/project e com key: pela key; senão pelo id. Alvo removido
-        neste rascunho: a relação sai. Alvo que já não se resolvia: fica como estava.
-        """
+        """Regrava os links de cada item: os de url/path ficam como estão; os de item→item são
+        recodificados a partir dos alvos resolvidos (pela key no mesmo workspace/project, senão
+        pelo id). Alvo removido neste rascunho: o link sai. Alvo que já não resolvia: fica."""
         for record_id in list(self.records):
             record = self.records[record_id]
+            kept = [lk for lk in (record.links or []) if "item" not in lk]
             encoded: list[dict[str, str]] = []
             for link in self._links.get(record_id, []):
                 if link.target_id is None:
@@ -592,9 +694,10 @@ class Draft(Snapshot):
                 same_place = (slugify(target.workspace or "") == slugify(record.workspace or "")
                               and slugify(target.project or "") == slugify(record.project or ""))
                 ref = target.key if (target.key and same_place) else target.id
-                encoded.append({"type": link.type, "target": ref})
-            if encoded != list(record.relations or []):
-                self.records[record_id] = dataclasses.replace(record, relations=encoded)
+                encoded.append({"item": ref, "rel": link.type})
+            new_links = kept + encoded
+            if new_links != list(record.links or []):
+                self.records[record_id] = dataclasses.replace(record, links=new_links)
 
     # ------------------------------------------------------------------ metadados
 
@@ -625,22 +728,27 @@ class Draft(Snapshot):
                 out[old.path] = None
                 for dup in self.duplicates.get(record_id, []):
                     out[dup] = None  # senão o item "volta" pelo arquivo duplicado
+        # Caminhos comparados sem caixa: no Windows/macOS `rule/money.md` e `Rule/Money.md` são
+        # o mesmo arquivo, e gravar um apagaria o outro.
         occupied = {
-            r.path: r.id for r in self.records.values()
+            r.path.casefold(): r.id for r in self.records.values()
             if base.get(r.id) is r and r.path
         }
         written: dict[str, str] = {}
+        written_folded: set[str] = set()
         for record_id, record in self.records.items():
             old = base.get(record_id)
             if old is record:
                 continue
             path, text = record_text(record)
-            other = occupied.get(path)
-            if path in written or (other is not None and other != record_id):
+            other = occupied.get(path.casefold())
+            if path.casefold() in written_folded or (other is not None and other != record_id):
                 raise ValidationError(
-                    f"Dois itens no mesmo arquivo ({path}): key repetida no project?"
+                    f"Dois itens no mesmo arquivo ({path}): key repetida no project (a caixa "
+                    "não diferencia)?"
                 )
             written[path] = text
+            written_folded.add(path.casefold())
             if old is not None and old.path and old.path != path:
                 out.setdefault(old.path, None)
             for dup in self.duplicates.get(record_id, []):
@@ -725,32 +833,37 @@ class Brain:
 
     def view(self, record: ItemRecord) -> Item:
         use = self.usage().get(record.id) or {}
-        last = use.get("last_used")
+        # Contadores novos (`opened`, `last_used_at`) ou o formato antigo (`uses`, `last_used`).
+        opened = use.get("opened", use.get("uses", 0))
+        last = use.get("last_used_at") or use.get("last_used")
         try:
             last_dt = datetime.fromisoformat(last.rstrip("Z")) if last else None
         except (TypeError, ValueError):
             last_dt = None
         return Item(
             id=record.id, key=record.key,
-            workspace_id=slugify(record.workspace or ""), project_id=slugify(record.project or ""),
+            workspace_id=slugify(record.workspace or ""),
+            project_id=slugify(record.project) if record.project else None,
             subject_id=slugify(record.subject) if record.subject else None,
-            workspace=record.workspace or "", project=record.project or "",
-            subject=record.subject, type=record.type, title=record.title,
-            summary=record.summary, content=record.content, status=record.status or "active",
-            memory_class=record.memory_class, tags=sorted(record.tags or []),
-            labels=sorted(record.labels or []), scope_paths=list(record.scope_paths or []),
-            confidence=record.confidence, importance=record.importance,
-            ttl_days=record.ttl_days, keywords=record.keywords, source=record.source,
-            created_at=record.created_at, updated_at=record.updated_at,
-            expires_at=expires_at(record), path=record.path,
-            access_count=int(use.get("uses") or 0), last_accessed=last_dt,
+            workspace=record.workspace or "", project=record.project,
+            subject=record.subject, type=record.type,
+            title=record.title, summary=record.summary, content=record.content,
+            tags=sorted(record.tags or []),
+            links=[dict(lk) for lk in record.links or []],
+            created_at=record.created_at, updated_at=record.updated_at, path=record.path,
+            access_count=opened if isinstance(opened, int) else 0, last_accessed=last_dt,
             has_value=record.type == "secret" and self.secret_path(record.id).is_file(),
         )
 
     def views(self, records: Iterable[ItemRecord]) -> list[Item]:
         return [self.view(r) for r in records]
 
-    def track(self, ids: Iterable[str]) -> None:
-        """Conta um uso de cada item (contador local; nunca derruba a operação)."""
-        local_state.track(self.cid, ids)
+    def count(self, ids: Iterable[str], field: str = "opened") -> None:
+        """Soma 1 ao sinal `field` (`local_state.COUNTERS`) de cada item; contador local,
+        nunca derruba a operação."""
+        local_state.count(self.cid, ids, field)
         self._usage = None
+
+    def track(self, ids: Iterable[str]) -> None:
+        """Conta uma abertura (`opened`) de cada item."""
+        self.count(ids, "opened")

@@ -14,7 +14,6 @@ from knowledge_os.config import UI_DEFAULT_PORT
 from knowledge_os.exceptions import NotFoundError, StorageError, ValidationError
 from knowledge_os.services import vault
 from knowledge_os.services.brain import SECRETS_DIRNAME, Brain, Item
-from knowledge_os.services.item_file import slugify
 from knowledge_os.services.secret_run import MIN_REDACT
 from knowledge_os.storage.access import git_for
 
@@ -22,11 +21,22 @@ MAX_VALUE_CHARS = 32768
 EXCLUDE_LINE = f"{SECRETS_DIRNAME}/"
 
 
-def fill_url(item: Any, connection_id: str) -> str:
-    """Link da UI local direto no item, onde o usuário preenche o valor."""
+def _where(record: Any) -> str:
+    """Local do item (workspace/project[/subject]), para mensagens de ambiguidade."""
+    parts = [record.workspace or "", record.project or ""]
+    if record.subject:
+        parts.append(record.subject)
+    return "/".join(p for p in parts if p)
+
+
+def item_url(item: Any, connection_id: str) -> str:
+    """Link da UI local direto no item (o `url` de toda resposta de item)."""
     conn = quote(connection_id, safe="")
     return (f"http://127.0.0.1:{UI_DEFAULT_PORT}/ui/#/c/{conn}/w/{item.workspace_id}"
             f"/p/{item.project_id}/i/{item.id}")
+
+
+fill_url = item_url  # o link do segredo é o mesmo: é onde o usuário preenche o valor
 
 
 class SecretService:
@@ -92,27 +102,41 @@ class SecretService:
         return out
 
     def resolve(self, repo: str, key: str) -> tuple[Item, str]:
-        """(item, valor) do segredo `key` no repo → `Geral` do workspace → `Global`.
+        """(item, valor) do segredo `key` (ou id) alcançável do repo, do mais perto ao mais
+        longe pela hierarquia: o segredo no próprio project ligado; depois um no workspace do
+        repo (vale para todos os projects dele).
+
+        v6 não tem scope: o alcance de um segredo é onde ele mora (project → vale no project;
+        workspace → vale no workspace inteiro). Dois candidatos igualmente próximos com a mesma
+        key são ambíguos: erro que pede o id.
 
         Conta o uso. Sem item ou sem valor: erro que diz o que fazer, sem rodar nada.
         """
-        from knowledge_os.services.context_service import ContextService
         from knowledge_os.services.repo_service import RepoService
 
         brain = Brain(self._connection_id)
+        snap = brain.snapshot
         link = RepoService(brain.cid).require(repo)
-        chain = ContextService.project_chain(link)
-        found: dict[tuple[str, str], Item] = {}
-        for record in brain.snapshot.records.values():
-            place = (slugify(record.workspace or ""), slugify(record.project or ""))
-            if (place in chain and record.type == "secret" and record.status == "active"
-                    and key in (record.key, record.id)):
-                found.setdefault(place, brain.view(record))
-        item = next((found[p] for p in chain if p in found), None)
+        ws_id, pj_id = link["workspace_id"], link["project_id"]
+        found = sorted(
+            ((record, snap.reach_distance(record, ws_id, pj_id)) for record in snap.records.values()
+             if record.type == "secret" and key in (record.key, record.id)
+             and snap.reaches(record, ws_id, pj_id)),
+            key=lambda rc: rc[1],
+        )
+        closest = [record for record, dist in found if dist == found[0][1]] if found else []
+        if len(closest) > 1:
+            places = ", ".join(sorted(_where(r) for r in closest))
+            raise ValidationError(
+                f"Segredo {key} existe em mais de um lugar com o mesmo alcance ({places}): "
+                "passe o id do item no lugar da key (item_search mostra o id)."
+            )
+        item = brain.view(closest[0]) if closest else None
         if item is None:
             raise NotFoundError(
-                f"Segredo não encontrado: {key}. O agente cria o item (type secret, sem "
-                "valor) com item_save e passa ao usuário o link para preencher na UI."
+                f"Segredo não encontrado: {key}. A key de um segredo é secret/<nome>. O agente "
+                "cria o item (type secret, sem valor) com item_save e passa ao usuário o "
+                "link para preencher na UI."
             )
         if not item.has_value:
             raise ValidationError(

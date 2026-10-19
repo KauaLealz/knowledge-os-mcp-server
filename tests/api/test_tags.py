@@ -1,68 +1,61 @@
-BASE = "/api/tags"
-ITEM = "/api/items/{id}/tags"
+"""Tags gerenciadas pela API: lista com contagem, criar, renomear (mescla se já existe) e
+apagar com prévia (`confirm`)."""
 
 
-def _create(client, name="custom"):
-    return client.post(BASE, json={"name": name})
+def _tags(client):
+    r = client.get("/api/tags")
+    assert r.status_code == 200, r.text
+    return {t["name"]: t["count"] for t in r.json()}
 
 
-def test_list_and_create(client):
-    before = len(client.get(BASE).json())
-    r = _create(client)
-    assert r.status_code == 201 and r.json()["name"] == "custom"
-    names = [x["name"] for x in client.get(BASE).json()]
-    assert len(names) == before + 1 and "custom" in names
+def test_lista_com_contagem_inclui_vocabulario_sem_item(client, mk):
+    ws, dm, _ = mk.tree()
+    mk.item(ws["id"], dm["id"], "A", tags=["pix", "pagamentos"])
+    mk.item(ws["id"], dm["id"], "B", tags=["pix"])
+    r = client.post("/api/tags", json={"names": ["vazia", "pix"]})
+    assert r.status_code == 201, r.text
+    assert r.json()["created"] == ["vazia"] and r.json()["existing"] == ["pix"]
+    assert _tags(client) == {"pagamentos": 1, "pix": 2, "vazia": 0}
+    assert client.get("/api/tags").json()[0] == {"name": "pagamentos", "count": 1}
 
 
-def test_create_duplicate_is_422(client):
-    _create(client)
-    assert _create(client).status_code == 422
+def test_create_normaliza_e_recusa_invalida(client):
+    r = client.post("/api/tags", json={"names": ["Pagamentos PIX"]})
+    assert r.status_code == 201 and r.json()["created"] == ["pagamentos-pix"]
+    r = client.post("/api/tags", json={"names": ["!!!"]})
+    assert r.status_code == 422 and "kebab-case" in r.json()["detail"]
+    assert client.post("/api/tags", json={"names": []}).status_code == 422
 
 
-def test_create_blank_is_422(client):
-    assert client.post(BASE, json={"name": "   "}).status_code == 422
+def test_renomear_e_mesclar(client, mk):
+    ws, dm, _ = mk.tree()
+    a = mk.item(ws["id"], dm["id"], "A", tags=["pix"])
+    b = mk.item(ws["id"], dm["id"], "B", tags=["pagamento", "pix"])
+    r = client.put("/api/tags/pagamento", json={"new_name": "pagamentos"})
+    assert r.status_code == 200 and r.json() == {"renamed": 1, "merged": False}
+    r = client.put("/api/tags/pix", json={"new_name": "pagamentos"})
+    assert r.status_code == 200 and r.json() == {"renamed": 2, "merged": True}
+    assert _tags(client) == {"pagamentos": 2}
+    assert client.get(f"/api/items/{a['id']}").json()["tags"] == ["pagamentos"]
+    assert client.get(f"/api/items/{b['id']}").json()["tags"] == ["pagamentos"]
+    assert client.put("/api/tags/nope", json={"new_name": "x"}).status_code == 404
 
 
-def test_delete(client):
-    rid = _create(client).json()["id"]
-    assert client.delete(f"{BASE}/{rid}").status_code == 204
-    assert "custom" not in [x["name"] for x in client.get(BASE).json()]
+def test_apagar_com_previa_e_confirmacao(client, mk):
+    ws, dm, _ = mk.tree()
+    it = mk.item(ws["id"], dm["id"], "A", tags=["pix", "deploy"])
+    r = client.delete("/api/tags/pix")
+    assert r.status_code == 200
+    assert r.json() == {"status": "preview", "tags": [{"name": "pix", "items": 1}]}
+    assert "pix" in _tags(client)
+    r = client.delete("/api/tags/pix", params={"confirm": True})
+    assert r.status_code == 200 and r.json()["status"] == "deleted"
+    assert "pix" not in _tags(client)
+    assert client.get(f"/api/items/{it['id']}").json()["tags"] == ["deploy"]
+    assert client.delete("/api/tags/nope").status_code == 404
 
 
-def test_delete_missing_is_404(client):
-    assert client.delete(f"{BASE}/nope").status_code == 404
-
-
-def test_item_tags_add_list_remove(client, mk):
+def test_rotas_antigas_de_tag_no_item_sumiram(client, mk):
     _, _, it = mk.tree()
-    url = ITEM.format(id=it["id"])
-    assert client.get(url).json() == []
-    obj = _create(client).json()
-    r = client.post(url, json={"tag_id": obj["id"]})
-    assert r.status_code == 201
-    assert [x["id"] for x in client.get(url).json()] == [obj["id"]]
-    assert client.post(url, json={"tag_id": obj["id"]}).status_code == 201
-    assert len(client.get(url).json()) == 1  # idempotente
-    assert client.delete(f"{url}/{obj['id']}").status_code == 204
-    assert client.get(url).json() == []
-
-
-def test_item_tags_unknown_item_is_404(client):
-    assert client.get(ITEM.format(id="nope")).status_code == 404
-    obj = _create(client).json()
-    r = client.post(ITEM.format(id="nope"), json={"tag_id": obj["id"]})
-    assert r.status_code == 404
-
-
-def test_item_tags_unknown_tag_is_404(client, mk):
-    _, _, it = mk.tree()
-    url = ITEM.format(id=it["id"])
-    assert client.post(url, json={"tag_id": "nope"}).status_code == 404
-    assert client.delete(f"{url}/nope").status_code == 404
-
-
-def test_item_response_reflects_tags(client, mk):
-    _, _, it = mk.tree()
-    obj = _create(client, "zeta").json()
-    client.post(ITEM.format(id=it["id"]), json={"tag_id": obj["id"]})
-    assert "zeta" in client.get(f"/api/items/{it['id']}").json()["tags"]
+    assert client.get(f"/api/items/{it['id']}/tags").status_code == 404
+    assert client.post(f"/api/items/{it['id']}/tags", json={"tag_id": "x"}).status_code == 404

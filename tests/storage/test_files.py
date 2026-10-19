@@ -13,11 +13,9 @@ from knowledge_os.storage.files import FileStore, ItemRecord
 def _rec(id_: str = "id-1", **over) -> ItemRecord:
     base = dict(
         id=id_, key=f"regra/{id_}", workspace="Polara", project="App", subject=None,
-        type="rule", title="Titulo", status="active", memory_class="longterm",
-        tags=[], labels=[], scope_paths=[], confidence=None, importance=None, ttl_days=None,
-        keywords=None, source=None, created_at=datetime(2026, 1, 1, 10, 0, 0),
-        updated_at=datetime(2026, 1, 2, 10, 0, 0), relations=[], summary="Resumo",
-        content="Corpo\n",
+        type="rule", title="Titulo", tags=[], links=[],
+        created_at=datetime(2026, 1, 1, 10, 0, 0),
+        updated_at=datetime(2026, 1, 2, 10, 0, 0), summary="Resumo", content="Corpo\n",
     )
     base.update(over)
     return ItemRecord(**base)
@@ -34,14 +32,16 @@ def store(tmp_path) -> FileStore:
 
 
 def test_write_e_leitura_ida_e_volta(store):
-    rel = store.write(_rec(tags=["java"], importance=5, subject="Pagamentos"))
+    original = _rec(tags=["java", "security"], subject="Pagamentos",
+                    links=[{"url": "https://d", "title": "Doc"}, {"path": "src/pay/**"},
+                           {"item": "rule/outra", "rel": "depends_on"}])
+    rel = store.write(original)
     assert rel == "polara/app/regra/id-1.md"
     assert (store.root / rel).is_file()
     novo = FileStore(store.root)
     got = novo.get("id-1")
     assert got is not None and got.path == rel
-    assert got.title == "Titulo" and got.tags == ["java"] and got.importance == 5
-    assert got.subject == "Pagamentos" and got.content == "Corpo\n"
+    assert replace(got, path="") == original
 
 
 def test_varredura_consultas(store):
@@ -171,8 +171,7 @@ def test_raiz_inexistente_e_vazia(tmp_path):
 
 @pytest.mark.parametrize(
     "linha",
-    ["title: 2024", "id: [a]", "relations: [x]", "tags: [1, x]", "labels: {a: b}",
-     "ttl_days: sete"],
+    ["title: 2024", "id: [a]", "tags: [1, x]", "links: {a: b}", "type: note"],
 )
 def test_arquivo_com_tipo_inesperado_vai_para_errors_sem_derrubar(store, linha):
     from knowledge_os.services.brain import Draft, Snapshot
@@ -190,3 +189,14 @@ def test_arquivo_com_tipo_inesperado_vai_para_errors_sem_derrubar(store, linha):
     snap = Snapshot({r.id: r for r in store.items()}, {})
     assert [t.name for t in snap.tags()] == ["java"]
     Draft(snap).files()  # o rascunho não quebra
+
+
+def test_record_v6_sem_campos_antigos():
+    from knowledge_os.storage.files import record_text
+
+    for gone in ("memory_class", "labels", "importance", "confidence", "subtype", "scope",
+                 "status", "origin", "ttl_days", "keywords", "source", "relations"):
+        assert gone not in ItemRecord.__dataclass_fields__
+    _rel, text = record_text(_rec())
+    for gone in ("memory_class", "labels", "origin", "scope", "status:", "subtype", "ttl_days"):
+        assert gone not in text

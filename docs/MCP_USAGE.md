@@ -1,7 +1,22 @@
 # Uso das ferramentas MCP
 
 Guia por tarefa. As instruções que o servidor envia ao agente são o resumo disto; aqui ficam
-os exemplos completos.
+os exemplos completos. São 31 ferramentas; todas aceitam `connection_id` opcional (a conexão
+padrão é a usada sem ele), menos `connection_*` e `health_check`. Voltar ao
+[README](../README.md).
+
+Vocabulário: o **workspace** é o contexto (empresa, cliente, Pessoal), o **project** é um
+repositório e o **subject** é um conceito opcional dentro do project. O item **mora** num nível
+da hierarquia (workspace, project ou subject) e **vale onde mora e abaixo** — não há campo de
+alcance: um item no workspace vale em todos os projects dele; no project, só nele.
+
+Cinco tipos, sem subtipo: `rule`, `howto`, `context`, `work` e `secret`. A nuance e o ciclo vão
+em **tags**: ciclo `draft`/`active`/`done`/`archived`; nuance `decision`/`troubleshoot`/
+`security`/`pattern`/`map`/`glossary`/`product`/`environment`/`business`/`process` (base,
+extensível).
+
+Uma regra vale para todas as chamadas: erro de validação sempre diz como corrigir (lista dos
+valores válidos, a chamada certa).
 
 ## Primeiro: uma conexão
 
@@ -17,202 +32,217 @@ connection_list()
 connection_delete(id="...")       # tira do cadastro; a pasta e os arquivos ficam
 ```
 
-A primeira conexão vira a padrão (a usada sem `connection_id`); troque a padrão pela UI.
+A primeira conexão vira a padrão; troque a padrão pela UI.
 
 ## Começar num projeto
 
-O hook de início de sessão do Plumb injeta o pacote de contexto. Sem hook:
+O hook de início de sessão do Plumb injeta o pacote de contexto do projeto. Sem hook, ou para
+ir além dele, use a busca:
 
 ```python
-context_get(repo=".")                                   # projeto inteiro
-context_get(repo=".", paths=["src/payments/Charge.java"])  # + regras com escopo
-context_get(repo=".", query="estorno")                  # + itens relacionados
+item_search(repo=".")    # sem consulta: o essencial do projeto, em grupos
 ```
 
-Projeto não ligado: `context_get` diz como ligar. Ligue uma vez:
+A resposta traz `{groups: [{group, results}]}` com `seguranca` (itens com a tag `security`),
+`regras`, `contexto` e `trabalho` (os `work` ativos). Cada resultado é um resumo: `id`, `key`,
+`type`, `title`, `summary`, `tags`, `where`, `score`, `matched_in` e `snippet`.
+
+Projeto não ligado: a resposta traz só os itens globais e uma `suggestion` com a chamada que
+liga. Ligue uma vez:
 
 ```python
 repo(action="link", repo=".")   # project = repo; workspace = o de outro repo do mesmo dono
+repo(action="list", workspace="Polara")
+repo(action="unlink", repo="github.com/org/antigo")
+repo(action="sync")             # puxa o que mudou no remote da conexão
 ```
 
-Com `paths` ou `query`, o que casa vem **em foco**, com o começo do `content` (sem `item_get`
-depois), e o retorno traz `sensitive: true` se os arquivos tocam uma área marcada com a keyword
-`sensivel` — o Plumb usa isso para pedir revisão de segurança. Os itens em foco contam como uso.
+Se a resposta trouxer `candidate_match`, o nome novo se parece com um existente: repita com o nome
+exato do existente, ou passe `confirm_new=True` se for mesmo novo.
 
-Workspace = contexto de trabalho (empresa, cliente, `Pessoal`); project = repositório. O pacote
-junta o project do repositório, o `Geral` do mesmo workspace (convenções que valem para os repos
-daquele contexto) e `Global/Geral` (o que vale para você em qualquer lugar). Um repositório não vê
-o project de outro. Sem workspace, o `repo(action="link")` usa o de outro repo do mesmo dono já
-ligado; no primeiro repo de um dono, o nome do dono no remote (sem remote, `Pessoal`).
-
-## Procurar e ler
+## Buscar
 
 ```python
-item_search(query="migração flyway", repo=".", limit=5)         # resumos
-item_search(query="estorno", repo=".", subject="pagamentos")    # restrito a um subject do project
-item_get(keys=["proc/migration", "regra/money"], repo=".")      # completos
-item_get(ids=["9b2c..."])
+item_search(query="migração flyway", repo=".")
+item_search(queries=["estorno", "pix"], repo=".", paths=["src/payments/Charge.java"])
+item_search(query="deploy", repo=".", types=["howto"], tags=["procedure"])
+item_search(query="lgpd", workspace="Polara")      # o workspace inteiro
+item_search(query="token", everywhere=True)        # tudo, sem distância
 ```
 
-- Sem `repo` nem `workspace`, busca no projeto da pasta atual (se ligado); `everywhere=True` busca em toda a base. Cada resultado traz `uses` (vezes que o item foi devolvido de propósito).
-- `subject` filtra pelo assunto (nome ou id) dentro do project resolvido — exige que um project tenha sido resolvido (por `repo` ou por `workspace`+`project`).
-- A busca ignora acento e plural e começa pela relevância. Busca vazia não prova ausência:
-  tente um sinônimo (e grave o sinônimo em `keywords` quando achar).
+- **`paths`** = os arquivos em que você vai mexer: sobe as regras com um link `{path}` que casa, e
+  cada resultado traz `excerpt` (até 600 caracteres do `content`), em geral sem precisar de
+  `item_get`.
+- **`queries`**: até 5 consultas numa chamada, com o resultado em `groups` por consulta. Seis é
+  erro ("no máximo 5").
+- **Filtros:** `types`, `tags` (todas precisam bater) e `limit` (1–100).
+- **Alcance pela hierarquia:** quanto mais perto do project do repositório, maior o peso; `where`
+  diz onde o item mora. `workspace=` amplia para o workspace inteiro; `everywhere=True`, para tudo.
+- **Padrão:** esconde os itens com a tag `archived`.
+- A busca entende identificadores: `saveBatch`, `save_batch` e `ItemService.save` se acham pelas
+  partes, e um código como `ERR_CONN_42` é achado como está.
 
-## Gravar
+Depois da busca, abra o que importa:
 
-Uma ferramenta, em lote e numa publicação só (um commit). O modo vem de cada entrada:
+```python
+item_get(keys=["rule/money", "howto/deploy"], repo=".")
+item_get(ids=["3f2a..."])
+item_get(keys=["rule/money"], workspace="Polara", project="app")
+```
 
-| Entrada traz | Faz |
-|---|---|
-| `key` | upsert no project (cria ou atualiza; não duplica) — **o preferido** |
-| `id` | atualiza o item |
-| `id` + `workspace`/`project`/`subject` novos | *move* o item para esse workspace/project/subject (ver abaixo) |
-| nenhum dos dois | cria e devolve `similar` (títulos parecidos já guardados) |
+Até 20 por chamada. Key que não se resolve volta `{key, missing: true}`; sem `repo`, só os globais
+se resolvem pela key (passe `repo="."`, ou `workspace` e `project`, ou o `id`).
+
+## Gravar em lote
+
+`item_save` grava até 20 itens numa publicação só; um erro desfaz o lote e aponta a entrada.
 
 ```python
 item_save(repo=".", items=[
-  {"key": "regra/money", "type": "rule",
-   "title": "Money em pagamentos", "summary": "Valores sempre em Money, nunca double",
-   "content": "...", "scope_paths": ["src/payments/**"], "source": "PAY-142",
-   "keywords": "dinheiro centavos BigDecimal"},
-  {"key": "decisao/pix-vencido", "type": "insight",
-   "title": "Pix vencido é recusado", "summary": "Recusar, sem estorno automático",
-   "content": "Porque o financeiro revisa caso a caso.", "source": "PAY-142"},
+  {"key": "rule/money", "type": "rule",
+   "title": "Money em pagamentos",
+   "summary": "Valores em Money, nunca double: arredondamento quebra a conciliação",
+   "content": "...", "tags": ["pagamentos", "code"], "links": [{"path": "src/payments/**"}]},
+  {"key": "howto/deploy", "type": "howto",
+   "title": "Deploy em produção", "summary": "passos e verificação do deploy",
+   "content": "1. ...", "tags": ["deploy", "procedure"]},
 ])
 ```
 
-Convenção de keys: `regra/...`, `decisao/...`, `proc/...`, `padrao/...`, `gotcha/...`,
-`contexto/...` — minúsculas, números, `.` `_` `/` `-`.
+- Por entrada: `key` → upsert no project (o preferido: regrava sem duplicar); `id` → atualiza só
+  os campos informados (com `workspace` e `project` novos, move o item); sem os dois → cria e
+  devolve `similar` (títulos parecidos: confira antes de duplicar).
+- A resposta é uma linha por entrada: `{index, id, key, action, warnings, similar?}` com
+  `action` = `created`, `updated` ou `unchanged`.
+- A nuance e o ciclo vão em `tags` (ex.: `decision`, `troubleshoot`, `security`, `draft`,
+  `active`, `done`, `archived`). `links` liga a outro item (`{item, rel}`) ou a uma referência
+  externa (`{url}` | `{path}`).
+- `warnings` avisa, sem recusar: a key fora do padrão `<tipo>/<nome>` e a tag nova (com sugestão
+  de uma parecida).
+- Arquivar: `item_save(repo=".", items=[{"key": "rule/x", "tags": ["archived"]}])`.
+- Limites e erros: no máximo 20 entradas por chamada; key com espaço (ou outro caractere fora de
+  letras, números, `.`, `_`, `-` e `/`) é **erro de gravação**, não aviso.
+- Conteúdo com cara de segredo (chave de nuvem, token, `password=...`) é recusado.
 
-### Mover um item
-
-Uma entrada com `id` e também `workspace`+`project` move o item para esse workspace/project
-(criados se não existirem); o `subject`, se vier junto, é resolvido ou criado no project novo —
-sem `subject`, o item fica sem assunto. Uma entrada com `id` e só `subject` (sem
-workspace/project) move o item para esse subject dentro do project atual, sem trocar de
-workspace/project. Em qualquer caso, `id`, `created_at`, tags, labels e relations do item não
-mudam — só a localização (e o caminho do arquivo).
-
-```python
-item_save(items=[{"id": "9b2c...", "workspace": "Polara", "project": "projpro",
-                   "subject": "pagamentos"}])   # move para outro workspace/project/subject
-item_save(items=[{"id": "9b2c...", "subject": "estorno"}])   # só troca o subject, mesmo project
-```
-
-### Promover, renovar, aposentar
+## Relacionar e ver o grafo
 
 ```python
-item_save(items=[{"id": "...", "memory_class": "longterm"}])   # só sobe; peça o "sim"
-item_save(items=[{"id": "...", "ttl_days": 30}])               # renova um ephemeral
-item_save(items=[{"id": "...", "status": "deprecated"}])        # sai da busca, fica o histórico
+relation_create(repo=".", items=[
+  {"source": "howto/deploy-ci", "type": "depends_on", "target": "rule/deploy"},
+  {"source": "rule/money", "type": "relates_to", "target": "context/pagamentos"},
+])
+relation_delete(repo=".", items=[{"source": "rule/a", "type": "relates_to", "target": "rule/b"}])
+
+item_graph(keys=["rule/money"], repo=".")                          # vizinhos diretos
+item_graph(keys=["rule/money"], repo=".", depth=2, relation_types=["depends_on"],
+           direction="out")
 ```
 
-### Substituir
+Tipos de link item↔item: `depends_on` e `relates_to` (sem `supersedes`: o item anterior é
+ajustado ou removido). Source e target vão por key ou id (até 20 entradas, atômico); repetir uma
+ligação é no-op (`unchanged`). Os links item↔item ficam no campo `links` do item de origem.
+
+`item_graph` aceita até 5 keys, `depth` de 1 a 3, `limit` até 100 e `direction` `both`, `out` ou
+`in`, e enxerga só o que o repositório alcança. Devolve `{nodes, edges, truncated, total_by_hop}`;
+as keys pedidas vêm com `hop: 0`. Ao passar de `limit`, `truncated` fica `true` e
+`total_by_hop` traz o total real por salto.
+
+## Tags
 
 ```python
-item_save(repo=".", items=[{"key": "proc/deploy-ci", "type": "procedure", ...,
-  "relations": [{"type": "supersedes", "target": "proc/deploy"}]}])
+tag_list()                                       # [{name, count}], inclui as com count 0
+tag_create(names=["lgpd", "pix"])
+tag_update(name="pix", new_name="pagamento-pix")  # renomeia em todos os itens; se já existe, mescla
+tag_delete(names=["lgpd"])                        # prévia, com o número de itens afetados
+tag_delete(names=["lgpd"], confirm=True)          # remove dos itens e do vocabulário
 ```
 
-O alvo vira `superseded` e sai da busca e do contexto. Tipos de relação: `related_to`,
-`depends_on`, `implements`, `references`, `supersedes`, `derived_from`. `target` é id ou key
-do mesmo project, inclusive de um item criado no mesmo lote.
+Nomes em kebab-case minúsculo. Uma tag nova num `item_save` é criada, com aviso e a sugestão de
+uma existente parecida.
 
-### Publicação (repositório git da conexão)
+## Item errado ou velho
 
-Todo item não secreto é um arquivo Markdown na pasta da conexão e cada gravação é publicada
-nesse repositório, conforme o `review_mode` da conexão:
+Não há feedback: ao usar um item que estava errado ou desatualizado, **corrija-o** (regrave pela
+mesma `key`) ou **remova-o** (`item_delete`). Tudo é commit no git da conexão: dá para voltar.
 
-- `direct` (padrão): `item_save` escreve, comita (e empurra, se há `remote_url`) na mesma
-  chamada — o retorno é o de sempre, `{index, id, key, action, ...}`.
-- `pr`: a mesma gravação vai para uma branch nova e abre um Pull Request (ou uma Issue, se o
-  token não tem permissão de push); cada entrada do lote devolve `{status: "pending_review",
-  pr_url}` (ou `{status: "issue_opened", issue_url}`) em vez do resultado de sempre. A mudança
-  só aparece depois que o PR for mergeado e alguém rodar `repo(action="sync")` (ou o hook de
-  início de sessão sincronizar).
+## Limpeza com prévia
 
-`item_delete`, `relation_create` e `relation_delete` seguem a mesma regra: em modo `pr`, a
-mudança também fica pendente de revisão.
-
-### Erros
-
-- Um erro desfaz o lote inteiro e aponta a entrada (`Entrada 1 (regra/x): ...`).
-- Segredos são recusados sem eco do valor em itens comuns: grave um item `secret` sem valor.
-
-### Segredos
+`item_delete` trabalha em três passos e nunca apaga sem `confirm=True`:
 
 ```python
-item_save(repo=".", items=[{"key": "segredo/npm-token", "type": "secret",
-  "title": "Token do npm", "summary": "Publicar pacotes no npm"}])
-# → [{..., "has_value": false, "fill_url": "http://127.0.0.1:8765/ui/#/c/<conexão>/w/.../i/..."}]
+item_delete(repo=".")                                  # 1. candidatos: [{key, id, reason}]
+item_delete(keys=["rule/velha"], repo=".")             # 2. prévia do que sairia
+item_delete(keys=["rule/velha"], repo=".", confirm=True)   # 3. remove (e as relações que o apontavam)
 ```
 
-Passe o `fill_url` ao usuário: ele preenche o valor na UI local. Nunca peça o valor no chat
-(`value`/`valor` no `item_save` é recusado). O pacote de contexto lista os segredos com o estado
-e, quando há valor, como usar:
+`reason` é `archived` (tag `archived` há muito tempo) ou `unused` (nunca aberto há muito tempo).
+Mostre a prévia ao usuário antes de passar `confirm=True`. Para aposentar mantendo o item,
+prefira a tag `archived` no `item_save`. Tudo é commit no git da conexão: dá para voltar.
+
+## Segredos
+
+Token, senha e chave são itens `secret`, sem valor:
+
+```python
+item_save(repo=".", items=[{"key": "secret/npm-token", "type": "secret",
+          "title": "Token do npm", "summary": "publicar no npm"}])
+```
+
+A resposta traz `has_value: false` e `fill_url`: passe o link ao usuário, que preenche o valor na
+UI local. **Nunca** peça nem grave o valor no chat; `item_save` recusa campo de valor. Para usar:
 
 ```bash
-knowledge-mcp run --env NPM_TOKEN=segredo/npm-token -- npm publish
-knowledge-mcp run --stdin segredo/registry -- docker login -u ci --password-stdin registry.x
+knowledge-mcp run --env NPM_TOKEN=secret/npm-token -- npm publish
 ```
 
-Sem valor, o `run` não roda o comando e devolve o link para preencher.
+O valor vai só para o processo filho e a saída volta redigida. Detalhes e modelo de ameaça no
+[README](../README.md#segredos).
 
-## Organizar e administrar
+## Organização (hierarquia)
 
 ```python
-workspace_list()                                          # workspaces com contagens
-workspace_create(name="Polara")
-workspace_rename(name="polara", new_name="Polara")
-workspace_merge(source="Polara Antiga", target="Polara")
-workspace_delete(name="Teste", confirm=True)               # sem confirm, só preview
+workspace_create(name="Polara", description="cliente")
+workspace_list()
+workspace_update(name="Polara", description="cliente estratégico")
+workspace_merge(source="polara-antiga", target="Polara")
+workspace_delete(name="Teste")                         # prévia; com confirm=True apaga
 
-project_list(workspace="Polara")
-project_create(workspace="Polara", name="projpro")
-project_rename(workspace="Polara", name="projpro-old", new_name="projpro")
-project_merge(workspace="Polara", source="projpro-old", target="projpro")
+project_create(workspace="Polara", name="Geral")
+project_list(workspace="Polara")                       # cada project traz os seus subjects
+project_update(workspace="Polara", name="app", new_name="app-web")
+project_merge(workspace="Polara", source="app-old", target="app")
+project_delete(workspace="Polara", name="Teste", confirm=True)
 
-subject_list(workspace="Polara", project="projpro")
-subject_create(workspace="Polara", project="projpro", name="pagamentos")
-
-repo(action="list", workspace="Polara")                    # auditar o que está ligado
-repo(action="unlink", repo="github.com/org/antigo")
-repo(action="sync")                       # puxa o que mudou no remote da conexão
-
-item_delete(item_id="...")                          # prefira status=deprecated
-relation_create(source_item_id="...", target_item_id="...", relation_type="depends_on")
-relation_delete(relation_id="...")                  # id vem em item_get → relations
-tag_list()                                          # reaproveite antes de criar variações
-label_create(name="lgpd")
+subject_create(workspace="Polara", project="app", name="pagamentos")
+subject_list(workspace="Polara", project="app")
+subject_update(workspace="Polara", project="app", name="pagto", new_name="pagamentos")
+subject_merge(workspace="Polara", project="app", source="pagto", target="pagamentos")
+subject_delete(workspace="Polara", project="app", name="pagamentos", confirm=True)
 ```
 
-Toda ferramenta do cérebro e de administração aceita `connection_id` opcional (sem ele, a
-conexão padrão). Tudo o que muda vira commit no repositório da conexão: para voltar atrás ou
-levar para outra máquina, use o git (histórico, push, clone).
+- `create` e `update` aceitam `description`; `update` aceita também `new_name`.
+- O **alcance vem de onde o item mora**, não de um campo: um item no nível do workspace vale em
+  todos os projects dele (é o jeito de ter regras transversais); no project, só nele; no subject,
+  só nele.
+- `merge` e `delete` são destrutivos: o `delete` devolve uma prévia sem `confirm`; só passe
+  `confirm=True` com pedido explícito do usuário.
+- **O alcance não é fronteira de segurança:** controla o que a busca e o pacote mostram;
+  `item_get(ids=[...])` e `everywhere=True` leem a conexão inteira. Um `secret` vale pelo mesmo
+  alcance: para usá-lo fora do seu project, guarde-o num nível mais alto da hierarquia.
 
-## Conexões (repositórios git)
+## Conexões e saúde
 
-Criar é só pelo MCP (`connection_create`, acima). A UI (`knowledge-mcp ui`) lista as conexões
-com o caminho da pasta, o remote, o modo e o estado (pasta existe / é repositório git), e edita
-nome, `remote_url`, `review_mode` (`direct` ou `pr`) e se está ativa; testa o remote
-(`git ls-remote`, sem clonar), define a padrão e apaga (só do cadastro). As conexões ficam em
-`<home>/connections.json`; `health_check` verifica a conexão padrão.
+```python
+connection_list()     # id, name, path, remote_url, review_mode, enabled, is_default
+health_check()        # {status, version, connections: [{name, path, ok, parse_errors}], gh_authenticated}
+```
 
-Sem `remote_url`, a conexão é um repositório git só local (sem GitHub) — útil para manter
-conhecimento fora de qualquer remote. Com `remote_url`, a criação clona; dali em diante,
-`item_save`/`item_delete`/`relation_delete` publicam conforme o `review_mode`, e
-`repo(action="sync")` (ou o hook de início de sessão) puxa o que mudou de fora.
+`parse_errors` lista os arquivos `.md` com frontmatter inválido ou id duplicado: eles ficam de
+fora até serem corrigidos. Com `review_mode="pr"`, as gravações voltam
+`{status: "pending_review", pr_url}` (ou `issue_opened`/`issue_url`) em vez do resultado de
+sempre, e a mudança só aparece depois do merge e de um `repo(action="sync")`.
 
-## Problemas comuns
+## Fora do ar
 
-| Sintoma | Ação |
-|---|---|
-| "Projeto não ligado" | `repo(action="link")` ou `/plumb-setup` |
-| Busca não acha | sinônimo; `include_inactive=True` se pode ter sido substituído |
-| `Entrada N (...)` | corrija a entrada N; nada do lote foi gravado |
-| "parece conter um segredo" | tire o valor; crie um item `secret` sem valor e passe o `fill_url` ao usuário |
-| Servidor fora do ar | o Plumb segue com aviso e guarda em `~/.knowledge-os/pending.jsonl` (uma entrada de `item_save` por linha, com `repo`); o hook da próxima sessão grava, ou `knowledge-mcp pending` |
-| "Nenhuma conexão configurada" | crie uma com `connection_create(name, path)` |
-| Remote git inacessível | `health_check`; a UI testa a conexão (`git ls-remote`) |
-| PR aberto não aparece na busca | normal em `review_mode="pr"`: a mudança só aparece depois do PR mergeado e `repo(action="sync")` |
+Se o servidor não responder, siga o trabalho e guarde a entrada que iria no `item_save` na fila
+offline: `knowledge-mcp pending --repo .` (grava em `~/.knowledge-os/pending.jsonl`).

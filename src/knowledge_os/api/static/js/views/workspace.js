@@ -1,4 +1,5 @@
-// Página de Workspace: todos os itens, filtráveis por project/assunto/tipo e buscáveis.
+// Workspace page: all items, filterable by project/subject/type/tag and searchable. v6 has no
+// scope — reach is by hierarchy, so the page just lists and filters.
 import { hrefs } from '../router.js';
 import { listingMixin, mix } from './listing.js';
 
@@ -17,7 +18,7 @@ export function register(Alpine) {
           this.loadItems();
           this.initListing();
         },
-        /** Link para a tela de grafo deste workspace. */
+        /** Link to this workspace's graph screen. */
         graphHref() {
           return hrefs.graph(this.app.connId, this.app.route.params.ws);
         },

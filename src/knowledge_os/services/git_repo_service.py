@@ -265,25 +265,55 @@ class GitRepoService:
 
         Fim de linha sempre LF (no Windows o `write_text` padrão gravaria CRLF). Pasta que
         fica vazia depois de uma remoção também sai (o git não versiona pasta).
+
+        Tudo ou nada: primeiro grava todos os arquivos novos, só depois remove os antigos
+        (renomear um workspace não apaga nada antes de o destino existir); qualquer exceção no
+        meio desfaz o que já mudou (`_rollback`) e sobe o erro.
         """
-        written: list[str] = []
-        removed: list[str] = []
         # Confere tudo antes de tocar o disco: um path que escapa da pasta (key com "..",
-        # absoluto, symlink para fora) recusa a publicação inteira.
+        # absoluto, symlink para fora) ou longo demais recusa a publicação inteira.
         targets = {rel: safe_join(self.clone_path, rel) for rel in files}
-        for rel_path, content in files.items():
-            full = targets[rel_path]
-            if content is None:
-                full.unlink(missing_ok=True)
-                self._prune_empty(full.parent)
-                removed.append(rel_path)
+        written = [rel for rel, content in files.items() if content is not None]
+        removed = [rel for rel, content in files.items() if content is None]
+        backup = {rel: (full.read_bytes() if full.is_file() else None)
+                  for rel, full in targets.items()}
+        try:
+            for rel_path in written:
+                _atomic_write(targets[rel_path], files[rel_path])  # type: ignore[arg-type]
+            for rel_path in removed:
+                targets[rel_path].unlink(missing_ok=True)
+                self._prune_empty(targets[rel_path].parent)
+            if removed:
+                self._run(["rm", "-q", "--cached", "--ignore-unmatch", "--", *removed])
+            if written:
+                self._run(["add", "--", *written])
+        except BaseException:
+            self._rollback(targets, backup)
+            raise
+
+    def _rollback(self, targets: dict[str, Path], backup: dict[str, bytes | None]) -> None:
+        """Volta cada arquivo do lote ao que era antes dele (o conteúdo guardado em `backup`;
+        o que não existia é apagado) e o índice ao HEAD nesses paths. Melhor esforço: uma
+        falha aqui não esconde o erro original da escrita."""
+        for rel, full in targets.items():
+            try:
+                before = backup.get(rel)
+                if before is None:
+                    full.unlink(missing_ok=True)
+                    self._prune_empty(full.parent)
+                elif not full.is_file() or full.read_bytes() != before:
+                    full.parent.mkdir(parents=True, exist_ok=True)
+                    full.write_bytes(before)
+            except OSError:
                 continue
-            _atomic_write(full, content)
-            written.append(rel_path)
-        if removed:
-            self._run(["rm", "-q", "--cached", "--ignore-unmatch", "--", *removed])
-        if written:
-            self._run(["add", "--", *written])
+        try:
+            if self._run(["rev-parse", "--verify", "-q", "HEAD"], check=False).returncode == 0:
+                self._run(["reset", "-q", "HEAD", "--", *targets], check=False)
+            else:
+                self._run(["rm", "-q", "--cached", "--ignore-unmatch", "--", *targets],
+                          check=False)
+        except GitError:
+            pass
 
     def _prune_empty(self, folder: Path) -> None:
         root = self.clone_path.resolve()

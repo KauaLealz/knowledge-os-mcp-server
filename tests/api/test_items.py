@@ -1,68 +1,124 @@
+"""Itens pela API no modelo v6: campos mínimos, links unificados, filtros por tipo/tag/subject,
+atualização parcial, remoção. Sem subtype/scope/status/origin/ttl/feedback (tudo isso saiu)."""
+
+V6_FIELDS = {"key", "id", "type", "title", "summary", "content", "tags", "links",
+             "workspace", "project", "subject", "where", "created_at", "updated_at"}
+REMOVED = {"subtype", "scope", "effective_scope", "scope_inherited_from", "status", "origin",
+           "verified_at", "verified_commit", "ttl_days", "expires_at", "keywords", "source",
+           "scope_paths", "labels", "memory_class", "importance", "confidence",
+           "access_count", "last_accessed"}
+
+
 def test_list_empty(client):
     assert client.get("/api/items").json() == {"items": [], "total": 0}
 
 
-def test_create_returns_full_item(client, mk):
+def test_create_returns_v6_item(client, mk):
     ws = mk.ws()
     dm = mk.project(ws["id"])
     r = client.post("/api/items", json={
-        "workspace_id": ws["id"], "project_id": dm["id"], "type": "knowledge",
-        "memory_class": "longterm", "title": "T", "summary": "S", "content": "C",
-        "confidence": 90, "importance": 8, "tags": ["spring"], "labels": ["official"],
+        "workspace_id": ws["id"], "project_id": dm["id"], "key": "rule/money",
+        "type": "rule", "title": "Money", "summary": "Use Money", "content": "Sempre Money.",
+        "tags": ["pagamentos", "decision"],
+        "links": [{"url": "https://x.test", "title": "Painel"}, {"path": "src/pay/**"}],
     })
-    assert r.status_code == 201
+    assert r.status_code == 201, r.text
     d = r.json()
-    assert d["tags"] == ["spring"] and d["labels"] == ["official"]
-    assert d["confidence"] == 90 and d["access_count"] == 0
+    assert V6_FIELDS <= d.keys() and not (REMOVED & d.keys())
+    assert (d["type"], d["key"], d["where"]) == ("rule", "rule/money", "WS/Dom")
+    assert d["tags"] == ["decision", "pagamentos"]
+    assert d["links"] == [{"url": "https://x.test", "title": "Painel"}, {"path": "src/pay/**"}]
+    assert d["workspace_id"] == ws["id"] and d["project_id"] == dm["id"]
+    got = client.get(f"/api/items/{d['id']}").json()
+    assert got["links"] == d["links"] and got["tags"] == d["tags"]
 
 
-def test_create_invalid_type_is_422(client, mk):
+def test_item_link_para_outro_item(client, mk):
+    ws, dm, it = mk.tree()
+    r = client.post("/api/items", json={
+        "workspace_id": ws["id"], "project_id": dm["id"], "key": "howto/deploy",
+        "type": "howto", "title": "Deploy", "summary": "como",
+        "links": [{"item": it["key"] or it["id"], "rel": "depends_on"}]})
+    assert r.status_code == 201, r.text
+    assert r.json()["links"] == [{"item": it["key"] or it["id"], "rel": "depends_on"}]
+
+
+def test_campos_antigos_e_removidos_dao_422(client, mk):
     ws = mk.ws()
     dm = mk.project(ws["id"])
-    r = client.post("/api/items", json={
-        "workspace_id": ws["id"], "project_id": dm["id"], "type": "bogus",
-        "memory_class": "longterm", "title": "T", "summary": "S", "content": "C"})
-    assert r.status_code == 422
+    base = {"workspace_id": ws["id"], "project_id": dm["id"], "type": "rule",
+            "title": "T", "summary": "S"}
+    for field, value in (("subtype", "code"), ("scope", "global"), ("status", "active"),
+                         ("origin", "user"), ("ttl_days", 30), ("keywords", "x"),
+                         ("memory_class", "longterm"), ("labels", ["x"])):
+        r = client.post("/api/items", json={**base, field: value})
+        assert r.status_code == 422, (field, r.text)
+        assert f"desconhecido(s): {field}" in r.json()["detail"] and "Válidos:" in r.json()["detail"]
 
 
-def test_create_ephemeral_without_ttl_is_422(client, mk):
+def test_tipo_invalido_lista_os_validos(client, mk):
     ws = mk.ws()
     dm = mk.project(ws["id"])
-    r = client.post("/api/items", json={
-        "workspace_id": ws["id"], "project_id": dm["id"], "type": "context",
-        "memory_class": "ephemeral", "title": "T", "summary": "S", "content": "C"})
-    assert r.status_code == 422
+    base = {"workspace_id": ws["id"], "project_id": dm["id"], "title": "T", "summary": "S"}
+    r = client.post("/api/items", json={**base, "type": "spec"})  # spec virou work
+    assert r.status_code == 422 and "work" in r.json()["detail"]
+    r = client.post("/api/items", json={**base, "type": "knowledge"})
+    assert r.status_code == 422 and "type inválido" in r.json()["detail"]
 
 
-def test_create_unknown_workspace_is_404(client):
-    r = client.post("/api/items", json={
-        "workspace_id": "x", "project_id": "y", "type": "context", "memory_class": "working",
-        "title": "T", "summary": "S", "content": "C"})
-    assert r.status_code == 404
-
-
-def test_get(client, mk):
-    _, _, it = mk.tree()
-    r = client.get(f"/api/items/{it['id']}")
-    assert r.status_code == 200
-    assert r.json()["title"] == "Item"
+def test_tipo_work_substitui_spec(client, mk):
+    ws, dm, _ = mk.tree()
+    r = client.post("/api/items", json={"workspace_id": ws["id"], "project_id": dm["id"],
+                                        "type": "work", "title": "Plano", "summary": "x",
+                                        "tags": ["draft"]})
+    assert r.status_code == 201 and r.json()["type"] == "work"
 
 
 def test_get_missing_is_404(client):
     assert client.get("/api/items/nope").status_code == 404
 
 
-def test_list_filters(client, mk):
+def test_update_parcial_por_put_e_patch(client, mk):
+    _, _, it = mk.tree()
+    r = client.patch(f"/api/items/{it['id']}", json={
+        "tags": ["security"], "links": [{"url": "https://a.test"}]})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["tags"] == ["security"] and d["links"] == [{"url": "https://a.test"}]
+    assert d["title"] == it["title"]
+    r = client.put(f"/api/items/{it['id']}", json={"confidence": 1})
+    assert r.status_code == 422 and "confidence" in r.json()["detail"]
+
+
+def test_list_filters_v6(client, mk):
     ws, dm, _ = mk.tree()
     dm2 = mk.project(ws["id"], "Dom2")
-    mk.item(ws["id"], dm2["id"], "Other", type="rule")
-    assert len(client.get("/api/items").json()["items"]) == 2
-    r = client.get("/api/items", params={"project_id": dm2["id"]})
-    assert [i["title"] for i in r.json()["items"]] == ["Other"]
-    r = client.get("/api/items", params={"workspace_id": ws["id"], "type": "rule"})
-    assert len(r.json()["items"]) == 1
-    r = client.get("/api/items", params={"workspace_id": "nope"})
-    assert r.json() == {"items": [], "total": 0}
+    mk.item(ws["id"], dm2["id"], "Howto", type="howto", tags=["deploy", "troubleshoot"])
+    mk.item(ws["id"], dm2["id"], "Ctx", type="context", tags=["stack"])
+    assert client.get("/api/items").json()["total"] == 3
+
+    def titles(**params):
+        r = client.get("/api/items", params=params)
+        assert r.status_code == 200, r.text
+        return sorted(i["title"] for i in r.json()["items"])
+
+    assert titles(project_id=dm2["id"]) == ["Ctx", "Howto"]
+    assert titles(project_id=f"{dm['id']},{dm2['id']}") == ["Ctx", "Howto", "Item"]
+    assert titles(type="howto") == ["Howto"]
+    assert titles(type="howto,context") == ["Ctx", "Howto"]
+    assert titles(tag="deploy") == ["Howto"]
+    assert titles(tag="stack") == ["Ctx"]
+    assert titles(workspace_id="nope") == []
+    r = client.get("/api/items", params={"type": "insight"})
+    assert r.status_code == 422 and "Válidos" in r.json()["detail"]
+
+
+def test_list_filtra_por_subject_id(client, mk):
+    ws, dm, _ = mk.tree()
+    sj = mk.subject(ws["id"], dm["id"], "Assunto")
+    mk.item(ws["id"], dm["id"], "No assunto", subject_id=sj["id"])
+    r = client.get("/api/items", params={"subject_id": sj["id"]})
+    assert [i["title"] for i in r.json()["items"]] == ["No assunto"]
 
 
 def test_list_limit_offset(client, mk):
@@ -70,105 +126,40 @@ def test_list_limit_offset(client, mk):
     mk.item(ws["id"], dm["id"], "B")
     mk.item(ws["id"], dm["id"], "C")
     assert len(client.get("/api/items", params={"limit": 2}).json()["items"]) == 2
-    assert len(client.get("/api/items", params={"limit": 2, "offset": 2}).json()["items"]) == 1
-
-
-def test_list_filtra_por_subject_id(client, mk):
-    from knowledge_os.services.subject_service import SubjectService
-
-    ws, dm, _ = mk.tree()
-    subj_id = SubjectService().create(ws["id"], dm["id"], "Assunto").id
-    mk.item(ws["id"], dm["id"], "Com assunto", subject_id=subj_id)
-    r = client.get("/api/items", params={"subject_id": subj_id})
-    assert [i["title"] for i in r.json()["items"]] == ["Com assunto"]
-
-
-def test_list_filtra_por_varios_project_id_e_subject_id_separados_por_virgula(client, mk):
-    from knowledge_os.services.subject_service import SubjectService
-
-    ws = mk.ws()
-    p1 = mk.project(ws["id"], "P1")
-    p2 = mk.project(ws["id"], "P2")
-    p3 = mk.project(ws["id"], "P3")
-    subj_id = SubjectService().create(ws["id"], p1["id"], "Assunto").id
-    mk.item(ws["id"], p1["id"], "A", subject_id=subj_id)
-    mk.item(ws["id"], p2["id"], "B")
-    mk.item(ws["id"], p3["id"], "C")
-
-    r = client.get("/api/items", params={"project_id": f"{p1['id']},{p2['id']}"})
-    assert {i["title"] for i in r.json()["items"]} == {"A", "B"}
-
-    r = client.get("/api/items", params={"subject_id": subj_id})
-    assert [i["title"] for i in r.json()["items"]] == ["A"]
-
-
-def test_list_total_independe_do_limit(client, mk):
-    """`total` é o total real sem o corte de limit/offset — é o que a paginação usa."""
-    ws, dm, _ = mk.tree()
-    mk.item(ws["id"], dm["id"], "B")
-    mk.item(ws["id"], dm["id"], "C")
-    r = client.get("/api/items", params={"limit": 1})
-    assert r.json()["total"] == 3
-    assert len(r.json()["items"]) == 1
-
-
-def test_update(client, mk):
-    _, _, it = mk.tree()
-    r = client.put(f"/api/items/{it['id']}", json={"summary": "Novo", "importance": 3})
-    assert r.status_code == 200
-    assert r.json()["summary"] == "Novo" and r.json()["importance"] == 3
-    assert r.json()["content"] == "Conteudo Item"
-
-
-def test_update_invalid_is_422(client, mk):
-    _, _, it = mk.tree()
-    assert client.put(f"/api/items/{it['id']}", json={"confidence": 500}).status_code == 422
-
-
-def test_update_missing_is_404(client):
-    assert client.put("/api/items/nope", json={"summary": "x"}).status_code == 404
+    page = client.get("/api/items", params={"limit": 2, "offset": 2}).json()
+    assert len(page["items"]) == 1 and page["total"] == 3
 
 
 def test_delete(client, mk):
     _, _, it = mk.tree()
     assert client.delete(f"/api/items/{it['id']}").status_code == 204
     assert client.get(f"/api/items/{it['id']}").status_code == 404
+    assert client.delete(f"/api/items/{it['id']}").status_code == 404
 
 
-def test_delete_missing_is_404(client):
-    assert client.delete("/api/items/nope").status_code == 404
-
-
-def test_set_confidence(client, mk):
+def test_rota_de_feedback_sumiu(client, mk):
     _, _, it = mk.tree()
-    r = client.put(f"/api/items/{it['id']}/confidence", json={"value": 42})
-    assert r.status_code == 200 and r.json()["confidence"] == 42
+    assert client.post(f"/api/items/{it['id']}/feedback",
+                       json={"outcome": "helped"}).status_code in (404, 405)
 
 
-def test_set_confidence_out_of_range_is_422(client, mk):
+def test_rotas_antigas_de_ajuste_sumiram(client, mk):
     _, _, it = mk.tree()
-    assert client.put(f"/api/items/{it['id']}/confidence", json={"value": 101}).status_code == 422
+    for path in ("confidence", "importance", "memory_class", "labels"):
+        assert client.put(f"/api/items/{it['id']}/{path}", json={"value": 1}).status_code in (
+            404, 405)
+        assert client.get(f"/api/items/{it['id']}/{path}").status_code in (404, 405)
 
 
-def test_set_importance(client, mk):
+def test_datas_saem_com_z_e_sem_campos_do_modelo_antigo(client, mk):
     _, _, it = mk.tree()
-    r = client.put(f"/api/items/{it['id']}/importance", json={"value": 9})
-    assert r.status_code == 200 and r.json()["importance"] == 9
-    assert client.put(f"/api/items/{it['id']}/importance", json={"value": 11}).status_code == 422
+    for d in (it, client.get(f"/api/items/{it['id']}").json(),
+              client.get("/api/items").json()["items"][0]):
+        for name in ("created_at", "updated_at"):
+            assert d[name].endswith("Z") and len(d[name]) == len("2026-10-08T20:31:15Z"), d[name]
+        assert not (REMOVED & d.keys())
 
 
-def test_set_memory_class_promotes(client, mk):
-    _, _, it = mk.tree()
-    r = client.put(f"/api/items/{it['id']}/memory_class", json={"memory_class": "canonical"})
-    assert r.status_code == 200 and r.json()["memory_class"] == "canonical"
-
-
-def test_set_memory_class_downgrade_is_422(client, mk):
-    _, _, it = mk.tree()
-    r = client.put(f"/api/items/{it['id']}/memory_class", json={"memory_class": "working"})
-    assert r.status_code == 422
-
-
-def test_set_memory_class_missing_item_is_404(client):
-    r = client.put("/api/items/nope/memory_class", json={"memory_class": "canonical"})
-    assert r.status_code == 404
+def test_id_inexistente_diz_qual_item_nao_foi_achado(client):
+    r = client.get("/api/items/memory-class")
+    assert r.status_code == 404 and r.json()["detail"] == "Item não encontrado: memory-class"
