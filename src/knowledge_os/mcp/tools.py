@@ -388,22 +388,20 @@ def item_search(
 
     **Use quando:** Procurar algo que pode já estar guardado (regra, decisão, como fazer) antes
         de agir ou de gravar; `paths` = os arquivos em que você vai mexer.
-    **Retorna:** {results: [{id, key, type, subtype, title, summary, scope, where, status, score,
-        matched_in, snippet, url}]} (com `paths`, também `excerpt` e `scope_paths`); com `queries`
-        → {groups: [{query, results}]}; sem consulta, de um repositório ligado → o essencial
-        em {groups: [{group, results}]} (seguranca, regras, contexto, specs). Pasta não ligada:
-        só os globais e `suggestion` com a chamada que liga.
+    **Retorna:** {results: [{id, key, type, title, summary, where, tags, score, matched_in,
+        snippet, url}]} (com `paths`, também `excerpt`); com `queries` → {groups: [{query,
+        results}]}; sem consulta, de um repositório ligado → o essencial em {groups: [{group,
+        results}]} (seguranca, regras, contexto, trabalho). Pasta não ligada: só os do nível mais
+        alto e `suggestion` com a chamada que liga.
     **Exemplo:** item_search(query="migração flyway", repo=".") ·
         item_search(queries=["estorno", "pix"], repo=".", paths=["src/payments/Charge.java"])
     **Erro comum:** filtro com valor fora da taxonomia — a mensagem lista os válidos; mais de 5
         `queries` — divida em chamadas.
-    **Notas:** Alcance: o project do repositório (1.0), os de scope `workspace` dos outros
-        projects do workspace (0.85) e os `global` de fora (0.7); `where` diz onde o item mora.
-        Sem `repo`/`workspace`/`everywhere`, usa a pasta atual se ligada. `workspace=` busca o
-        workspace inteiro (+ globais); `everywhere=True`, tudo. Padrão sem `archived` nem
-        vencidos (`status=["expired"]` os mostra); `review` vem depois, marcado. Filtros:
-        types <<TYPES>>; subtypes <<SUBTYPES>>; status <<STATUS>>; origin <<ORIGINS>>; scope
-        <<SCOPES>>; tags (todas precisam bater). limit 1–100.
+    **Notas:** Alcance pela hierarquia: o item vale onde mora (workspace → project → subject) e
+        abaixo; `where` diz onde ele mora, e quanto mais perto do seu project, maior o peso. Sem
+        `repo`/`workspace`/`everywhere`, usa a pasta atual se ligada; `workspace=` busca o
+        workspace inteiro; `everywhere=True`, tudo. Padrão esconde os com a tag `archived`.
+        Filtros: types <<TYPES>>; tags (todas precisam bater). limit 1–100.
     """
     viewpoint: Viewpoint = None
     unlinked: str | None = None
@@ -430,19 +428,18 @@ def item_get(
     project: str | None = None,
     connection_id: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Lê itens completos (com `content` e relações) por key e/ou id, até 20 de uma vez.
+    """Lê itens completos (com `content` e `links`) por key e/ou id, até 20 de uma vez.
 
     **Use quando:** O resumo da busca ou do pacote não bastou.
     **Retorna:** Na ordem pedida (keys, depois ids): [{id, key, workspace, project, subject,
-        where, type, subtype, scope, scope_explicit, title, summary, content, status, tags,
-        links, scope_paths, ttl_days, expires_at, keywords, source, origin, verified_at,
-        verified_commit, created_at, updated_at, url, relations: [{type, target, target_id}]}]; o
-        que não se acha vem como {key|id, missing: true}, sem derrubar os outros.
+        where, type, title, summary, content, tags, links, created_at, updated_at, url}]; o
+        que não se acha vem como {key|id, missing: true}, sem derrubar os outros. `links` inclui
+        as ligações a outros itens ({item, rel}) e as referências externas ({url}|{path}).
     **Exemplo:** item_get(keys=["rule/money", "howto/deploy"], repo=".")
-    **Erro comum:** key que vem `missing` sem `repo` — sem repositório só os globais se
-        resolvem pela key; passe `repo="."` (ou `workspace` + `project`, ou o `id`).
-    **Notas:** A key é resolvida pela cadeia de alcance do repositório (o project dele, depois
-        o resto do que ele enxerga). Ler conta como uso (`opened`).
+    **Erro comum:** key que vem `missing` sem `repo` — sem repositório só os do nível mais alto
+        se resolvem pela key; passe `repo="."` (ou `workspace` + `project`, ou o `id`).
+    **Notas:** A key é resolvida pela hierarquia do repositório (o project dele e o que ele
+        enxerga acima). Ler conta como uso (`opened`).
     """
     return ItemService(connection_id=connection_id).get_many(
         keys=keys, ids=ids, viewpoint=_viewpoint(repo, connection_id),
@@ -457,25 +454,23 @@ def item_save(
 
     **Use quando:** Guardar o que vale para depois — uma regra que o usuário enunciou, as
         decisões e aprendizados ao fechar uma mudança, a correção de um item.
-    **Retorna:** [{index, id, key, scope, action: created|updated|unchanged, warnings,
+    **Retorna:** [{index, id, key, action: created|updated|unchanged, warnings,
         similar?, url, has_value?, fill_url?}] — `url` é o link da UI local do item; `warnings`
-        traz o modelo do `content` que faltou,
-        key fora do padrão e tag nova (com sugestão parecida); em modo PR, {index, id, key,
+        traz key fora do padrão e tag nova (com sugestão parecida); em modo PR, {index, id, key,
         status: pending_review|issue_opened, pr_url|issue_url}.
     **Modo, por entrada:** `key` → upsert no project (o preferido: regrava sem duplicar); `id` →
         atualiza só os campos informados (com `workspace`+`project` novos, move; só `subject`,
         troca o assunto); sem os dois → cria e devolve `similar` (títulos parecidos).
     **Campos aceitos:** <<FIELDS>>. Campo desconhecido é erro com a lista.
-    **Valores:** type/subtipo: <<TYPES_SUBTYPES>>. status: <<STATUSES>> (só `spec`:
-        <<SPEC_STATUSES>>). scope: <<SCOPES>> (sem ele, herda subject → project → workspace).
-        origin: <<ORIGINS>> (padrão `agent`; `user` quando o usuário ditou). links:
-        [{title, url}]. key: `<tipo>/<nome>` em minúsculas com `-`. Relações vão por
-        relation_create.
+    **Valores:** type: <<TYPES>>. A nuance e o ciclo vão em `tags` (não em campos):
+        ciclo <<LIFECYCLE>>; nuance (base, extensível) <<NUANCE>>. `links` liga a outro item
+        ({"item": key, "rel": "depends_on"|"relates_to"}) ou a uma referência externa
+        ({"url": "..."} | {"path": "src/**"}). key: `<tipo>/<nome>` em minúsculas com `-`.
     **Exemplo:** item_save(repo=".", items=[{"key": "rule/money", "type": "rule",
-        "subtype": "code", "title": "Money em pagamentos", "summary": "Valores em Money, nunca
-        double: arredondamento quebra a conciliação", "content": "...",
-        "scope_paths": ["src/payments/**"], "origin": "user"}])
-    **Exemplo (aposentar):** item_save(repo=".", items=[{"key": "rule/x", "status": "archived"}])
+        "title": "Money em pagamentos", "summary": "Valores em Money, nunca double: "
+        "arredondamento quebra a conciliação", "content": "...", "tags": ["pagamentos", "code"],
+        "links": [{"path": "src/payments/**"}]}])
+    **Exemplo (arquivar):** item_save(repo=".", items=[{"key": "rule/x", "tags": ["archived"]}])
     **Segredo:** {"key": "secret/npm-token", "type": "secret", "title": "Token do npm",
         "summary": "publicar no npm"} — sem valor (é recusado); passe ao usuário o `fill_url`
         da resposta (ele preenche na UI local). Usar: `knowledge-mcp run --env
@@ -540,11 +535,10 @@ def item_graph(
     direction: str = "both",
     connection_id: str | None = None,
 ) -> dict[str, Any]:
-    """Vizinhança de itens pelo grafo de relações (só o que o repositório enxerga).
+    """Vizinhança de itens pelo grafo de links item↔item (só o que o repositório enxerga).
 
-    **Use quando:** Entender o que depende de um item, o que ele substitui ou implementa, antes
-        de mudá-lo.
-    **Retorna:** {nodes: [{key, id, type, subtype, title, summary, scope, status, hop}], edges:
+    **Use quando:** Entender o que depende de um item ou se relaciona com ele, antes de mudá-lo.
+    **Retorna:** {nodes: [{key, id, type, title, summary, hop}], edges:
         [{from, type, to}], truncated, total_by_hop} — as `keys` vêm com `hop: 0`.
     **Exemplo:** item_graph(keys=["rule/money"], repo=".", depth=2,
         relation_types=["depends_on"])
@@ -568,11 +562,10 @@ def relation_create(
 ) -> list[dict[str, Any]]:
     """Cria relações entre itens existentes, em lote atômico (até 20).
 
-    **Use quando:** Ligar itens: uma decisão que um procedimento implementa, uma regra que
-        depende de outra, um item novo que substitui um velho (`supersedes` arquiva o alvo).
+    **Use quando:** Ligar itens: um howto que depende de uma regra, dois itens que se relacionam.
     **Retorna:** [{index, source, type, target, action: created|unchanged}].
     **Exemplo:** relation_create(repo=".", items=[{"source": "howto/deploy-ci",
-        "type": "supersedes", "target": "howto/deploy"}])
+        "type": "depends_on", "target": "rule/deploy"}])
     **Erro comum:** tipo inválido — a mensagem lista os válidos (<<RELATIONS>>); key fora do
         alcance — passe `repo="."` ou o id.
     **Notas:** source/target são key ou id, resolvidos pela cadeia de alcance do repositório. A
@@ -590,10 +583,8 @@ def relation_delete(
 
     **Use quando:** Uma relação foi criada por engano ou deixou de valer.
     **Retorna:** [{index, source, type, target, action: deleted|missing}].
-    **Exemplo:** relation_delete(repo=".", items=[{"source": "rule/a", "type": "related_to",
+    **Exemplo:** relation_delete(repo=".", items=[{"source": "rule/a", "type": "relates_to",
         "target": "rule/b"}])
-    **Erro comum:** esperar que remover um `supersedes` reative o alvo — ajuste o status com
-        item_save.
     """
     return RelationService(connection_id=connection_id).delete(
         items, viewpoint=_viewpoint(repo, connection_id)
@@ -760,6 +751,6 @@ TOOLS: tuple[Callable[..., Any], ...] = (
 
 
 def register(mcp: FastMCP) -> None:
-    """Registra as 32 ferramentas no servidor."""
+    """Registra as 31 ferramentas no servidor."""
     for fn in TOOLS:
         mcp.tool()(fn)

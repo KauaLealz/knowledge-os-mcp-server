@@ -1,4 +1,4 @@
-"""Tipos de item no `create` fino (a API usa): os 5 do v2 valem, os antigos não."""
+"""Tipos de item no `create` fino (a API usa): os 5 do v6 valem, os antigos não."""
 
 import pytest
 
@@ -13,13 +13,13 @@ def _kw(**over):
     return base
 
 
-@pytest.mark.parametrize("item_type", ["rule", "howto", "context", "spec"])
-def test_item_create_tipos_v2(conn, item_type):
+@pytest.mark.parametrize("item_type", ["rule", "howto", "context", "work"])
+def test_item_create_tipos_v6(conn, item_type):
     item = ItemService().create(**_kw(type=item_type))
-    assert item.type == item_type and item.origin == "agent"
+    assert item.type == item_type
 
 
-@pytest.mark.parametrize("item_type", ["invalid_type", "task", "insight", "knowledge"])
-def test_item_tipo_fora_do_v2_e_recusado(conn, item_type):
-    with pytest.raises(ValidationError, match="Válidos: rule, howto, context, spec, secret"):
+@pytest.mark.parametrize("item_type", ["invalid_type", "task", "insight", "knowledge", "spec"])
+def test_item_tipo_fora_do_v6_e_recusado(conn, item_type):
+    with pytest.raises(ValidationError, match="Válidos: rule, howto, context, work, secret"):
         ItemService().create(**_kw(type=item_type))

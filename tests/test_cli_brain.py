@@ -64,11 +64,11 @@ def test_version(env):
 def test_link_e_context_markdown(env, project):
     assert cli(env, "link", "--repo", str(project), "--workspace", "Polara",
                "--project", "app").returncode == 0
-    _save(env, project, [{"key": "rule/x", "type": "rule", "subtype": "code",
+    _save(env, project, [{"key": "rule/x", "type": "rule", "tags": ["code"],
                           "title": "Regra X", "summary": "Sempre X", "content": "..."}])
     out = cli(env, "context", "--repo", str(project))
     assert out.returncode == 0
-    assert "Polara / app" in out.stdout and "[code] **Regra X**" in out.stdout
+    assert "Polara / app" in out.stdout and "Regra X" in out.stdout
 
 
 def test_hook_claude_e_cursor(env, project):
@@ -174,7 +174,7 @@ def test_fila_envenenada_grava_as_boas_e_rejeita_a_antiga(env, conn, project):
 
 def test_hook_claude_com_o_pacote_v2(env, project):
     cli(env, "link", "--repo", str(project), "--workspace", "W", "--project", "D")
-    _save(env, project, [{"key": "rule/sec", "type": "rule", "subtype": "security",
+    _save(env, project, [{"key": "rule/sec", "type": "rule", "tags": ["security"],
                           "title": "Nada de log de cartao", "summary": "PCI",
                           "content": "c"}])
     out = cli(env, "context", "--hook", "claude",
@@ -197,16 +197,15 @@ def test_fila_antiga_do_projeto_ainda_e_lida(env, project):
 
 def test_recent_json(env, project):
     cli(env, "link", "--repo", str(project), "--workspace", "W", "--project", "D")
-    _save(env, project, [{"key": "rule/y", "type": "rule", "subtype": "decision",
+    _save(env, project, [{"key": "rule/y", "type": "rule", "tags": ["decision"],
                           "title": "Decisão Y", "summary": "porque sim",
-                          "content": "## Por quê\nx\n## Alternativa descartada\ny",
-                          "source": "PAY-1"}])
+                          "content": "## Por quê\nx\n## Alternativa descartada\ny"}])
     data = json.loads(cli(env, "recent", "--json").stdout)
-    assert [(d["title"], d["action"], d["source"], d["status"], d["subtype"], d["origin"])
-            for d in data] == [("Decisão Y", "created", "PAY-1", "active", "decision", "agent")]
-    assert "memory_class" not in data[0]
+    assert [(d["title"], d["action"], d["type"], d["tags"]) for d in data] == [
+        ("Decisão Y", "created", "rule", ["decision"])]
+    assert "subtype" not in data[0] and "status" not in data[0]
     text = cli(env, "recent").stdout
-    assert "rule/decision" in text and "Decisão Y" in text
+    assert "Decisão Y" in text and "decision" in text
 
 
 def test_dois_processos_esvaziando_a_mesma_fila_gravam_cada_key_uma_vez(env, project):

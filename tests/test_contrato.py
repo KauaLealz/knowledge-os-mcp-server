@@ -19,7 +19,7 @@ ORG = ("list", "create", "update", "merge", "delete")
 EXPECTED = {
     *(f"{kind}_{op}" for kind in ("workspace", "project", "subject") for op in ORG),
     "repo",
-    "item_search", "item_get", "item_save", "item_delete", "item_feedback", "item_graph",
+    "item_search", "item_get", "item_save", "item_delete", "item_graph",
     "relation_create", "relation_delete",
     "tag_list", "tag_create", "tag_update", "tag_delete",
     "connection_create", "connection_list", "connection_delete",
@@ -52,9 +52,9 @@ def registered() -> dict[str, str]:
     return asyncio.run(run())
 
 
-def test_exatamente_as_32_ferramentas():
+def test_exatamente_as_31_ferramentas():
     names = set(registered())
-    assert len(EXPECTED) == 32
+    assert len(EXPECTED) == 31
     assert names == EXPECTED
     assert not names & GONE
 
@@ -83,12 +83,8 @@ def test_item_save_lista_campos_e_valores_do_modelo():
     doc = registered()["item_save"]
     for field in model.ITEM_FIELDS + model.LOCATION_FIELDS:
         assert f"`{field}`" in doc, field
-    for value in (*model.TYPES, *model.STATUSES, *model.SPEC_STATUSES, *model.SCOPES,
-                  *model.ORIGINS):
+    for value in (*model.TYPES, *model.LIFECYCLE_TAGS, *model.NUANCE_TAGS):
         assert value in doc, value
-    for subs in model.TYPES.values():
-        for sub in subs:
-            assert sub in doc, sub
 
 
 def test_instructions_md_e_gerado():
