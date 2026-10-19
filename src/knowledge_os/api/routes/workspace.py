@@ -16,9 +16,9 @@ from knowledge_os.api.schemas.responses import (
     WorkspaceTree,
 )
 from knowledge_os.exceptions import NotFoundError
-from knowledge_os.services.brain import Brain, is_expired
+from knowledge_os.services.brain import Brain
 from knowledge_os.services.item_file import slugify
-from knowledge_os.services.workspace_service import WorkspaceService, effective
+from knowledge_os.services.workspace_service import WorkspaceService
 
 router = APIRouter()
 
@@ -37,7 +37,7 @@ def list_workspaces(cid: str = Depends(get_connection_id)):
 
 @router.post("/workspaces", status_code=status.HTTP_201_CREATED, response_model=WorkspaceRow)
 def create_workspace(req: WorkspaceCreate, cid: str = Depends(get_connection_id)):
-    ws = WorkspaceService(cid).create(req.name, req.description, req.scope)
+    ws = WorkspaceService(cid).create(req.name, req.description)
     return _row(cid, ws.id)
 
 
@@ -48,8 +48,8 @@ def get_workspace(id: str, cid: str = Depends(get_connection_id)):
 
 @router.put("/workspaces/{id}", response_model=WorkspaceRow)
 def update_workspace(id: str, req: WorkspaceUpdate, cid: str = Depends(get_connection_id)):
-    """Só o que vier muda: `name` renomeia, `scope` grava (`""` volta a herdar)."""
-    ws = WorkspaceService(cid).update(id, req.name, req.description, req.scope)
+    """Só o que vier muda: `name` renomeia, `description` atualiza."""
+    ws = WorkspaceService(cid).update(id, req.name, req.description)
     return _row(cid, ws.id)
 
 
@@ -73,19 +73,16 @@ def workspace_tree(id: str, cid: str = Depends(get_connection_id)):
         loose: list[TreeItem] = []
         for r in records:
             tree_item = TreeItem(
-                id=r.id, key=r.key, title=r.title, type=r.type, subtype=r.subtype,
-                status=r.status, scope=snap.effective_scope(r), updated_at=r.updated_at,
-                expired=is_expired(r),
+                id=r.id, key=r.key, title=r.title, type=r.type, updated_at=r.updated_at,
+                tags=sorted(r.tags or []),
             )
             sj_id = slugify(r.subject) if r.subject else None
             (by_subject[sj_id] if sj_id in by_subject else loose).append(tree_item)
         out.append(TreeProject(
             id=pj.id, name=pj.name, description=pj.description,
-            scope=effective(pj.scope, ws.scope), scope_explicit=pj.scope,
             item_count=len(records), items=loose,
             subjects=[TreeSubject(id=sj.id, name=sj.name, description=sj.description,
-                                  scope=effective(sj.scope, pj.scope, ws.scope),
-                                  scope_explicit=sj.scope, item_count=len(by_subject[sj.id]),
+                                  item_count=len(by_subject[sj.id]),
                                   items=by_subject[sj.id]) for sj in subjects],
         ))
     return WorkspaceTree(projects=out)
@@ -105,8 +102,8 @@ def workspace_graph(
     records = snap.items_in(ws.id, project_id or None, subject_id or None)
     nodes = [
         ScopeNode(
-            key=r.key, id=r.id, type=r.type, subtype=r.subtype, title=r.title,
-            summary=r.summary, scope=snap.effective_scope(r), status=r.status or "active",
+            key=r.key, id=r.id, type=r.type, title=r.title,
+            summary=r.summary,
             project_id=slugify(r.project or ""), project_name=r.project or "?",
             subject_id=slugify(r.subject) if r.subject else None, subject_name=r.subject,
         )

@@ -14,9 +14,9 @@ Relevância: BM25 com pesos por campo (`FIELD_WEIGHTS`, na ordem de `FIELDS`) �
 cada termo é a soma ponderada por campo e o comprimento do documento é o total de tokens de
 todos os campos. Primeiro exige todos os termos (AND); se nada casar e houver mais de um
 termo, aceita qualquer um (OR). O score final multiplica o BM25 pelos fatores que quem chama
-já calculou (`Candidate.distance`, `Candidate.boost`) e pelos daqui: `paths` casando
-`scope_paths` (×1.5) e status `review` (×0.6). Alcance, filtros e sinais são do `ItemService`;
-este módulo só ranqueia e explica (`Hit.matched_in`, `snippet`, `excerpt`).
+já calculou (`Candidate.distance`, `Candidate.boost`) e pelo daqui: `paths` casando os links
+`{path}` do item (×1.5). Alcance, filtros e sinais são do `ItemService`; este módulo só
+ranqueia e explica (`Hit.matched_in`, `snippet`, `excerpt`).
 
 `SearchIndex` é o índice invertido, mantido incrementalmente (`add`/`remove` por item) pelo
 `FileStore`, para não tokenizar tudo a cada busca.
@@ -35,10 +35,9 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from knowledge_os.storage.files import ItemRecord
 
-FIELDS = ("title", "keywords", "key", "summary", "tags", "subtype", "content")
-FIELD_WEIGHTS = (6.0, 4.0, 3.0, 3.0, 3.0, 2.0, 1.0)
+FIELDS = ("title", "key", "summary", "tags", "content")
+FIELD_WEIGHTS = (6.0, 3.0, 3.0, 3.0, 1.0)
 PATH_FACTOR = 1.5
-REVIEW_FACTOR = 0.6
 SNIPPET_MAX = 160
 EXCERPT_MAX = 600
 _K1 = 1.2
@@ -213,11 +212,16 @@ def glob_match(glob: str, path: str) -> bool:
     return nxt[0]
 
 
+def path_globs(record: ItemRecord) -> list[str]:
+    """Globs de arquivo do item: os links `{"path": ...}` (o que o antigo `scope_paths` fazia)."""
+    return [lk["path"] for lk in (record.links or []) if isinstance(lk, dict) and "path" in lk]
+
+
 def paths_match(record: ItemRecord, paths: Sequence[str]) -> bool:
-    """Algum dos `paths` casa algum glob de `record.scope_paths` (ou, se o path dado for ele
-    mesmo um glob, casa um `scope_paths` literal). Seguro para qualquer padrão gravado, mesmo
-    fora dos limites do `item_save` (`glob_match` tem teto de passos)."""
-    scopes = [_norm_path(s) for s in (record.scope_paths or []) if isinstance(s, str) and s.strip()]
+    """Algum dos `paths` casa algum glob de link `{path}` do item (ou, se o path dado for ele
+    mesmo um glob, casa um glob literal). Seguro para qualquer padrão gravado, mesmo fora dos
+    limites do `item_save` (`glob_match` tem teto de passos)."""
+    scopes = [_norm_path(s) for s in path_globs(record) if isinstance(s, str) and s.strip()]
     given = [_norm_path(p) for p in paths if p and p.strip()]
     for scope in scopes:
         for path in given:
@@ -343,7 +347,7 @@ class Candidate:
     """Item que pode aparecer na busca, com os fatores que quem chama já decidiu."""
 
     record: ItemRecord
-    distance: float = 1.0  # alcance: 1.0 / 0.85 / 0.7 (services/scope.py)
+    distance: float = 1.0  # alcance por hierarquia: mais perto do contexto, maior (ItemService)
     boost: float = 1.0  # sinais (helped/opened/irrelevant), calculado por quem chama
 
 
@@ -398,8 +402,6 @@ def _factor(cand: Candidate, on_path: bool) -> float:
     factor = cand.distance * cand.boost
     if on_path:
         factor *= PATH_FACTOR
-    if cand.record.status == "review":
-        factor *= REVIEW_FACTOR
     return factor
 
 
@@ -413,7 +415,7 @@ def search(
 ) -> list[Hit]:
     """Ranqueia `candidates` para `query` e devolve até `limit` resultados explicados.
 
-    Score: BM25 × distance × boost × (1.5 se `paths` casa `scope_paths`) × (0.6 se `review`);
+    Score: BM25 × distance × boost × (1.5 se `paths` casa um link `{path}` do item);
     sem consulta, o mesmo sem o BM25 (e todos entram). Empate: `updated_at` mais novo antes;
     depois a ordem de `candidates`. `index` é o índice já mantido (o do `FileStore`); sem ele,
     um índice temporário é montado só com os candidatos. Itens fora do índice não são

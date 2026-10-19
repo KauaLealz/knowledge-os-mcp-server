@@ -9,9 +9,9 @@ Modelo em disco (a pasta é um repositório git):
   `description`, `scope`, `subjects: [{name, description?, scope?}]`). O vocabulário de tags
   (inclusive as criadas sem item) fica no `.knowledge.yaml` da raiz: `{tags: [...]}`.
 
-Alcance: o scope efetivo de um item é o primeiro explícito subindo item → subject → project →
-workspace (nada explícito = `scoped`), calculado aqui (`Snapshot.effective_scope`); quem
-decide o que um repositório enxerga é `services.scope`. O item mora onde foi salvo.
+Alcance (v6): não há `scope` — o item mora onde foi salvo (workspace/project/subject) e vale
+de onde mora para baixo. `Snapshot.reaches`/`reach`/`reach_distance` decidem o que um ponto de
+vista (ws[/pj[/sj]]) enxerga e com que proximidade.
 
 Ids: workspace, project e subject têm como id o slug do nome (`item_file.slugify`), que é
 também o nome da pasta; o id do project vale dentro do workspace e o do subject dentro do
@@ -32,7 +32,7 @@ import uuid
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -40,7 +40,7 @@ import yaml
 
 from knowledge_os.config import ConnectionConfig
 from knowledge_os.exceptions import NotFoundError, ValidationError
-from knowledge_os.model import DEFAULT_SCOPE, SCOPES, segment_problem, short_repr
+from knowledge_os.model import segment_problem, short_repr
 from knowledge_os.services.git_repo_service import PublishResult
 from knowledge_os.services.item_file import id_problem, load_yaml_text, safe_join, slugify
 from knowledge_os.storage import local_state
@@ -70,18 +70,6 @@ def utcnow() -> datetime:
 def relation_id(source_id: str, relation_type: str, target_id: str) -> str:
     """Id estável de uma relação (não há onde guardar um id sorteado)."""
     return str(uuid.uuid5(_RELATION_NS, f"{source_id}|{relation_type}|{target_id}"))
-
-
-def expires_at(record: ItemRecord) -> datetime | None:
-    """Vencimento: `updated_at` + `ttl_days`, em qualquer tipo (None sem `ttl_days`)."""
-    if not record.ttl_days:
-        return None
-    return record.updated_at + timedelta(days=int(record.ttl_days))
-
-
-def is_expired(record: ItemRecord, now: datetime | None = None) -> bool:
-    end = expires_at(record)
-    return end is not None and end <= (now or utcnow())
 
 
 def is_published(result: PublishResult | None) -> bool:
@@ -114,7 +102,6 @@ class Workspace:
     description: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
-    scope: str | None = None  # explícito no `.knowledge.yaml` (None: não define)
 
 
 @dataclass
@@ -125,7 +112,6 @@ class Project:
     description: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
-    scope: str | None = None
 
 
 @dataclass
@@ -137,7 +123,6 @@ class Subject:
     description: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
-    scope: str | None = None
 
 
 @dataclass
@@ -157,37 +142,25 @@ class Relation:
 
 @dataclass
 class Item:
-    """Item como os serviços o devolvem: o arquivo + ids, scope efetivo, vencimento, uso e
-    `has_value`. `scope` é o explícito do item; `effective_scope`, o que vale (herdado)."""
+    """Item como os serviços o devolvem: o arquivo + ids, uso e `has_value` (v6). O alcance vem
+    de onde o item mora (workspace/project/subject), não de um campo."""
 
     id: str
     key: str | None
     workspace_id: str
-    project_id: str
+    project_id: str | None
     subject_id: str | None
     workspace: str
-    project: str
+    project: str | None
     subject: str | None
     type: str
-    subtype: str | None
-    scope: str | None
-    effective_scope: str
     title: str
     summary: str
     content: str
-    status: str
     tags: list[str]
     links: list[dict[str, str]]
-    scope_paths: list[str]
-    ttl_days: int | None
-    keywords: str | None
-    source: str | None
-    origin: str
-    verified_at: datetime | None
-    verified_commit: str | None
     created_at: datetime
     updated_at: datetime
-    expires_at: datetime | None
     path: str
     access_count: int = 0
     last_accessed: datetime | None = None
@@ -265,26 +238,13 @@ def meta_location(ws_id: str | None = None, pj_id: str | None = None) -> str:
     return "/".join([*parts, META_FILE])
 
 
-def _scope_from(data: dict[str, Any], where: str) -> str | None:
-    """`scope` do `.knowledge.yaml`; valor fora de `SCOPES` é ignorado (com log)."""
-    value = data.get("scope")
-    if value is None:
-        return None
-    if value not in SCOPES:
-        logger.warning("Ignorando scope inválido %r em %s (válidos: %s)", value, where,
-                       ", ".join(SCOPES))
-        return None
-    return value
-
-
-def _subject_entries(raw: Any) -> list[tuple[str, str | None, str | None]]:
-    out: list[tuple[str, str | None, str | None]] = []
+def _subject_entries(raw: Any) -> list[tuple[str, str | None]]:
+    out: list[tuple[str, str | None]] = []
     for entry in raw or []:
         if isinstance(entry, str) and entry.strip():
-            out.append((entry.strip(), None, None))
+            out.append((entry.strip(), None))
         elif isinstance(entry, dict) and str(entry.get("name") or "").strip():
-            name = str(entry["name"]).strip()
-            out.append((name, entry.get("description"), _scope_from(entry, f"subject {name}")))
+            out.append((str(entry["name"]).strip(), entry.get("description")))
     return out
 
 
@@ -294,7 +254,6 @@ class _Node:
     name: str
     description: str | None = None
     named: bool = False  # nome vindo do `.knowledge.yaml` (vale sobre o dos itens)
-    scope: str | None = None  # explícito no `.knowledge.yaml`
     created_at: datetime | None = None
     updated_at: datetime | None = None
     children: dict[str, _Node] = field(default_factory=dict)
@@ -306,13 +265,12 @@ class _Node:
             self.updated_at = record.updated_at
 
 
-def _names_from_meta(node: _Node, data: dict[str, Any], where: str) -> None:
+def _names_from_meta(node: _Node, data: dict[str, Any]) -> None:
     name = str(data.get("name") or "").strip()
     if name:
         node.name, node.named = name, True
     if data.get("description") is not None:
         node.description = data.get("description")
-    node.scope = _scope_from(data, where)
 
 
 class Snapshot:
@@ -347,14 +305,13 @@ class Snapshot:
                 continue
             ws = tree.setdefault(parts[0], _Node(parts[0], parts[0]))
             if len(parts) == 1:
-                _names_from_meta(ws, data, rel)
+                _names_from_meta(ws, data)
                 continue
             pj = ws.children.setdefault(parts[1], _Node(parts[1], parts[1]))
-            _names_from_meta(pj, data, rel)
-            for name, description, sj_scope in _subject_entries(data.get("subjects")):
+            _names_from_meta(pj, data)
+            for name, description in _subject_entries(data.get("subjects")):
                 sj = pj.children.setdefault(slugify(name), _Node(slugify(name), name))
                 sj.named = True
-                sj.scope = sj_scope
                 if description is not None:
                     sj.description = description
         for record in sorted(self.records.values(), key=lambda r: (r.created_at, r.path)):
@@ -402,8 +359,7 @@ class Snapshot:
 
     @staticmethod
     def _workspace(node: _Node) -> Workspace:
-        return Workspace(node.id, node.name, node.description, node.created_at, node.updated_at,
-                         node.scope)
+        return Workspace(node.id, node.name, node.description, node.created_at, node.updated_at)
 
     def find_workspace(self, ref: str | None) -> Workspace | None:
         node = self._match(self.tree, ref)
@@ -426,7 +382,7 @@ class Snapshot:
     @staticmethod
     def _project(ws: _Node, node: _Node) -> Project:
         return Project(node.id, ws.id, node.name, node.description, node.created_at,
-                       node.updated_at, node.scope)
+                       node.updated_at)
 
     def projects(self, ws_ref: str) -> list[Project]:
         ws = self._ws_node(ws_ref)
@@ -455,7 +411,7 @@ class Snapshot:
     @staticmethod
     def _subject(ws: _Node, pj: _Node, node: _Node) -> Subject:
         return Subject(node.id, pj.id, ws.id, node.name, node.description, node.created_at,
-                       node.updated_at, node.scope)
+                       node.updated_at)
 
     def subjects(self, ws_ref: str, pj_ref: str) -> list[Subject]:
         ws = self._ws_node(ws_ref)
@@ -523,28 +479,86 @@ class Snapshot:
                 return r
         return None
 
-    # ------------------------------------------------------------------ scope
+    # ------------------------------------------------------------------ alcance (hierarquia)
 
-    def effective_scope(self, record: ItemRecord) -> str:
-        """Scope que vale para o item: o primeiro explícito subindo item → subject → project
-        → workspace; nada explícito = `scoped`.
+    @staticmethod
+    def _place(record: ItemRecord) -> tuple[str, str | None, str | None]:
+        """Onde o item mora: (ws_id, pj_id|None, sj_id|None) em slugs."""
+        return (
+            slugify(record.workspace or ""),
+            slugify(record.project) if record.project else None,
+            slugify(record.subject) if record.subject else None,
+        )
 
-        Exceção: `secret` nunca herda — vale só o `scope` do próprio item (padrão `scoped`).
-        Um workspace `global` não pode tornar global, sem ninguém pedir, cada segredo dele: o
-        `knowledge-mcp run` de outro cliente receberia o valor. Para usar um segredo fora do
-        project, o item declara `scope: workspace` ou `global`.
-        """
-        if record.scope:
-            return record.scope
-        if record.type == "secret":
-            return DEFAULT_SCOPE
-        ws = self.tree.get(slugify(record.workspace or ""))
-        pj = ws.children.get(slugify(record.project or "")) if ws else None
-        sj = pj.children.get(slugify(record.subject)) if (pj and record.subject) else None
-        for node in (sj, pj, ws):
-            if node is not None and node.scope:
-                return node.scope
-        return DEFAULT_SCOPE
+    def reaches(self, record: ItemRecord, ws_id: str, pj_id: str | None = None,
+                sj_id: str | None = None) -> bool:
+        """O item alcança o ponto de vista (ws_id[/pj_id[/sj_id]])? v6: não há `scope` — vale a
+        hierarquia. Item no nível do workspace vale para tudo abaixo; no project, para o project
+        e seus subjects; num subject, só para aquele subject. Ver o workspace/project inteiro
+        (pj_id/sj_id None) inclui os itens dos níveis abaixo."""
+        iws, ipj, isj = self._place(record)
+        if iws != ws_id:
+            return False
+        if ipj is None:
+            return True
+        if pj_id is None:
+            return True
+        if ipj != pj_id:
+            return False
+        if isj is None:
+            return True
+        if sj_id is None:
+            return True
+        return isj == sj_id
+
+    def reach_distance(self, record: ItemRecord, ws_id: str, pj_id: str | None = None,
+                       sj_id: str | None = None) -> int:
+        """Quão central o item é para o ponto de vista (0 = mais específico; maior = mais
+        genérico). Usado para ordenar a busca/pacote."""
+        _iws, ipj, isj = self._place(record)
+        if ipj is None:
+            return 2  # nível do workspace (mais genérico)
+        if isj is None:
+            return 1  # nível do project
+        if sj_id is not None and isj == sj_id:
+            return 0  # mesmo subject do ponto de vista
+        return 1
+
+    def reach(self, ws_id: str, pj_id: str | None = None,
+              sj_id: str | None = None) -> list[tuple[ItemRecord, int]]:
+        """Itens no alcance do ponto de vista, do mais perto ao mais longe (empate por path)."""
+        found = [
+            (r, self.reach_distance(r, ws_id, pj_id, sj_id))
+            for r in self.records.values()
+            if self.reaches(r, ws_id, pj_id, sj_id)
+        ]
+        found.sort(key=lambda pair: (pair[1], pair[0].path))
+        return found
+
+    def resolve_key(self, key: str, ws_id: str, pj_id: str | None = None,
+                    sj_id: str | None = None) -> ItemRecord | None:
+        """Item pela key no alcance do ponto de vista; um `id` resolve em qualquer lugar."""
+        by_id = self.records.get(key)
+        if by_id is not None:
+            return by_id
+        if pj_id is not None:
+            local = self.by_key(ws_id, pj_id, key)
+            if local is not None:
+                return local
+        for record, _d in self.reach(ws_id, pj_id, sj_id):
+            if record.key == key:
+                return record
+        return None
+
+    @staticmethod
+    def where(record: ItemRecord) -> str:
+        """Onde o item mora: `<workspace>[/<project>[/<subject>]]` (os nomes, como no arquivo)."""
+        parts = [record.workspace or ""]
+        if record.project:
+            parts.append(record.project)
+        if record.subject:
+            parts.append(record.subject)
+        return "/".join(parts)
 
     # ------------------------------------------------------------------ tags
 
@@ -566,10 +580,13 @@ class Snapshot:
         return self.by_key(slugify(source.workspace or ""), slugify(source.project or ""), ref)
 
     def relations_of(self, record: ItemRecord) -> list[Relation]:
+        """Relações = os links item→item (`{item, rel}`) do item (v6)."""
         out = []
-        for rel in record.relations or []:
-            target = self.resolve_target(record, str(rel.get("target") or ""))
-            rtype = str(rel.get("type") or "")
+        for lk in record.links or []:
+            if "item" not in lk:
+                continue  # link de url/path não é relação entre itens
+            target = self.resolve_target(record, str(lk.get("item") or ""))
+            rtype = str(lk.get("rel") or "")
             if target is None or not rtype:
                 continue
             out.append(Relation(relation_id(record.id, rtype, target.id), record.id, target.id,
@@ -609,10 +626,13 @@ class Draft(Snapshot):
 
     @staticmethod
     def _links_of(snapshot: Snapshot, record: ItemRecord) -> list[_Link]:
+        """Só os links item→item (`{item, rel}`); url/path são preservados à parte."""
         out = []
-        for raw in record.relations or []:
-            target = snapshot.resolve_target(record, str(raw.get("target") or ""))
-            out.append(_Link(str(raw.get("type") or ""), target.id if target else None,
+        for raw in record.links or []:
+            if "item" not in raw:
+                continue
+            target = snapshot.resolve_target(record, str(raw.get("item") or ""))
+            out.append(_Link(str(raw.get("rel") or ""), target.id if target else None,
                              dict(raw)))
         return out
 
@@ -653,13 +673,12 @@ class Draft(Snapshot):
         return len(kept) != len(links)
 
     def _encode_links(self) -> None:
-        """Regrava o `relations` de cada item a partir dos alvos resolvidos.
-
-        Alvo no mesmo workspace/project e com key: pela key; senão pelo id. Alvo removido
-        neste rascunho: a relação sai. Alvo que já não se resolvia: fica como estava.
-        """
+        """Regrava os links de cada item: os de url/path ficam como estão; os de item→item são
+        recodificados a partir dos alvos resolvidos (pela key no mesmo workspace/project, senão
+        pelo id). Alvo removido neste rascunho: o link sai. Alvo que já não resolvia: fica."""
         for record_id in list(self.records):
             record = self.records[record_id]
+            kept = [lk for lk in (record.links or []) if "item" not in lk]
             encoded: list[dict[str, str]] = []
             for link in self._links.get(record_id, []):
                 if link.target_id is None:
@@ -671,9 +690,10 @@ class Draft(Snapshot):
                 same_place = (slugify(target.workspace or "") == slugify(record.workspace or "")
                               and slugify(target.project or "") == slugify(record.project or ""))
                 ref = target.key if (target.key and same_place) else target.id
-                encoded.append({"type": link.type, "target": ref})
-            if encoded != list(record.relations or []):
-                self.records[record_id] = dataclasses.replace(record, relations=encoded)
+                encoded.append({"item": ref, "rel": link.type})
+            new_links = kept + encoded
+            if new_links != list(record.links or []):
+                self.records[record_id] = dataclasses.replace(record, links=new_links)
 
     # ------------------------------------------------------------------ metadados
 
@@ -686,28 +706,6 @@ class Draft(Snapshot):
 
     def meta(self, rel: str) -> dict[str, Any]:
         return dict(self.metas.get(rel) or {})
-
-    # ------------------------------------------------------------------ scope
-
-    def keep_scopes(self) -> int:
-        """Grava como `scope` explícito o alcance que cada item tinha antes do rascunho, nos
-        itens sem scope próprio cujo scope efetivo mudaria (merge/delete que tira ou troca o
-        `.knowledge.yaml` de onde ele herdava). Ninguém muda de alcance sem pedir. Devolve
-        quantos itens ganharam scope explícito. `secret` não entra: nunca herda.
-        """
-        changed = []
-        for record_id, record in self.records.items():
-            old = self._base.records.get(record_id)
-            if old is None or record.scope or old.scope or record.type == "secret":
-                continue
-            before = self._base.effective_scope(old)
-            if self.effective_scope(record) != before:
-                changed.append((record_id, before))
-        for record_id, before in changed:
-            self.records[record_id] = dataclasses.replace(self.records[record_id], scope=before)
-        if changed:
-            self._invalidate()
-        return len(changed)
 
     # ------------------------------------------------------------------ resultado
 
@@ -840,19 +838,15 @@ class Brain:
             last_dt = None
         return Item(
             id=record.id, key=record.key,
-            workspace_id=slugify(record.workspace or ""), project_id=slugify(record.project or ""),
+            workspace_id=slugify(record.workspace or ""),
+            project_id=slugify(record.project) if record.project else None,
             subject_id=slugify(record.subject) if record.subject else None,
-            workspace=record.workspace or "", project=record.project or "",
-            subject=record.subject, type=record.type, subtype=record.subtype,
-            scope=record.scope, effective_scope=self.snapshot.effective_scope(record),
+            workspace=record.workspace or "", project=record.project,
+            subject=record.subject, type=record.type,
             title=record.title, summary=record.summary, content=record.content,
-            status=record.status or "active", tags=sorted(record.tags or []),
+            tags=sorted(record.tags or []),
             links=[dict(lk) for lk in record.links or []],
-            scope_paths=list(record.scope_paths or []), ttl_days=record.ttl_days,
-            keywords=record.keywords, source=record.source, origin=record.origin,
-            verified_at=record.verified_at, verified_commit=record.verified_commit,
-            created_at=record.created_at, updated_at=record.updated_at,
-            expires_at=expires_at(record), path=record.path,
+            created_at=record.created_at, updated_at=record.updated_at, path=record.path,
             access_count=opened if isinstance(opened, int) else 0, last_accessed=last_dt,
             has_value=record.type == "secret" and self.secret_path(record.id).is_file(),
         )

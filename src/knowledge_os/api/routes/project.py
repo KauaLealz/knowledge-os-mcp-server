@@ -10,7 +10,6 @@ from typing import Any
 from fastapi import APIRouter, Depends, Response, status
 
 from knowledge_os.api.deps import get_connection_id
-from knowledge_os.api.routes._common import chain_source
 from knowledge_os.api.schemas.requests import (
     ProjectCreate,
     ProjectUpdate,
@@ -28,9 +27,7 @@ router = APIRouter()
 
 def _project_rows(cid: str, ws_id: str) -> list[dict[str, Any]]:
     ws = Brain(cid).snapshot.workspace(ws_id)
-    return [{**row, "scope_inherited_from": None if row["scope_explicit"]
-             else chain_source(("workspace", ws.scope))}
-            for row in ProjectService(cid).rows(ws.id)]
+    return list(ProjectService(cid).rows(ws.id))
 
 
 def _project_row(cid: str, ws_id: str, pj_id: str) -> dict[str, Any]:
@@ -44,9 +41,7 @@ def _subject_rows(cid: str, ws_id: str, pj_id: str) -> list[dict[str, Any]]:
     snap = Brain(cid).snapshot
     ws = snap.workspace(ws_id)
     pj = snap.project(ws.id, pj_id)
-    return [{**row, "workspace_id": ws.id, "project_id": pj.id,
-             "scope_inherited_from": None if row["scope_explicit"]
-             else chain_source(("project", pj.scope), ("workspace", ws.scope))}
+    return [{**row, "workspace_id": ws.id, "project_id": pj.id}
             for row in SubjectService(cid).rows(ws.id, pj.id)]
 
 
@@ -69,7 +64,7 @@ def list_projects(workspace_id: str | None = None, cid: str = Depends(get_connec
 
 @router.post("/projects", status_code=status.HTTP_201_CREATED, response_model=ProjectRow)
 def create_project(req: ProjectCreate, cid: str = Depends(get_connection_id)):
-    pj = ProjectService(cid).create(req.workspace_id, req.name, req.description, req.scope)
+    pj = ProjectService(cid).create(req.workspace_id, req.name, req.description)
     return _project_row(cid, pj.workspace_id, pj.id)
 
 
@@ -84,10 +79,10 @@ def update_project(
     id: str, req: ProjectUpdate, workspace_id: str | None = None,
     cid: str = Depends(get_connection_id),
 ):
-    """Só o que vier muda: `name` renomeia, `scope` grava (`""` volta a herdar)."""
+    """Só o que vier muda: `name` renomeia, `description` atualiza."""
     svc = ProjectService(cid)
     pj = svc.find_by_id(id, workspace_id)
-    updated = svc.update(pj.workspace_id, pj.id, req.name, req.description, req.scope)
+    updated = svc.update(pj.workspace_id, pj.id, req.name, req.description)
     return _project_row(cid, updated.workspace_id, updated.id)
 
 
@@ -112,16 +107,15 @@ def list_subjects(workspace_id: str, project_id: str, cid: str = Depends(get_con
 @router.post("/subjects", status_code=status.HTTP_201_CREATED, response_model=SubjectRow)
 def create_subject(req: SubjectCreate, cid: str = Depends(get_connection_id)):
     sj = SubjectService(cid).create(req.workspace_id, req.project_id, req.name,
-                                    req.description, req.scope)
+                                    req.description)
     return _subject_row(cid, sj.workspace_id, sj.project_id, sj.id)
 
 
 @router.put("/subjects/{id}", response_model=SubjectRow)
 def update_subject(id: str, req: SubjectUpdate, workspace_id: str, project_id: str,
                    cid: str = Depends(get_connection_id)):
-    """Só o que vier muda: `name` renomeia, `scope` grava (`""` volta a herdar)."""
-    sj = SubjectService(cid).update(workspace_id, project_id, id, req.name, req.description,
-                                    req.scope)
+    """Só o que vier muda: `name` renomeia, `description` atualiza."""
+    sj = SubjectService(cid).update(workspace_id, project_id, id, req.name, req.description)
     return _subject_row(cid, sj.workspace_id, sj.project_id, sj.id)
 
 

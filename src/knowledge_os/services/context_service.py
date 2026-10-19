@@ -1,24 +1,23 @@
 """Pacote de contexto: o que um agente precisa saber de um repositório, em uma chamada.
 
 É o que o hook de início de sessão injeta (`knowledge-mcp context`). Usa a mesma cadeia de
-alcance da busca (`services.scope.reach`, a partir do project ligado ao repositório) e monta
-seções nesta ordem:
+alcance da busca (`Snapshot.reach`, a partir do project ligado ao repositório) e monta seções
+nesta ordem:
 
-1. **Em foco** — itens que casam `paths` (pelos `scope_paths`) ou a `query` (pela busca do
+1. **Em foco** — itens que casam `paths` (pelos links de `path`) ou a `query` (pela busca do
    `ItemService`), com o começo do `content` (~600 caracteres), para dispensar um `item_get`;
-2. **⚠ Em revisão** — status `review` (pode estar errado: confira antes de seguir);
-3. **Segurança** — `rule/security`;
-4. **Regras** — as demais regras, cada linha com `[subtipo]`;
-5. **Contexto**; 6. **Como fazer** (só títulos); 7. **Specs ativas** (`active`/`draft`, com o
-   `summary`, que diz o andamento); 8. **Segredos** (estado e como usar, nunca o valor);
-9. **Regras com escopo** — regras com `scope_paths`: com `paths`, as que casam; sem `paths`,
-   todas, como lembrete (título e globs). Itens com `scope_paths` que não casam ficam de fora
+2. **Segurança** — regras com a tag `security`;
+3. **Regras** — as demais regras;
+4. **Contexto**; 5. **Como fazer** (só títulos); 6. **Trabalho ativo** (`work` sem a tag `done`,
+   com o `summary`); 7. **Segredos** (estado e como usar, nunca o valor);
+8. **Regras com escopo** — regras com links de `path`: com `paths`, as que casam; sem `paths`,
+   todas, como lembrete (título e globs). Itens com links de `path` que não casam ficam de fora
    das outras seções (valem para outra área do código).
 
-Linha de item de fora do project do repositório leva a origem: `[global]` (scope efetivo
-global) ou `[<workspace>]`. Sensível = algum `rule/security` casou `paths` (a palavra
-`sensivel` em `keywords` não tem mais efeito). O texto respeita o orçamento em tokens
-(~4 caracteres por token) e lista o que ficou de fora. Cada item que entra soma `shown`.
+Linha de item de fora do project do repositório leva a origem `[<workspace>]`. Sensível = alguma
+regra `security` casou `paths`. O texto respeita o orçamento em tokens (~4 caracteres por token)
+e lista o que ficou de fora. Cada item que entra soma `shown`. v6: não há mais status/scope/
+subtype — a nuance e o ciclo vivem em tags; arquivado = tag `archived`, trabalho fechado = `done`.
 """
 
 from __future__ import annotations
@@ -29,8 +28,7 @@ from typing import Any
 
 from knowledge_os.config import NO_CONNECTION_MESSAGE
 from knowledge_os.exceptions import NoConnectionError
-from knowledge_os.services import scope as scope_mod
-from knowledge_os.services.brain import Brain, is_expired, utcnow
+from knowledge_os.services.brain import Brain
 from knowledge_os.services.item_file import slugify
 from knowledge_os.services.item_service import ItemService
 from knowledge_os.services.repo_service import RepoService, repo_key
@@ -55,12 +53,11 @@ LINK_HINT = (
 # (título, filtro, limite, só título?) — em ordem; "Em foco" e "Regras com escopo" à parte.
 Section = tuple[str, Callable[[ItemRecord], bool], int, bool]
 _SECTIONS: tuple[Section, ...] = (
-    ("⚠ Em revisão", lambda r: r.status == "review", 10, False),
-    ("Segurança", lambda r: r.type == "rule" and r.subtype == "security", 20, False),
-    ("Regras", lambda r: r.type == "rule" and r.subtype != "security", 40, False),
+    ("Segurança", lambda r: r.type == "rule" and "security" in (r.tags or []), 20, False),
+    ("Regras", lambda r: r.type == "rule" and "security" not in (r.tags or []), 40, False),
     ("Contexto", lambda r: r.type == "context", 10, False),
     ("Como fazer", lambda r: r.type == "howto", 20, True),
-    ("Specs ativas", lambda r: r.type == "spec", 10, False),
+    ("Trabalho ativo", lambda r: r.type == "work", 10, False),
     ("Segredos (o valor nunca passa por você)", lambda r: r.type == "secret", 15, False),
 )
 
@@ -71,11 +68,20 @@ def _empty(key: str | None, markdown: str) -> dict[str, Any]:
             "sensitive": False}
 
 
-def _visible(record: ItemRecord, now: Any) -> bool:
-    """Vigente no pacote: sem arquivados, vencidos nem specs fechadas."""
-    if record.status == "archived" or is_expired(record, now):
+def _visible(record: ItemRecord) -> bool:
+    """Vigente no pacote: sem arquivados (tag `archived`) nem trabalho fechado (tag `done`)."""
+    tags = record.tags or []
+    if "archived" in tags:
         return False
-    return not (record.type == "spec" and record.status not in ("active", "draft", "review"))
+    return not (record.type == "work" and "done" in tags)
+
+
+def _path_globs(record: ItemRecord) -> list[str]:
+    return [lk["path"] for lk in (record.links or []) if "path" in lk]
+
+
+def _has_path_links(record: ItemRecord) -> bool:
+    return any("path" in lk for lk in (record.links or []))
 
 
 class _Pack:
@@ -136,54 +142,50 @@ class ContextService:
             return _empty(key, f"# Segundo cérebro\nRepositório `{key}` ainda não está ligado "
                                f"a um project. {LINK_HINT}")
         paths = [p for p in paths or [] if p and p.strip()]
-        viewpoint = (link["workspace_id"], link["project_id"])
+        ws_id, pj_id = link["workspace_id"], link["project_id"]
         snap = brain.snapshot
-        now = utcnow()
-        pool = [r for r, _dist in scope_mod.reach(snap, viewpoint) if _visible(r, now)]
+        reached = {r.id: dist for r, dist in snap.reach(ws_id, pj_id)}
+        pool = [r for r in snap.records.values() if r.id in reached and _visible(r)]
         usage = brain.usage()
 
         def order(records: list[ItemRecord]) -> list[ItemRecord]:
-            # `reach` já vem do mais perto ao mais longe; dentro da mesma distância, o mais
-            # usado e o mais recente primeiro.
-            near = {r.id: scope_mod.distance(snap, r, viewpoint) or 0.0 for r in records}
-
+            # Mais perto (menor distância) primeiro; dentro da mesma distância, o mais usado e o
+            # mais recente.
             def used(r: ItemRecord) -> int:
-                use = usage.get(r.id) or {}
-                return int(use.get("helped") or 0) + int(use.get("opened") or 0)
+                return int((usage.get(r.id) or {}).get("opened") or 0)
 
-            return sorted(records, key=lambda r: (-near[r.id], -used(r),
+            return sorted(records, key=lambda r: (reached.get(r.id, 9), -used(r),
                                                   -r.updated_at.timestamp(), r.path))
 
         def mark(record: ItemRecord) -> str:
-            if (slugify(record.workspace or ""), slugify(record.project or "")) == viewpoint:
-                return ""
-            if snap.effective_scope(record) == "global":
-                return "[global] "
-            return f"[{record.workspace}] "
+            place = (slugify(record.workspace or ""),
+                     slugify(record.project) if record.project else None)
+            return "" if place == (ws_id, pj_id) else f"[{record.workspace}] "
 
         def line(record: ItemRecord, title_only: bool = False) -> str:
-            tag = f"[{record.subtype}] " if record.type == "rule" and record.subtype else ""
             key = f" `{record.key}`" if record.key else ""
             if title_only:
-                return f"- {tag}{mark(record)}**{record.title}**{key}"
-            return f"- {tag}{mark(record)}**{record.title}** — {record.summary.strip()}{key}"
+                return f"- {mark(record)}**{record.title}**{key}"
+            return f"- {mark(record)}**{record.title}** — {record.summary.strip()}{key}"
 
-        # ---- em foco: paths (scope_paths) e query (busca do ItemService)
+        # ---- em foco: paths (links de path) e query (busca do ItemService)
         focus: list[ItemRecord] = []
         if paths:
-            focus = order([r for r in pool if r.scope_paths and paths_match(r, paths)])
+            focus = order([r for r in pool if _has_path_links(r) and paths_match(r, paths)])
         if query and query.strip():
-            found = ItemService(brain.cid).search(query.strip(), viewpoint=viewpoint,
+            found = ItemService(brain.cid).search(query.strip(), viewpoint=(ws_id, pj_id),
                                                   limit=QUERY_LIMIT)
             known = {r.id for r in focus}
             for row in found.get("results", []):
                 record = snap.get(row["id"])
-                if record is not None and record.id not in known and _visible(record, now):
+                if record is not None and record.id not in known and _visible(record):
                     focus.append(record)
                     known.add(record.id)
         focus_ids = {r.id for r in focus}
-        sensitive = bool(paths) and any(r.type == "rule" and r.subtype == "security"
-                                        and paths_match(r, paths) for r in pool)
+        sensitive = bool(paths) and any(
+            r.type == "rule" and "security" in (r.tags or []) and paths_match(r, paths)
+            for r in pool
+        )
 
         budget = max(budget_tokens, MIN_BUDGET) * CHARS_PER_TOKEN
         pack = _Pack(f"# Segundo cérebro — {link['workspace']} / {link['project']}", budget)
@@ -193,13 +195,13 @@ class ContextService:
             pack.omitted.extend(focus[FOCUS_LIMIT:])
             if pack.header("\n## Em foco (casa com os arquivos ou com a consulta)", shown):
                 if sensitive:
-                    pack.header("- ⚠ **Área sensível** (rule/security): revisão de segurança "
+                    pack.header("- ⚠ **Área sensível** (regra security): revisão de segurança "
                                 "na entrega.", [])
                 for record in shown:
                     pack.item(record, self._focus_line(line(record), record))
 
         # ---- seções gerais: sem o que está em foco e sem itens de outra área do código
-        rest = [r for r in pool if r.id not in focus_ids and not r.scope_paths]
+        rest = [r for r in pool if r.id not in focus_ids and not _has_path_links(r)]
         taken: set[str] = set()
         for title, pick, limit, title_only in _SECTIONS:
             chosen = order([r for r in rest if r.id not in taken and pick(r)])
@@ -216,16 +218,14 @@ class ContextService:
                 pack.item(record, text)
 
         # ---- regras com escopo: as que casam `paths` ou, sem paths, todas (lembrete)
-        scoped = order([r for r in pool if r.type == "rule" and r.scope_paths
+        scoped = order([r for r in pool if r.type == "rule" and _has_path_links(r)
                         and (not paths or paths_match(r, paths))])
         if scoped:
             header = ("\n## Regras com escopo (valem nos arquivos tocados)" if paths else
                       "\n## Regras com escopo (aparecem ao tocar os arquivos)")
             if pack.header(header, [r for r in scoped if r.id not in focus_ids]):
                 for record in scoped:
-                    tag = f"[{record.subtype}] " if record.subtype else ""
-                    text = (f"- {tag}{mark(record)}{record.title} — "
-                            f"{', '.join(record.scope_paths)}")
+                    text = f"- {mark(record)}{record.title} — {', '.join(_path_globs(record))}"
                     if not pack.fits(text):
                         if record.id not in focus_ids:
                             pack.omitted.append(record)
@@ -270,4 +270,3 @@ class ContextService:
         else:
             use = f"sem valor — peça ao usuário para preencher em {fill_url(item, brain.cid)}"
         return f"- {mark}**{item.title}** — {item.summary.strip()} · {use}"
-

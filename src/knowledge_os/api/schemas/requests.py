@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from knowledge_os.schemas.item_schemas import FeedbackRequest, ItemCreate, ItemUpdate
+from knowledge_os.schemas.item_schemas import ItemCreate, ItemUpdate
 from knowledge_os.schemas.project_schemas import (
     ProjectCreate,
     ProjectUpdate,
@@ -17,7 +17,6 @@ from knowledge_os.schemas.workspace_schemas import WorkspaceCreate, WorkspaceUpd
 
 __all__ = [
     "ConnectionUpdate",
-    "FeedbackRequest",
     "ItemCreate",
     "ItemUpdate",
     "ProjectCreate",

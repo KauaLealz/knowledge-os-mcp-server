@@ -1,11 +1,8 @@
 """Subject service: o agrupador opcional de itens dentro de um project.
 
 O subject de um item é o campo `subject` do frontmatter; a lista `subjects` do
-`.knowledge.yaml` do project guarda os subjects sem item e os que têm descrição ou `scope`
-explícito (`[{name, description?, scope?}]`; um nome solto também vale). Ao mesclar, vale o
-scope do destino para o subject; ao mesclar ou remover, o item que herdava e mudaria de
-alcance ganha o scope de antes como explícito (`Draft.keep_scopes`: ninguém muda de alcance
-sem pedir). `scope` segue a convenção de `workspace_service` (None / valor / `""`).
+`.knowledge.yaml` do project guarda os subjects sem item e os que têm descrição
+(`[{name, description?}]`; um nome solto também vale). v6 não tem `scope`.
 """
 
 from __future__ import annotations
@@ -26,7 +23,7 @@ from knowledge_os.services.brain import (
     utcnow,
 )
 from knowledge_os.services.item_file import slugify
-from knowledge_os.services.workspace_service import apply_meta, check_scope, effective
+from knowledge_os.services.workspace_service import apply_meta
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +32,9 @@ def _entry_id(entry: Any) -> str:
     return slugify(entry if isinstance(entry, str) else str(entry.get("name") or ""))
 
 
-def _entry(name: str, description: str | None, scope: str | None) -> Any:
-    """Entrada da lista `subjects`: só o nome, se não há descrição nem scope."""
-    data = apply_meta({"name": name}, description or None, scope or None)
+def _entry(name: str, description: str | None) -> Any:
+    """Entrada da lista `subjects`: só o nome, se não há descrição."""
+    data = apply_meta({"name": name}, description or None)
     return data if len(data) > 1 else name
 
 
@@ -70,10 +67,8 @@ class SubjectService:
         return Brain(self._connection_id)
 
     def create(self, workspace_id: str, project_id: str, name: str,
-               description: str | None = None, scope: str | None = None) -> Subject:
-        """Cria um subject. NotFoundError se o project não existe; ValidationError se duplicado
-        ou se o scope não é um de `SCOPES`."""
-        scope = check_scope(scope or None)
+               description: str | None = None) -> Subject:
+        """Cria um subject. NotFoundError se o project não existe; ValidationError se duplicado."""
         name = check_name(name, "subject")
         brain = self._brain()
         with brain.editing() as d:
@@ -81,7 +76,7 @@ class SubjectService:
             pj = d.project(ws.id, project_id)
             if d.find_subject(ws.id, pj.id, slugify(name)) is not None:
                 raise ValidationError(f"Subject já existe no project: {name}")
-            _set_subject_meta(d, ws, pj, None, _entry(name, description, scope))
+            _set_subject_meta(d, ws, pj, None, _entry(name, description))
             brain.commit(d, f"knowledge-os: cria subject {pj.name}/{name}")
         logger.info("Subject criado: %s (project %s)", name, project_id)
         return brain.snapshot.subject(ws.id, pj.id, slugify(name))
@@ -91,8 +86,7 @@ class SubjectService:
         return self._brain().snapshot.subjects(workspace_id, project_id)
 
     def rows(self, workspace: str, project: str) -> list[dict[str, Any]]:
-        """Para `subject_list`/API: `[{id, name, description, scope, scope_explicit, items}]`
-        por nome (`scope` = o que vale, com a herança do project e do workspace)."""
+        """Para `subject_list`/API: `[{id, name, description, items}]` por nome."""
         snap = self._brain().snapshot
         ws = snap.workspace(workspace)
         pj = snap.project(ws.id, project)
@@ -101,7 +95,6 @@ class SubjectService:
             if record.subject:
                 counts[slugify(record.subject)] = counts.get(slugify(record.subject), 0) + 1
         return [{"id": sj.id, "name": sj.name, "description": sj.description,
-                 "scope": effective(sj.scope, pj.scope, ws.scope), "scope_explicit": sj.scope,
                  "items": counts.get(sj.id, 0)}
                 for sj in snap.subjects(ws.id, pj.id)]
 
@@ -121,11 +114,9 @@ class SubjectService:
         return counts
 
     def update(self, workspace_id: str, project_id: str, ref: str,
-               new_name: str | None = None, description: str | None = None,
-               scope: str | None = None) -> Subject:
-        """Troca o nome (regravando os itens), a descrição e/ou o scope; o que vier None fica
-        como está (`scope=""` volta a herdar). ValidationError se new_name já existe."""
-        scope = check_scope(scope, clearable=True)
+               new_name: str | None = None, description: str | None = None) -> Subject:
+        """Troca o nome (regravando os itens) e/ou a descrição; o que vier None fica como está.
+        ValidationError se new_name já existe."""
         name_given = check_name(new_name, "subject") if new_name is not None else None
         brain = self._brain()
         with brain.editing() as d:
@@ -142,8 +133,7 @@ class SubjectService:
             listed = d.meta(meta_location(ws.id, pj.id)).get("subjects") or []
             in_meta = any(_entry_id(e) == sj.id for e in listed)
             new_desc = sj.description if description is None else description
-            new_scope = sj.scope if scope is None else scope
-            entry = _entry(name, new_desc, new_scope)
+            entry = _entry(name, new_desc)
             if in_meta or not isinstance(entry, str):
                 _set_subject_meta(d, ws, pj, sj.id, entry)
             brain.commit(d, f"knowledge-os: atualiza subject {pj.name}/{name}")
@@ -165,32 +155,20 @@ class SubjectService:
             for record in records:
                 d.put(dataclasses.replace(record, subject=tgt.name, updated_at=utcnow()))
             _set_subject_meta(d, ws, pj, src.id, None)
-            changes = d.keep_scopes()
             brain.commit(d, f"knowledge-os: mescla subject {src.name} em {tgt.name}")
         logger.info("Subject mesclado: %s -> %s (project %s)", source, target, project_id)
-        return {"merged_items": len(records), "scope_changes": {"items": changes}}
+        return {"merged_items": len(records)}
 
     @staticmethod
-    def _delete_in(d: Draft, ws: Workspace, pj: Project, sj: Subject) -> int:
-        """Tira o subject dos itens e do `.knowledge.yaml`; quem herdava o scope dele ganha o
-        scope de antes como explícito (`Draft.keep_scopes`). Devolve quantos ganharam."""
+    def _delete_in(d: Draft, ws: Workspace, pj: Project, sj: Subject) -> None:
+        """Tira o subject dos itens e do `.knowledge.yaml`."""
         for record in d.items_in(ws.id, pj.id, sj.id):
             d.put(dataclasses.replace(record, subject=None, updated_at=utcnow()))
         _set_subject_meta(d, ws, pj, sj.id, None)
-        return d.keep_scopes()
-
-    def delete_scope_changes(self, workspace_id: str, project_id: str, name: str) -> int:
-        """Prévia do `delete`: quantos itens ganhariam scope explícito (nada é gravado)."""
-        brain = self._brain()
-        with brain.editing() as d:
-            ws = d.workspace(workspace_id)
-            pj = d.project(ws.id, project_id)
-            sj = d.find_subject(ws.id, pj.id, name)
-            return 0 if sj is None else self._delete_in(d, ws, pj, sj)
 
     def delete(self, workspace_id: str, project_id: str, name: str) -> bool:
-        """Remove o subject, deixando os itens dele sem subject (com o alcance de antes, ver
-        `_delete_in`), num commit. False se não existe."""
+        """Remove o subject, deixando os itens dele sem subject, num commit. False se não
+        existe."""
         brain = self._brain()
         with brain.editing() as d:
             ws = d.workspace(workspace_id)

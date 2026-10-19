@@ -12,13 +12,21 @@ from urllib.parse import quote
 
 from knowledge_os.config import UI_DEFAULT_PORT
 from knowledge_os.exceptions import NotFoundError, StorageError, ValidationError
-from knowledge_os.services import scope, vault
+from knowledge_os.services import vault
 from knowledge_os.services.brain import SECRETS_DIRNAME, Brain, Item
 from knowledge_os.services.secret_run import MIN_REDACT
 from knowledge_os.storage.access import git_for
 
 MAX_VALUE_CHARS = 32768
 EXCLUDE_LINE = f"{SECRETS_DIRNAME}/"
+
+
+def _where(record: Any) -> str:
+    """Local do item (workspace/project[/subject]), para mensagens de ambiguidade."""
+    parts = [record.workspace or "", record.project or ""]
+    if record.subject:
+        parts.append(record.subject)
+    return "/".join(p for p in parts if p)
 
 
 def item_url(item: Any, connection_id: str) -> str:
@@ -94,27 +102,31 @@ class SecretService:
         return out
 
     def resolve(self, repo: str, key: str) -> tuple[Item, str]:
-        """(item, valor) do segredo `key` (ou id) no alcance do repo, do mais perto ao mais
-        longe: o project ligado; depois outro project do mesmo workspace com `scope: workspace`
-        ou `global` explícito no item; depois outro workspace com `scope: global` explícito.
+        """(item, valor) do segredo `key` (ou id) alcançável do repo, do mais perto ao mais
+        longe pela hierarquia: o segredo no próprio project ligado; depois um no workspace do
+        repo (vale para todos os projects dele).
 
-        Segredo nunca herda scope (`Snapshot.effective_scope`): um workspace `global` não
-        espalha os segredos dele — só o `scope` do próprio item tira o segredo do project. Dois
-        candidatos igualmente próximos com a mesma key são ambíguos: erro que pede o id.
+        v6 não tem scope: o alcance de um segredo é onde ele mora (project → vale no project;
+        workspace → vale no workspace inteiro). Dois candidatos igualmente próximos com a mesma
+        key são ambíguos: erro que pede o id.
 
         Conta o uso. Sem item ou sem valor: erro que diz o que fazer, sem rodar nada.
         """
         from knowledge_os.services.repo_service import RepoService
 
         brain = Brain(self._connection_id)
+        snap = brain.snapshot
         link = RepoService(brain.cid).require(repo)
-        viewpoint = (link["workspace_id"], link["project_id"])
-        found = [(record, weight) for record, weight in scope.reach(brain.snapshot, viewpoint)
-                 if record.type == "secret" and record.status == "active"
-                 and key in (record.key, record.id)]
-        closest = [record for record, weight in found if weight == found[0][1]] if found else []
+        ws_id, pj_id = link["workspace_id"], link["project_id"]
+        found = sorted(
+            ((record, snap.reach_distance(record, ws_id, pj_id)) for record in snap.records.values()
+             if record.type == "secret" and key in (record.key, record.id)
+             and snap.reaches(record, ws_id, pj_id)),
+            key=lambda rc: rc[1],
+        )
+        closest = [record for record, dist in found if dist == found[0][1]] if found else []
         if len(closest) > 1:
-            places = ", ".join(sorted(scope.where(r) for r in closest))
+            places = ", ".join(sorted(_where(r) for r in closest))
             raise ValidationError(
                 f"Segredo {key} existe em mais de um lugar com o mesmo alcance ({places}): "
                 "passe o id do item no lugar da key (item_search mostra o id)."

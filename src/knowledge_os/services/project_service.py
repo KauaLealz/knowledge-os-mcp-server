@@ -1,11 +1,7 @@
-"""Project service: criar, listar, atualizar (nome, descrição, scope), mesclar e remover.
+"""Project service: criar, listar, atualizar (nome, descrição), mesclar e remover.
 
-Um project é uma pasta dentro da do workspace (o slug do nome); nome de exibição, descrição,
-`scope` explícito e os subjects (`[{name, description?, scope?}]`) ficam no `.knowledge.yaml`
-dela. Ao mover um project (merge de workspace) o scope vai junto; ao mesclar dois, vale o do
-destino para o project — mas o item que herdava e mudaria de alcance ganha o scope de antes
-como explícito (`Draft.keep_scopes`), para ninguém mudar de alcance sem pedir. `scope` segue a
-convenção de `workspace_service` (None / valor / `""`).
+Um project é uma pasta dentro da do workspace (o slug do nome); nome de exibição, descrição e os
+subjects (`[{name, description?}]`) ficam no `.knowledge.yaml` dela. v6 não tem `scope`.
 """
 
 from __future__ import annotations
@@ -26,12 +22,7 @@ from knowledge_os.services.brain import (
     utcnow,
 )
 from knowledge_os.services.item_file import slugify
-from knowledge_os.services.workspace_service import (
-    apply_meta,
-    check_scope,
-    effective,
-    relink,
-)
+from knowledge_os.services.workspace_service import apply_meta, relink
 
 logger = logging.getLogger(__name__)
 
@@ -78,18 +69,15 @@ class ProjectService:
     def _brain(self) -> Brain:
         return Brain(self._connection_id)
 
-    def create(self, workspace_id: str, name: str, description: str | None = None,
-               scope: str | None = None) -> Project:
-        """Cria um project. NotFoundError se workspace não existe; ValidationError se duplicado
-        ou se o scope não é um de `SCOPES`."""
-        scope = check_scope(scope or None)
+    def create(self, workspace_id: str, name: str, description: str | None = None) -> Project:
+        """Cria um project. NotFoundError se workspace não existe; ValidationError se duplicado."""
         name = check_name(name, "project")
         brain = self._brain()
         with brain.editing() as d:
             ws = d.workspace(workspace_id)
             if d.find_project(ws.id, slugify(name)) is not None:
                 raise ValidationError(f"Project já existe no workspace: {name}")
-            data = apply_meta({"name": name}, description, scope)
+            data = apply_meta({"name": name}, description)
             d.set_meta(meta_location(ws.id, slugify(name)), data)
             brain.commit(d, f"knowledge-os: cria project {ws.name}/{name}")
         logger.info("Project criado: %s (workspace %s)", name, workspace_id)
@@ -100,9 +88,8 @@ class ProjectService:
         return self._brain().snapshot.projects(workspace_id)
 
     def rows(self, workspace: str) -> list[dict[str, Any]]:
-        """Para `project_list`/API: `[{id, workspace_id, name, description, scope,
-        scope_explicit, items, subjects: [nomes]}]` por nome (`scope` = o que vale, com a
-        herança do workspace)."""
+        """Para `project_list`/API: `[{id, workspace_id, name, description, items,
+        subjects: [nomes]}]` por nome."""
         snap = self._brain().snapshot
         ws = snap.workspace(workspace)
         counts: dict[str, int] = {}
@@ -110,8 +97,7 @@ class ProjectService:
             pj_id = slugify(record.project or "")
             counts[pj_id] = counts.get(pj_id, 0) + 1
         return [{"id": pj.id, "workspace_id": ws.id, "name": pj.name,
-                 "description": pj.description, "scope": effective(pj.scope, ws.scope),
-                 "scope_explicit": pj.scope, "items": counts.get(pj.id, 0),
+                 "description": pj.description, "items": counts.get(pj.id, 0),
                  "subjects": [sj.name for sj in snap.subjects(ws.id, pj.id)]}
                 for pj in snap.projects(ws.id)]
 
@@ -138,10 +124,9 @@ class ProjectService:
         return found[0]
 
     def update(self, workspace_id: str, ref: str, new_name: str | None = None,
-               description: str | None = None, scope: str | None = None) -> Project:
-        """Troca o nome (movendo a pasta, se o slug mudar), a descrição e/ou o scope; o que
-        vier None fica como está (`scope=""` volta a herdar)."""
-        scope = check_scope(scope, clearable=True)
+               description: str | None = None) -> Project:
+        """Troca o nome (movendo a pasta, se o slug mudar) e/ou a descrição; o que vier None
+        fica como está."""
         name_given = check_name(new_name, "project") if new_name is not None else None
         brain = self._brain()
         with brain.editing() as d:
@@ -157,13 +142,13 @@ class ProjectService:
             meta = d.meta(meta_location(ws.id, pj.id))
             if new_id != pj.id:
                 d.set_meta(meta_location(ws.id, pj.id), None)
-            meta = apply_meta({**meta, "name": name}, description, scope)
+            meta = apply_meta({**meta, "name": name}, description)
             d.set_meta(meta_location(ws.id, new_id), meta)
             result = brain.commit(d, f"knowledge-os: atualiza project {ws.name}/{name}")
         if not is_published(result):
             # Em revisão: a pasta e a ligação dos repositórios só mudam depois do merge.
             return Project(new_id, ws.id, name, meta.get("description"), pj.created_at,
-                           pj.updated_at, meta.get("scope"))
+                           pj.updated_at)
         if name != pj.name:
             relink(brain.cid, ws.id, pj.id, workspace=ws.name, project=name)
         logger.info("Project atualizado: %s -> %s (workspace %s)", ref, name, workspace_id)
@@ -182,7 +167,6 @@ class ProjectService:
             if src.id == tgt.id:
                 raise ValidationError("source e target são o mesmo project")
             result = merge_project_in(d, ws, src, ws, tgt)
-            result["scope_changes"] = {"items": d.keep_scopes()}
             published = is_published(
                 brain.commit(d, f"knowledge-os: mescla project {src.name} em {tgt.name}")
             )

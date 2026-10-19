@@ -13,10 +13,20 @@ from __future__ import annotations
 from typing import Any
 
 from knowledge_os.exceptions import NotFoundError, ValidationError
-from knowledge_os.model import RELATION_TYPES, TYPES
-from knowledge_os.services import scope
+from knowledge_os.model import LINK_RELATIONS, TYPES
 from knowledge_os.services.brain import Brain, Relation, Snapshot
 from knowledge_os.storage.files import ItemRecord
+
+
+def _resolve_ref(snap: Snapshot, ref: str) -> ItemRecord | None:
+    """Resolve uma referência (id ou key) a um item da conexão."""
+    found = snap.get(ref)
+    if found is not None:
+        return found
+    for record in snap.records.values():
+        if record.key == ref:
+            return record
+    return None
 
 MAX_KEYS = 5
 MAX_DEPTH = 3
@@ -40,10 +50,10 @@ def _check(keys: list[str], depth: int, limit: int, direction: str,
     if direction not in DIRECTIONS:
         raise ValidationError(
             f"direction inválida: {direction!r}. Válidas: {', '.join(DIRECTIONS)}")
-    bad = [t for t in relation_types or [] if t not in RELATION_TYPES]
+    bad = [t for t in relation_types or [] if t not in LINK_RELATIONS]
     if bad:
         raise ValidationError(
-            f"relation_types inválido: {', '.join(bad)}. Válidos: {', '.join(RELATION_TYPES)}")
+            f"relation_types inválido: {', '.join(bad)}. Válidos: {', '.join(LINK_RELATIONS)}")
     bad = [t for t in types or [] if t not in TYPES]
     if bad:
         raise ValidationError(f"types inválido: {', '.join(bad)}. Válidos: {', '.join(TYPES)}")
@@ -58,7 +68,7 @@ class GraphService:
     def graph(
         self,
         keys: list[str],
-        viewpoint: scope.Viewpoint = None,
+        viewpoint: Any = None,
         depth: int = 1,
         limit: int = DEFAULT_LIMIT,
         relation_types: list[str] | None = None,
@@ -69,26 +79,23 @@ class GraphService:
         """Nós e arestas a até `depth` saltos das `keys`.
 
         Devolve `{nodes, edges, truncated, total_by_hop}`; os nós de entrada vêm com `hop: 0`.
-        `types` filtra os vizinhos por tipo de item (e eles não são atravessados).
-        `everywhere` ignora o alcance do `viewpoint` e usa tudo (a ficha do item na UI).
+        `types` filtra os vizinhos por tipo de item (e eles não são atravessados). O grafo é da
+        conexão inteira; `viewpoint`/`everywhere` são aceitos por compatibilidade e ignorados
+        (o alcance agora vem da hierarquia; a UI já filtra por escopo antes).
         """
         _check(keys, depth, limit, direction, relation_types, types)
         brain = Brain(self._connection_id)
         snap = brain.snapshot
 
         def reachable(record: ItemRecord) -> bool:
-            return everywhere or scope.distance(snap, record, viewpoint) is not None
+            return True
 
         starts: list[ItemRecord] = []
         for ref in keys:
-            found = None
-            if isinstance(ref, str):
-                found = scope.resolve_key(snap, ref, viewpoint)
-                if found is None and everywhere:
-                    found = snap.get(ref)
+            found = _resolve_ref(snap, ref) if isinstance(ref, str) else None
             if found is None:
                 raise NotFoundError(
-                    f"Item '{ref}' não encontrado no alcance deste repositório. Confira a key "
+                    f"Item '{ref}' não encontrado nesta conexão. Confira a key "
                     "(item_search) ou use o id do item"
                 )
             if found.id not in {s.id for s in starts}:
@@ -167,7 +174,7 @@ class GraphService:
 
     @staticmethod
     def _relations(snap: Snapshot, relation_types: list[str] | None) -> list[Relation]:
-        wanted = set(relation_types or RELATION_TYPES)
+        wanted = set(relation_types or LINK_RELATIONS)
         return [rel for rel in snap.relations() if rel.relation_type in wanted]
 
     @classmethod
@@ -188,8 +195,6 @@ class GraphService:
     @staticmethod
     def _node(snap: Snapshot, record: ItemRecord, hop: int) -> dict[str, Any]:
         return {
-            "key": record.key, "id": record.id, "type": record.type, "subtype": record.subtype,
-            "title": record.title, "summary": record.summary,
-            "scope": snap.effective_scope(record), "status": record.status or "active",
-            "hop": hop,
+            "key": record.key, "id": record.id, "type": record.type,
+            "title": record.title, "summary": record.summary, "hop": hop,
         }

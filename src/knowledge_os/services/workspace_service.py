@@ -1,13 +1,9 @@
-"""Workspace service: criar, listar, atualizar (nome, descrição, scope), mesclar e remover.
+"""Workspace service: criar, listar, atualizar (nome, descrição), mesclar e remover.
 
-Um workspace é uma pasta da conexão (o slug do nome); o nome de exibição, a descrição e o
-`scope` explícito ficam no `.knowledge.yaml` dela. O `scope` de workspace, project e subject é
-herdado pelos itens que não definem o seu (`Snapshot.effective_scope`): mudar o scope muda o
-alcance de tudo que herda, sem mover arquivo de item. Renomear, mesclar e remover
+Um workspace é uma pasta da conexão (o slug do nome); o nome de exibição e a descrição ficam no
+`.knowledge.yaml` dela. v6 não tem `scope`: o alcance de um item vem de onde ele mora na
+hierarquia (workspace → project → subject), não de um campo herdado. Renomear, mesclar e remover
 regravam/movem os arquivos dos itens e publicam tudo de uma vez.
-
-`scope` nas operações: `None` = não define (create) / não muda (update); um de
-`model.SCOPES` = grava explícito; `""` (só no update) = tira o explícito e volta a herdar.
 """
 
 from __future__ import annotations
@@ -17,7 +13,6 @@ import logging
 from typing import Any
 
 from knowledge_os.exceptions import ValidationError
-from knowledge_os.model import DEFAULT_SCOPE, SCOPES
 from knowledge_os.services.brain import (
     Brain,
     Draft,
@@ -33,34 +28,11 @@ from knowledge_os.storage import local_state
 logger = logging.getLogger(__name__)
 
 
-def check_scope(value: Any, *, clearable: bool = False) -> str | None:
-    """`scope` de workspace/project/subject: None (não define), um de `SCOPES` ou, com
-    `clearable`, `""` (volta a herdar). ValidationError lista os válidos."""
-    if value is None:
-        return None
-    if value == "" and clearable:
-        return ""
-    if value not in SCOPES:
-        extra = ' (ou "" para voltar a herdar)' if clearable else ""
-        raise ValidationError(f"scope inválido: {value!r}. Válidos: {', '.join(SCOPES)}{extra}")
-    return str(value)
-
-
-def apply_meta(data: dict[str, Any], description: str | None, scope: str | None
-               ) -> dict[str, Any]:
-    """Aplica descrição e scope (já validado por `check_scope`) a um dicionário de metadados."""
+def apply_meta(data: dict[str, Any], description: str | None) -> dict[str, Any]:
+    """Aplica a descrição a um dicionário de metadados (v6: não há mais `scope`)."""
     if description is not None:
         data["description"] = description
-    if scope == "":
-        data.pop("scope", None)
-    elif scope:
-        data["scope"] = scope
     return data
-
-
-def effective(*scopes: str | None) -> str:
-    """Primeiro scope explícito da cadeia (do mais específico ao workspace)."""
-    return next((s for s in scopes if s), DEFAULT_SCOPE)
 
 
 def relink(connection_id: str, ws_id: str, pj_id: str | None, *, workspace: str | None,
@@ -114,17 +86,14 @@ class WorkspaceService:
     def _brain(self) -> Brain:
         return Brain(self._connection_id)
 
-    def create(self, name: str, description: str | None = None,
-               scope: str | None = None) -> Workspace:
-        """Cria um workspace. ValidationError se o nome (ou o slug dele) já existe ou se o
-        scope não é um de `SCOPES`."""
-        scope = check_scope(scope or None)
+    def create(self, name: str, description: str | None = None) -> Workspace:
+        """Cria um workspace. ValidationError se o nome (ou o slug dele) já existe."""
         name = check_name(name, "workspace")
         brain = self._brain()
         with brain.editing() as d:
             if d.find_workspace(slugify(name)) is not None:
                 raise ValidationError(f"Workspace já existe: {name}")
-            data = apply_meta({"name": name}, description, scope)
+            data = apply_meta({"name": name}, description)
             d.set_meta(meta_location(slugify(name)), data)
             brain.commit(d, f"knowledge-os: cria workspace {name}")
         logger.info("Workspace criado: %s", name)
@@ -135,15 +104,13 @@ class WorkspaceService:
         return self._brain().snapshot.workspaces()
 
     def rows(self) -> list[dict[str, Any]]:
-        """Para `workspace_list`/API: `[{id, name, description, scope, scope_explicit, items,
-        projects}]` por nome (`scope` = o que vale; `scope_explicit` = o do `.knowledge.yaml`)."""
+        """Para `workspace_list`/API: `[{id, name, description, items, projects}]` por nome."""
         snap = self._brain().snapshot
         counts: dict[str, int] = {}
         for record in snap.records.values():
             ws_id = slugify(record.workspace or "")
             counts[ws_id] = counts.get(ws_id, 0) + 1
         return [{"id": ws.id, "name": ws.name, "description": ws.description,
-                 "scope": effective(ws.scope), "scope_explicit": ws.scope,
                  "items": counts.get(ws.id, 0), "projects": len(snap.projects(ws.id))}
                 for ws in snap.workspaces()]
 
@@ -151,24 +118,22 @@ class WorkspaceService:
         """Workspace por nome ou id. NotFoundError se não existe."""
         return self._brain().snapshot.workspace(name)
 
-    def update(self, ref: str, new_name: str | None = None, description: str | None = None,
-               scope: str | None = None) -> Workspace:
-        """Troca o nome (movendo a pasta, se o slug mudar), a descrição e/ou o scope; o que
-        vier None fica como está (`scope=""` volta a herdar)."""
-        scope = check_scope(scope, clearable=True)
+    def update(self, ref: str, new_name: str | None = None,
+               description: str | None = None) -> Workspace:
+        """Troca o nome (movendo a pasta, se o slug mudar) e/ou a descrição; o que vier None
+        fica como está."""
         new_name = check_name(new_name, "workspace") if new_name is not None else None
         brain = self._brain()
         with brain.editing() as d:
             ws = d.workspace(ref)
             name = self._rename_in(d, ws, new_name) if new_name is not None else ws.name
             rel = meta_location(slugify(name))
-            d.set_meta(rel, apply_meta({**d.meta(rel), "name": name}, description, scope))
+            d.set_meta(rel, apply_meta({**d.meta(rel), "name": name}, description))
             result = brain.commit(d, f"knowledge-os: atualiza workspace {name}")
         if not is_published(result):
             # Em revisão: a pasta e a ligação dos repositórios só mudam depois do merge.
-            kept = ws.scope if scope is None else (scope or None)
             return Workspace(slugify(name), name, description or ws.description, ws.created_at,
-                             ws.updated_at, kept)
+                             ws.updated_at)
         if slugify(name) != ws.id or name != ws.name:
             relink(brain.cid, ws.id, None, workspace=name)
         logger.info("Workspace atualizado: %s -> %s", ref, name)
@@ -192,9 +157,7 @@ class WorkspaceService:
         """Move todos os projects de source para target e apaga source.
 
         Projects homônimos (mesmo nome em source e target) são mesclados (itens e subjects
-        juntos) em vez de duplicados. Repositórios ligados a source passam para target. Item
-        sem scope próprio que mudaria de alcance (herdava do workspace/project de source) ganha
-        o scope de antes como explícito, no mesmo commit (`scope_changes.items`).
+        juntos) em vez de duplicados. Repositórios ligados a source passam para target.
         """
         from knowledge_os.services.project_service import merge_project_in
 
@@ -217,13 +180,11 @@ class WorkspaceService:
                 merged_projects += 1
             move_project_metas(d, src.id, tgt.id)
             d.set_meta(meta_location(src.id), None)
-            changes = d.keep_scopes()
             result = brain.commit(d, f"knowledge-os: mescla workspace {src.name} em {tgt.name}")
         if is_published(result):
             relink(brain.cid, src.id, None, workspace=tgt.name)
         logger.info("Workspace mesclado: %s -> %s", source, target)
-        return {"merged_projects": merged_projects, "renamed_collisions": renamed_collisions,
-                "scope_changes": {"items": changes}}
+        return {"merged_projects": merged_projects, "renamed_collisions": renamed_collisions}
 
     def delete(self, name: str) -> bool:
         """Remove o workspace (projects e itens). False se não existe."""

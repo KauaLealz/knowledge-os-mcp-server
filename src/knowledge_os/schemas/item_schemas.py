@@ -1,13 +1,13 @@
-"""Schemas Pydantic de item (v2): entrada fina para o `ItemService` e o item completo de saída.
+"""Schemas Pydantic de item (v6): entrada fina para o `ItemService` e o item completo de saída.
 
 Entrada: `ItemCreate`/`ItemUpdate` aceitam campo extra e não validam valores — o
-`ItemService.save` (via `model.validate_entry`) recusa campo desconhecido (ex.: `memory_class`)
-e valor fora da taxonomia com a lista dos válidos. O local vem por id
-(`workspace_id`/`project_id`/`subject_id`) e vira `workspace`/`project`/`subject` do serviço.
+`ItemService.save` (via `model.validate_entry`) recusa campo desconhecido e valor fora da
+taxonomia com a lista dos válidos. O local vem por id (`workspace_id`/`project_id`/`subject_id`)
+e vira `workspace`/`project`/`subject` do serviço.
 
-Saída: `ItemResponse` traz o `scope` explícito do item, o `effective_scope` (o que vale, com a
-herança subject → project → workspace) e `scope_inherited_from` (de onde veio o efetivo quando
-o item não define o seu: `subject`, `project`, `workspace`, ou None se nada na cadeia define).
+Saída: `ItemResponse` traz os campos v6 do item (sem scope/status/subtype/origin/ttl: a nuance
+e o ciclo vivem em `tags`, o alcance vem de onde o item mora). `links` é unificado
+({item, rel} | {url[, title]} | {path}).
 """
 
 from __future__ import annotations
@@ -60,57 +60,32 @@ class ItemCreate(_Entry):
     """Entrada de criação: `type`, `title` e `summary` obrigatórios (cobrados pelo serviço)."""
 
     workspace_id: str
-    project_id: str
+    project_id: str | None = None
     subject_id: str | None = None
     key: str | None = None
     type: str | None = None
-    subtype: str | None = None
-    scope: str | None = None
     title: str | None = None
     summary: str | None = None
     content: str | None = None
-    status: str | None = None
     tags: list[str] | None = None
     links: list[dict[str, Any]] | None = None
-    scope_paths: list[str] | None = None
-    ttl_days: int | None = None
-    keywords: str | None = None
-    source: str | None = None
-    origin: str | None = None
 
 
 class ItemUpdate(_Entry):
     """Atualização parcial: só o que vier muda (tags e links substituem os atuais).
 
-    `scope: null` tira o explícito (o item volta a herdar); `subject_id: null` tira o subject;
-    `workspace_id` + `project_id` juntos movem o item.
+    `subject_id: null` tira o subject; `workspace_id` + `project_id` juntos movem o item.
     """
 
     workspace_id: str | None = None
     project_id: str | None = None
     subject_id: str | None = None
     type: str | None = None
-    subtype: str | None = None
-    scope: str | None = None
     title: str | None = None
     summary: str | None = None
     content: str | None = None
-    status: str | None = None
     tags: list[str] | None = None
     links: list[dict[str, Any]] | None = None
-    scope_paths: list[str] | None = None
-    ttl_days: int | None = None
-    keywords: str | None = None
-    source: str | None = None
-    origin: str | None = None
-
-
-class FeedbackRequest(_Entry):
-    """`POST /items/{id}/feedback`: o que o item fez (`outcome`, ver `model.OUTCOMES`)."""
-
-    outcome: str
-    note: str | None = None
-    query: str | None = None
 
 
 class ItemResponse(BaseModel):
@@ -121,54 +96,33 @@ class ItemResponse(BaseModel):
     id: str
     key: str | None = None
     workspace_id: str
-    project_id: str
+    project_id: str | None = None
     subject_id: str | None = None
     workspace: str
-    project: str
+    project: str | None = None
     subject: str | None = None
     where: str
     type: str
-    subtype: str | None = None
-    scope: str | None = None
-    effective_scope: str
-    scope_inherited_from: str | None = None
     title: str
     summary: str
     content: str
-    status: str
-    expired: bool = False
     tags: list[str]
     links: list[dict[str, str]]
-    scope_paths: list[str] = []
-    ttl_days: int | None = None
-    expires_at: UtcDatetime | None = None
-    keywords: str | None = None
-    source: str | None = None
-    origin: str
-    verified_at: UtcDatetime | None = None
-    verified_commit: str | None = None
     created_at: UtcDatetime | None = None
     updated_at: UtcDatetime | None = None
     has_value: bool | None = None  # só em `secret`: se o valor foi preenchido (nunca o valor)
 
     @classmethod
-    def from_item(cls, item: Item, inherited_from: str | None = None,
-                  expired: bool = False) -> ItemResponse:
+    def from_item(cls, item: Item) -> ItemResponse:
         """Converte um item dos services (`brain.Item`) em resposta."""
+        where = item.workspace + (f"/{item.project}" if item.project else "")
         return cls(
             id=item.id, key=item.key, workspace_id=item.workspace_id,
             project_id=item.project_id, subject_id=item.subject_id, workspace=item.workspace,
-            project=item.project, subject=item.subject,
-            where=f"{item.workspace}/{item.project}", type=item.type, subtype=item.subtype,
-            scope=item.scope, effective_scope=item.effective_scope,
-            scope_inherited_from=None if item.scope else inherited_from, title=item.title,
-            summary=item.summary, content=item.content, status=item.status or "active",
-            expired=expired, tags=sorted(item.tags), links=[dict(lk) for lk in item.links],
-            scope_paths=list(item.scope_paths), ttl_days=item.ttl_days,
-            expires_at=item.expires_at, keywords=item.keywords, source=item.source,
-            origin=item.origin, verified_at=item.verified_at,
-            verified_commit=item.verified_commit, created_at=item.created_at,
-            updated_at=item.updated_at,
+            project=item.project, subject=item.subject, where=where, type=item.type,
+            title=item.title, summary=item.summary, content=item.content,
+            tags=sorted(item.tags), links=[dict(lk) for lk in item.links],
+            created_at=item.created_at, updated_at=item.updated_at,
             has_value=bool(item.has_value) if item.type == "secret" else None,
         )
 

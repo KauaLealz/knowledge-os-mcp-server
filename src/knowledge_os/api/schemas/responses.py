@@ -31,25 +31,20 @@ __all__ = [
 
 
 class TreeItem(BaseModel):
-    """Item na árvore da sidebar: o que a UI mostra sem abrir o item (`scope` = efetivo)."""
+    """Item na árvore da sidebar: o que a UI mostra sem abrir o item."""
 
     id: str
     key: str | None
     title: str
     type: str
-    subtype: str | None
-    status: str
-    scope: str
+    tags: list[str] = []
     updated_at: UtcDatetime | None
-    expired: bool = False
 
 
 class TreeSubject(BaseModel):
     id: str
     name: str
     description: str | None = None
-    scope: str
-    scope_explicit: str | None = None
     item_count: int
     items: list[TreeItem]
 
@@ -58,8 +53,6 @@ class TreeProject(BaseModel):
     id: str
     name: str
     description: str | None
-    scope: str
-    scope_explicit: str | None = None
     item_count: int
     items: list[TreeItem]
     subjects: list[TreeSubject] = []
@@ -70,18 +63,15 @@ class WorkspaceTree(BaseModel):
 
 
 class ScopeNode(BaseModel):
-    """Nó do grafo de um escopo: o nó do `item_graph` (sem `hop`) + onde o item mora."""
+    """Nó do grafo: o nó do `item_graph` (sem `hop`) + onde o item mora."""
 
     key: str | None
     id: str
     type: str
-    subtype: str | None
     title: str
     summary: str
-    scope: str
-    status: str
-    project_id: str
-    project_name: str
+    project_id: str | None = None
+    project_name: str | None = None
     subject_id: str | None = None
     subject_name: str | None = None
 

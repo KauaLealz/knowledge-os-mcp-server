@@ -1,4 +1,4 @@
-"""Ferramentas MCP do Knowledge OS (v2): exatamente as 32 de V2_MVP.md §11.
+"""Ferramentas MCP do Knowledge OS (v6): 31 ferramentas (sem `item_feedback`).
 
 Cada ferramenta é uma função fina sobre um serviço: resolve o repositório ligado (quando vem
 `repo`), chama o serviço e devolve o dicionário dele sem remodelar. Os erros de validação dos
@@ -6,11 +6,12 @@ serviços já dizem como corrigir e passam como estão.
 
 Repositório e alcance: `repo` (caminho, normalmente ".", remote ou chave) vira, por
 `RepoService`, o link `{workspace_id, project_id, workspace, project}`. O `viewpoint` da
-cadeia de alcance (`services.scope`) é `(workspace_id, project_id)`; o `default_location` do
-`item_save` é `(workspace, project)`. Repositório informado e não ligado é erro com a chamada
-que resolve. Só `item_search` tenta a pasta atual sozinho (sem `repo`, `workspace` nem
-`everywhere`): ligada, vale o project dela; senão só os globais, com `suggestion`. `repo`
-informado e não ligado vale como sem `repo` (só nas buscas; as demais ferramentas dão erro).
+cadeia de alcance (por hierarquia, `Snapshot.reach`) é `(workspace_id, project_id)`; o
+`default_location` do `item_save` é `(workspace, project)`. Repositório informado e não ligado
+é erro com a chamada que resolve. Só `item_search` tenta a pasta atual sozinho (sem `repo`,
+`workspace` nem `everywhere`): ligada, vale o project dela; senão só os globais, com
+`suggestion`. `repo` informado e não ligado vale como sem `repo` (só nas buscas; as demais
+ferramentas dão erro).
 
 Todas aceitam `connection_id` (a conexão; sem ele, a padrão), menos `connection_*` e
 `health_check`. `repo` agrupa link/list/unlink/sync por `action=`: é a chamada que o hook de
@@ -18,7 +19,6 @@ sessão, o `/plumb-setup` e a fila offline usam.
 """
 
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
 from fastmcp import FastMCP
@@ -32,11 +32,14 @@ from knowledge_os.services.item_service import SUGGESTION, ItemService
 from knowledge_os.services.project_service import ProjectService
 from knowledge_os.services.relation_service import RelationService
 from knowledge_os.services.repo_service import RepoService, repo_key
-from knowledge_os.services.scope import Viewpoint
 from knowledge_os.services.subject_service import SubjectService
 from knowledge_os.services.tag_service import TagService
 from knowledge_os.services.workspace_service import WorkspaceService
 from knowledge_os.storage.access import resolve_connection, sync_connection
+
+# Ponto de vista da cadeia de alcance por hierarquia: (workspace_id, project_id) do repositório
+# ligado; project_id pode faltar. (Antes vinha de `services.scope`, removido no v6.)
+Viewpoint = tuple[str, str | None] | None
 
 # --------------------------------------------------------------------------------------
 # repositório ligado → viewpoint / default_location
@@ -94,37 +97,36 @@ def workspace_list(connection_id: str | None = None) -> list[dict[str, Any]]:
     return WorkspaceService(connection_id=connection_id).rows()
 
 
-def workspace_create(name: str, description: str | None = None, scope: str | None = None,
+def workspace_create(name: str, description: str | None = None,
                      connection_id: str | None = None) -> dict[str, Any]:
-    """Cria um workspace. `scope` (opcional) é herdado pelos itens dele que não têm o seu.
+    """Cria um workspace (contexto de trabalho: empresa, cliente, Pessoal).
 
-    **Use quando:** Começar um novo contexto de trabalho (empresa, cliente).
-    **Retorna:** {id, name, description, scope, scope_explicit, items, projects}.
-    **Exemplo:** workspace_create(name="Polara", description="cliente", scope="workspace")
-    **Erro comum:** scope fora de scoped/workspace/global — a mensagem lista os válidos; nome
-        repetido — use workspace_update ou workspace_merge.
+    **Use quando:** Começar um novo contexto de trabalho.
+    **Retorna:** {id, name, description, items, projects}.
+    **Exemplo:** workspace_create(name="Polara", description="cliente")
+    **Erro comum:** nome repetido — use workspace_update ou workspace_merge.
+    **Notas:** O alcance é por hierarquia — um item que mora no workspace vale para todos os
+        projects dele. Não há `scope`.
     """
     svc = WorkspaceService(connection_id=connection_id)
-    ws = svc.create(name, description, scope)
+    ws = svc.create(name, description)
     return _row(svc.rows(), ws.id, {"id": ws.id, "name": ws.name,
-                                    "description": ws.description, "scope": ws.scope})
+                                    "description": ws.description})
 
 
 def workspace_update(name: str, new_name: str | None = None, description: str | None = None,
-                     scope: str | None = None,
                      connection_id: str | None = None) -> dict[str, Any]:
-    """Atualiza nome, descrição e/ou scope de um workspace (o que vier None fica como está).
+    """Atualiza nome e/ou descrição de um workspace (o que vier None fica como está).
 
-    **Use quando:** Renomear, descrever ou mudar o alcance de tudo que herda o scope do
-        workspace — sem mover arquivo de item. `scope=""` tira o explícito (volta a `scoped`).
-    **Retorna:** {id, name, description, scope, scope_explicit, items, projects}.
-    **Exemplo:** workspace_update(name="Polara", scope="global")
+    **Use quando:** Renomear (religa os repositórios) ou descrever um workspace.
+    **Retorna:** {id, name, description, items, projects}.
+    **Exemplo:** workspace_update(name="Polara", new_name="Polara Tech")
     **Erro comum:** "Workspace não encontrado" — confira o nome com workspace_list().
     """
     svc = WorkspaceService(connection_id=connection_id)
-    ws = svc.update(name, new_name, description, scope)
+    ws = svc.update(name, new_name, description)
     return _row(svc.rows(), ws.id, {"id": ws.id, "name": ws.name,
-                                    "description": ws.description, "scope": ws.scope})
+                                    "description": ws.description})
 
 
 def workspace_merge(source: str, target: str,
@@ -133,8 +135,7 @@ def workspace_merge(source: str, target: str,
     mesclados, não duplicados), religa os repositórios e apaga `source`.
 
     **Use quando:** Dois workspaces acabaram duplicados (grafias diferentes do mesmo cliente).
-    **Retorna:** {merged_projects, renamed_collisions, scope_changes: {items}} (itens que
-        ganharam como explícito o scope que herdavam, para não mudar de alcance).
+    **Retorna:** {merged_projects, renamed_collisions}.
     **Exemplo:** workspace_merge(source="polara-antiga", target="Polara")
     """
     return WorkspaceService(connection_id=connection_id).merge(source, target)
@@ -175,36 +176,33 @@ def project_list(workspace: str, connection_id: str | None = None) -> list[dict[
 
 
 def project_create(workspace: str, name: str, description: str | None = None,
-                   scope: str | None = None,
                    connection_id: str | None = None) -> dict[str, Any]:
-    """Cria um project dentro de um workspace. `scope` (opcional) vale para os itens dele que
-    não têm o seu.
+    """Cria um project dentro de um workspace (project = um repositório/sistema).
 
     **Use quando:** Organizar um repositório novo (o `repo(action="link")` também cria).
-    **Retorna:** {id, workspace_id, name, description, scope, scope_explicit, items, subjects}.
-    **Exemplo:** project_create(workspace="Polara", name="Geral", scope="workspace")
+    **Retorna:** {id, workspace_id, name, description, items, subjects}.
+    **Exemplo:** project_create(workspace="Polara", name="app")
     **Erro comum:** "Workspace não encontrado" — crie com workspace_create ou confira o nome.
     """
     svc = ProjectService(connection_id=connection_id)
-    pj = svc.create(workspace, name, description, scope)
+    pj = svc.create(workspace, name, description)
     return _row(svc.rows(workspace), pj.id, {"id": pj.id, "name": pj.name,
-                                             "description": pj.description, "scope": pj.scope})
+                                             "description": pj.description})
 
 
 def project_update(workspace: str, name: str, new_name: str | None = None,
-                   description: str | None = None, scope: str | None = None,
+                   description: str | None = None,
                    connection_id: str | None = None) -> dict[str, Any]:
-    """Atualiza nome, descrição e/ou scope de um project (o que vier None fica como está).
+    """Atualiza nome e/ou descrição de um project (o que vier None fica como está).
 
-    **Use quando:** Renomear (religa os repositórios), descrever ou mudar o alcance do que
-        herda o scope do project, sem mover item. `scope=""` volta a herdar do workspace.
-    **Retorna:** {id, workspace_id, name, description, scope, scope_explicit, items, subjects}.
+    **Use quando:** Renomear (religa os repositórios) ou descrever um project, sem mover item.
+    **Retorna:** {id, workspace_id, name, description, items, subjects}.
     **Exemplo:** project_update(workspace="Polara", name="app", new_name="app-web")
     """
     svc = ProjectService(connection_id=connection_id)
-    pj = svc.update(workspace, name, new_name, description, scope)
+    pj = svc.update(workspace, name, new_name, description)
     return _row(svc.rows(workspace), pj.id, {"id": pj.id, "name": pj.name,
-                                             "description": pj.description, "scope": pj.scope})
+                                             "description": pj.description})
 
 
 def project_merge(workspace: str, source: str, target: str,
@@ -213,7 +211,7 @@ def project_merge(workspace: str, source: str, target: str,
     (subjects homônimos mesclados), religa os repositórios e apaga `source`.
 
     **Use quando:** Dois projects acabaram duplicados.
-    **Retorna:** {merged_items, merged_subjects, scope_changes: {items}}.
+    **Retorna:** {merged_items, merged_subjects}.
     **Exemplo:** project_merge(workspace="Polara", source="app-old", target="app")
     """
     return ProjectService(connection_id=connection_id).merge(workspace, source, target)
@@ -253,37 +251,34 @@ def subject_list(workspace: str, project: str,
 
 
 def subject_create(workspace: str, project: str, name: str, description: str | None = None,
-                   scope: str | None = None,
                    connection_id: str | None = None) -> dict[str, Any]:
     """Cria um subject dentro de um project (o `item_save` com `subject` também cria).
 
-    **Use quando:** Agrupar itens de um assunto; com `scope="global"`, o assunto inteiro vale
-        em qualquer lugar.
-    **Retorna:** {id, name, description, scope, scope_explicit, items}.
+    **Use quando:** Agrupar itens de um conceito/assunto (ex.: crédito privado).
+    **Retorna:** {id, name, description, items}.
     **Exemplo:** subject_create(workspace="Polara", project="app", name="pagamentos")
     **Erro comum:** "Project não encontrado" — confira com project_list(workspace=...).
     """
     svc = SubjectService(connection_id=connection_id)
-    sj = svc.create(workspace, project, name, description, scope)
+    sj = svc.create(workspace, project, name, description)
     return _row(svc.rows(workspace, project), sj.id,
-                {"id": sj.id, "name": sj.name, "description": sj.description, "scope": sj.scope})
+                {"id": sj.id, "name": sj.name, "description": sj.description})
 
 
 def subject_update(workspace: str, project: str, name: str, new_name: str | None = None,
-                   description: str | None = None, scope: str | None = None,
+                   description: str | None = None,
                    connection_id: str | None = None) -> dict[str, Any]:
-    """Atualiza nome, descrição e/ou scope de um subject (o que vier None fica como está).
+    """Atualiza nome e/ou descrição de um subject (o que vier None fica como está).
 
-    **Use quando:** Renomear (regrava os itens), descrever ou mudar o alcance dos itens do
-        assunto. `scope=""` volta a herdar do project.
-    **Retorna:** {id, name, description, scope, scope_explicit, items}.
+    **Use quando:** Renomear (regrava os itens) ou descrever o assunto.
+    **Retorna:** {id, name, description, items}.
     **Exemplo:** subject_update(workspace="Polara", project="app", name="pagto",
         new_name="pagamentos")
     """
     svc = SubjectService(connection_id=connection_id)
-    sj = svc.update(workspace, project, name, new_name, description, scope)
+    sj = svc.update(workspace, project, name, new_name, description)
     return _row(svc.rows(workspace, project), sj.id,
-                {"id": sj.id, "name": sj.name, "description": sj.description, "scope": sj.scope})
+                {"id": sj.id, "name": sj.name, "description": sj.description})
 
 
 def subject_merge(workspace: str, project: str, source: str, target: str,
@@ -292,7 +287,7 @@ def subject_merge(workspace: str, project: str, source: str, target: str,
     apaga `source`.
 
     **Use quando:** Dois subjects acabaram duplicados.
-    **Retorna:** {merged_items, scope_changes: {items}}.
+    **Retorna:** {merged_items}.
     **Exemplo:** subject_merge(workspace="Polara", project="app", source="pagto",
         target="pagamentos")
     """
@@ -301,13 +296,13 @@ def subject_merge(workspace: str, project: str, source: str, target: str,
 
 def subject_delete(workspace: str, project: str, name: str, confirm: bool = False,
                    connection_id: str | None = None) -> dict[str, Any]:
-    """Remove um subject. Nunca apaga item: os itens dele ficam sem subject.
+    """Remove um subject. Nunca apaga item: os itens dele ficam sem subject (sobem para o
+    project).
 
     **Use quando:** Um assunto não serve mais, mas os itens continuam valendo.
     **Retorna:** sem `confirm` → {status: "preview", would_delete: {subject,
-        items_sem_assunto}, scope_changes: {items}}; com `confirm=True` → {status: "deleted",
-        subject, items_sem_assunto, scope_changes}. `scope_changes.items`: quantos itens que
-        herdavam o scope do subject ganham esse scope como explícito (o alcance não muda).
+        items_sem_assunto}}; com `confirm=True` → {status: "deleted", subject,
+        items_sem_assunto}.
     **Exemplo:** subject_delete(workspace="Polara", project="app", name="pagamentos",
         confirm=True)
     """
@@ -315,11 +310,10 @@ def subject_delete(workspace: str, project: str, name: str, confirm: bool = Fals
     sj = svc.get(workspace, project, name)
     row = _row(svc.rows(workspace, project), sj.id, {"items": 0})
     would = {"subject": sj.name, "items_sem_assunto": row["items"]}
-    changes = {"items": svc.delete_scope_changes(workspace, project, sj.id)}
     if not confirm:
-        return {"status": "preview", "would_delete": would, "scope_changes": changes}
+        return {"status": "preview", "would_delete": would}
     svc.delete(workspace, project, sj.id)
-    return {"status": "deleted", **would, "scope_changes": changes}
+    return {"status": "deleted", **would}
 
 
 # --------------------------------------------------------------------------------------
@@ -386,11 +380,7 @@ def item_search(
     everywhere: bool = False,
     paths: list[str] | None = None,
     types: list[str] | None = None,
-    subtypes: list[str] | None = None,
-    status: list[str] | None = None,
     tags: list[str] | None = None,
-    origin: list[str] | None = None,
-    scope: list[str] | None = None,
     limit: int = 10,
     connection_id: str | None = None,
 ) -> dict[str, Any]:
@@ -425,8 +415,7 @@ def item_search(
         unlinked = repo  # pasta não ligada: como sem repo (só os globais + suggestion)
     out = ItemService(connection_id=connection_id).search(
         query=query, queries=queries, viewpoint=viewpoint, workspace=workspace,
-        everywhere=everywhere, paths=paths, types=types, subtypes=subtypes, status=status,
-        tags=tags, origin=origin, scope=scope, limit=limit,
+        everywhere=everywhere, paths=paths, types=types, tags=tags, limit=limit,
     )
     if unlinked and "suggestion" in out:
         out["suggestion"] = SUGGESTION.replace('repo="."', f'repo="{unlinked}"')
@@ -505,21 +494,14 @@ def item_save(
 _fill(
     item_save,
     FIELDS=_codes(model.ITEM_FIELDS + model.LOCATION_FIELDS),
-    TYPES_SUBTYPES="; ".join(
-        f"`{t}` ({', '.join(subs) or 'sem subtipo'})" for t, subs in model.TYPES.items()
-    ),
-    STATUSES=_codes(model.STATUSES),
-    SPEC_STATUSES=_codes(model.SPEC_STATUSES),
-    SCOPES=_codes(model.SCOPES),
-    ORIGINS=_codes(model.ORIGINS),
+    TYPES=_codes(model.TYPES),
+    LIFECYCLE=_codes(model.LIFECYCLE_TAGS),
+    NUANCE=_codes(model.NUANCE_TAGS),
 )
 _fill(
     item_search,
     TYPES=", ".join(model.TYPES),
-    SUBTYPES=", ".join(dict.fromkeys(s for subs in model.TYPES.values() for s in subs)),
-    STATUS=", ".join(model.STATUSES + model.SPEC_STATUSES + (model.EXPIRED,)),
-    ORIGINS=", ".join(model.ORIGINS),
-    SCOPES=", ".join(model.SCOPES),
+    LINK_RELATIONS=", ".join(model.LINK_RELATIONS),
 )
 
 
@@ -545,32 +527,6 @@ def item_delete(
     """
     return ItemService(connection_id=connection_id).delete(
         keys=keys, ids=ids, viewpoint=_viewpoint(repo, connection_id), confirm=confirm
-    )
-
-
-def item_feedback(
-    items: list[dict[str, Any]], repo: str | None = None, connection_id: str | None = None
-) -> dict[str, Any]:
-    """Diz o que um item fez por você (até 20): ajusta o ranking e marca o que precisa revisão.
-
-    **Use quando:** Um item ajudou (`helped`), não tinha nada a ver (`irrelevant`), estava
-        errado (`wrong`) ou desatualizado (`outdated`), ou você conferiu no código que ainda
-        vale (`verified`).
-    **Retorna:** {applied, missing: [keys/ids não achados]}.
-    **Exemplo:** item_feedback(repo=".", items=[{"key": "rule/money", "outcome": "helped"},
-        {"key": "howto/deploy", "outcome": "outdated", "note": "o CI mudou para o GitHub
-        Actions"}])
-    **Erro comum:** outcome fora de helped/irrelevant/wrong/outdated/verified — a mensagem
-        lista os válidos.
-    **Notas:** `helped`/`irrelevant` só somam contador local; `wrong`/`outdated` põem o item em
-        `review` (a `note` vai para o `content`), com commit; `verified` grava `verified_at` e o
-        commit atual do repositório (`repo` como pasta), sem reativar item em `review`.
-    """
-    repo_path = None
-    if repo and Path(repo).is_dir():
-        repo_path = str(Path(repo).resolve())
-    return ItemService(connection_id=connection_id).feedback(
-        items, viewpoint=_viewpoint(repo, connection_id), repo_path=repo_path
     )
 
 
@@ -644,7 +600,7 @@ def relation_delete(
     )
 
 
-_fill(relation_create, RELATIONS=", ".join(model.RELATION_TYPES))
+_fill(relation_create, RELATIONS=", ".join(model.LINK_RELATIONS))
 
 
 # --------------------------------------------------------------------------------------
@@ -795,7 +751,7 @@ TOOLS: tuple[Callable[..., Any], ...] = (
     project_list, project_create, project_update, project_merge, project_delete,
     subject_list, subject_create, subject_update, subject_merge, subject_delete,
     repo,
-    item_search, item_get, item_save, item_delete, item_feedback, item_graph,
+    item_search, item_get, item_save, item_delete, item_graph,
     relation_create, relation_delete,
     tag_list, tag_create, tag_update, tag_delete,
     connection_create, connection_list, connection_delete,

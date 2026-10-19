@@ -1,9 +1,10 @@
-"""Rotas de itens (v2): listar com filtros, ler, criar, atualizar, apagar, busca explicada,
-feedback, grafo do item e o valor de segredo.
+"""Rotas de itens (v6): listar com filtros, ler, criar, atualizar, apagar, busca explicada,
+grafo do item e o valor de segredo.
 
 Toda validação de conteúdo é do `ItemService` (que usa `model.validate_entry`): campo
-desconhecido — inclusive os do modelo antigo, como `memory_class` — e valor fora da taxonomia
-voltam 422 com a mensagem do serviço, que lista os válidos.
+desconhecido e valor fora da taxonomia voltam 422 com a mensagem do serviço, que lista os
+válidos. v6: sem subtype/scope/status/origin/ttl — a nuance e o ciclo vivem em `tags`, o
+alcance vem de onde o item mora.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -14,14 +15,13 @@ from knowledge_os.api.routes._common import (
     check_query,
     item_by_id,
     item_out,
-    scope_source,
     split,
 )
-from knowledge_os.api.schemas.requests import FeedbackRequest, ItemCreate, ItemUpdate
+from knowledge_os.api.schemas.requests import ItemCreate, ItemUpdate
 from knowledge_os.api.schemas.responses import ItemListResponse, ItemResponse
-from knowledge_os.exceptions import NotFoundError, ValidationError
-from knowledge_os.model import EXPIRED, ORIGINS, SCOPES, SPEC_STATUSES, STATUSES, TYPES
-from knowledge_os.services.brain import Brain, is_expired
+from knowledge_os.exceptions import ValidationError
+from knowledge_os.model import TYPES
+from knowledge_os.services.brain import Brain
 from knowledge_os.services.graph import GraphService
 from knowledge_os.services.item_file import slugify
 from knowledge_os.services.item_service import MAX_LIMIT, ItemService
@@ -29,11 +29,8 @@ from knowledge_os.services.secret_service import SecretService
 
 router = APIRouter()
 
-SUBTYPES = tuple(dict.fromkeys(s for subs in TYPES.values() for s in subs))
-_LIST_PARAMS = ("workspace_id", "project_id", "subject_id", "type", "subtype", "status",
-                "scope", "origin", "tag", "limit", "offset")
-_SEARCH_PARAMS = ("query", "workspace_id", "project_id", "subject_id", "types", "subtypes",
-                  "status", "tags", "origin", "scope", "limit")
+_LIST_PARAMS = ("workspace_id", "project_id", "subject_id", "type", "tag", "limit", "offset")
+_SEARCH_PARAMS = ("query", "workspace_id", "project_id", "subject_id", "types", "tags", "limit")
 _GRAPH_PARAMS = ("depth", "limit", "relation_types", "types", "direction")
 SEARCH_LIMIT = 50
 CSV = "um valor, ou vários separados por vírgula"
@@ -49,13 +46,15 @@ def _choices(name: str, value: str | None, valid: tuple[str, ...]) -> set[str] |
     return set(values)
 
 
-def _require_place(cid: str, ws_id: str, pj_id: str, sj_id: str | None = None) -> None:
-    """A UI cria e move itens só para lugares que existem (o serviço criaria os que faltam)."""
+def _require_place(cid: str, ws_id: str, pj_id: str | None, sj_id: str | None = None) -> None:
+    """A UI cria e move itens só para lugares que existem. Item pode morar no workspace (sem
+    project); nesse caso só o workspace é exigido."""
     snap = Brain(cid).snapshot
     ws = snap.workspace(ws_id)
-    pj = snap.project(ws.id, pj_id)
-    if sj_id:
-        snap.subject(ws.id, pj.id, sj_id)
+    if pj_id:
+        pj = snap.project(ws.id, pj_id)
+        if sj_id:
+            snap.subject(ws.id, pj.id, sj_id)
 
 
 @router.get("/items", response_model=ItemListResponse)
@@ -65,38 +64,25 @@ def list_items(
     project_id: str | None = Query(default=None, description=CSV),
     subject_id: str | None = Query(default=None, description=CSV),
     type: str | None = Query(default=None, description=CSV),
-    subtype: str | None = Query(default=None, description=CSV),
-    status: str | None = Query(default=None, description=f"{CSV}; expired = ttl vencido"),
-    scope: str | None = Query(default=None, description=f"{CSV} (scope efetivo)"),
-    origin: str | None = Query(default=None, description=CSV),
     tag: str | None = Query(default=None, description=f"{CSV}; o item precisa ter todas"),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     cid: str = Depends(get_connection_id),
 ):
-    """Itens da conexão (todos os status, inclusive `archived`), mais antigos primeiro."""
+    """Itens da conexão (todos, inclusive os com a tag `archived`), mais antigos primeiro."""
     check_query(request, _LIST_PARAMS)
     types = _choices("type", type, tuple(TYPES))
-    subtypes = _choices("subtype", subtype, SUBTYPES)
-    statuses = _choices("status", status, STATUSES + SPEC_STATUSES + (EXPIRED,))
-    scopes = _choices("scope", scope, SCOPES)
-    origins = _choices("origin", origin, ORIGINS)
     tags = set(split(tag) or [])
     projects, subjects = split(project_id), split(subject_id)
     brain = Brain(cid)
     snap = brain.snapshot
 
     def wanted(r) -> bool:
-        shown = EXPIRED if is_expired(r) else r.status
         return (
             (not workspace_id or slugify(r.workspace or "") == workspace_id)
             and (projects is None or slugify(r.project or "") in projects)
             and (subjects is None or bool(r.subject and slugify(r.subject) in subjects))
             and (types is None or r.type in types)
-            and (subtypes is None or r.subtype in subtypes)
-            and (statuses is None or shown in statuses)
-            and (origins is None or r.origin in origins)
-            and (scopes is None or snap.effective_scope(r) in scopes)
             and tags <= set(r.tags or [])
         )
 
@@ -112,7 +98,9 @@ def create_item(req: ItemCreate, cid: str = Depends(get_connection_id)):
         raise ValidationError("POST /api/items cria um item: não envie id (ele é gerado); para "
                               "editar use PUT /api/items/{id}")
     fields = req.service_fields()
-    ws, pj, sj = fields.pop("workspace"), fields.pop("project"), fields.pop("subject", None)
+    ws = fields.pop("workspace")
+    pj = fields.pop("project", None)
+    sj = fields.pop("subject", None)
     _require_place(cid, ws, pj, sj)
     item = ItemService(cid).create(ws, pj, sj, **fields)
     return item_by_id(cid, item.id)
@@ -127,19 +115,15 @@ def search_items(
     project_id: str | None = Query(default=None, description=CSV),
     subject_id: str | None = Query(default=None, description=CSV),
     types: str | None = Query(default=None, description=CSV),
-    subtypes: str | None = Query(default=None, description=CSV),
-    status: str | None = Query(default=None, description=CSV),
     tags: str | None = Query(default=None, description=f"{CSV}; o item precisa ter todas"),
-    origin: str | None = Query(default=None, description=CSV),
-    scope: str | None = Query(default=None, description=f"{CSV} (scope efetivo)"),
     limit: int = Query(default=10, ge=1, le=SEARCH_LIMIT),
     cid: str = Depends(get_connection_id),
 ):
     """A resposta do `ItemService.search` (`{results: [...]}`, sem `content`), com
     `workspace_id`/`project_id`/`subject_id` em cada resultado para o link da UI.
 
-    Com `workspace_id`: o workspace inteiro + os globais de fora; sem: tudo (`everywhere`).
-    `project_id`/`subject_id` restringem os resultados a esses lugares.
+    Com `workspace_id`: o workspace inteiro; sem: tudo (`everywhere`). `project_id`/`subject_id`
+    restringem os resultados a esses lugares.
     """
     check_query(request, _SEARCH_PARAMS)
     projects, subjects = split(project_id), split(subject_id)
@@ -147,8 +131,7 @@ def search_items(
     service = ItemService(cid)
     out = service.search(
         query=query, workspace=workspace_id or None, everywhere=not workspace_id,
-        types=split(types), subtypes=split(subtypes), status=split(status), tags=split(tags),
-        origin=split(origin), scope=split(scope),
+        types=split(types), tags=split(tags),
         # O serviço não filtra por project/subject: pede o máximo e corta aqui.
         limit=MAX_LIMIT if narrowed else limit,
     )
@@ -158,14 +141,14 @@ def search_items(
         record = snap.get(row["id"])
         if record is None:
             continue
-        pj, sj = slugify(record.project or ""), slugify(record.subject) if record.subject else None
+        pj = slugify(record.project or "") if record.project else None
+        sj = slugify(record.subject) if record.subject else None
         if projects is not None and pj not in projects:
             continue
         if subjects is not None and sj not in subjects:
             continue
         results.append({**row, "workspace_id": slugify(record.workspace or ""),
-                        "project_id": pj, "subject_id": sj, "scope_explicit": record.scope,
-                        "scope_inherited_from": scope_source(snap, record)})
+                        "project_id": pj, "subject_id": sj})
     return {**out, "results": results[:limit]}
 
 
@@ -180,11 +163,11 @@ def _update(id: str, req: ItemUpdate, cid: str) -> ItemResponse:
     fields = req.service_fields()
     if fields.get("workspace") or fields.get("project"):
         _require_place(cid, fields.get("workspace") or slugify(record.workspace or ""),
-                       fields.get("project") or slugify(record.project or ""),
+                       fields.get("project") or (slugify(record.project or "") or None),
                        fields.get("subject"))
     elif fields.get("subject"):
-        _require_place(cid, slugify(record.workspace or ""), slugify(record.project or ""),
-                       fields["subject"])
+        _require_place(cid, slugify(record.workspace or ""),
+                       slugify(record.project or "") or None, fields["subject"])
     ItemService(cid).update(id, **fields)
     return item_by_id(cid, id)
 
@@ -207,17 +190,6 @@ def delete_item(id: str, cid: str = Depends(get_connection_id)) -> Response:
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/items/{id}/feedback")
-def item_feedback(id: str, req: FeedbackRequest, cid: str = Depends(get_connection_id)):
-    """`ItemService.feedback` de um item: `helped`/`irrelevant` só contam; `wrong`/`outdated`
-    põem em `review` (com a nota no conteúdo); `verified` grava `verified_at`."""
-    body = {k: v for k, v in req.model_dump(exclude_unset=True).items() if k not in ("id", "key")}
-    result = ItemService(cid).feedback([{**body, "id": id}])  # o item é sempre o da rota
-    if result.get("missing"):
-        raise NotFoundError(f"Item não encontrado: {id}")
-    return result
-
-
 @router.get("/items/{id}/graph")
 def item_graph(
     request: Request,
@@ -229,16 +201,14 @@ def item_graph(
     direction: str = "both",
     cid: str = Depends(get_connection_id),
 ):
-    """O `item_graph` a partir do item, sem limite de alcance (`everywhere`): `{nodes: [{key, id,
-    type, subtype, title, summary, scope, status, hop}], edges: [{from, type, to}],
-    truncated, total_by_hop}` (`from`/`to` = key, ou id quando o item não tem key)."""
+    """O `item_graph` a partir do item: `{nodes: [{key, id, type, title, summary, hop}],
+    edges: [{from, type, to}], truncated, total_by_hop}` (`from`/`to` = key, ou id quando o
+    item não tem key)."""
     check_query(request, _GRAPH_PARAMS)
-    record = Brain(cid).snapshot.require(id)
-    viewpoint = (slugify(record.workspace or ""), slugify(record.project or ""))
+    Brain(cid).snapshot.require(id)
     return GraphService(cid).graph(
-        [id], viewpoint=viewpoint, depth=depth, limit=limit,
+        [id], depth=depth, limit=limit,
         relation_types=split(relation_types), types=split(types), direction=direction,
-        everywhere=True,
     )
 
 

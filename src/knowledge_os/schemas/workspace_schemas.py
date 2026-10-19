@@ -1,9 +1,5 @@
-"""Schemas Pydantic de workspace (v2): nome, descrição e `scope` explícito.
-
-`scope` segue a convenção dos serviços: ausente/None = não define (create) ou não muda
-(update); um de `model.SCOPES` = grava explícito; `""` (só no update) = volta a herdar. O
-serviço valida e lista os valores válidos.
-"""
+"""Schemas Pydantic de workspace (v6): nome e descrição (sem `scope` — o alcance vem da
+hierarquia: um item no workspace vale para tudo abaixo)."""
 
 from pydantic import BaseModel
 
@@ -11,7 +7,6 @@ from pydantic import BaseModel
 class WorkspaceCreate(BaseModel):
     name: str
     description: str | None = None
-    scope: str | None = None
 
 
 class WorkspaceUpdate(BaseModel):
@@ -19,16 +14,13 @@ class WorkspaceUpdate(BaseModel):
 
     name: str | None = None
     description: str | None = None
-    scope: str | None = None
 
 
 class WorkspaceRow(BaseModel):
-    """`WorkspaceService.rows()`: `scope` = o que vale; `scope_explicit` = o gravado."""
+    """`WorkspaceService.rows()`."""
 
     id: str
     name: str
     description: str | None = None
-    scope: str
-    scope_explicit: str | None = None
     items: int
     projects: int
