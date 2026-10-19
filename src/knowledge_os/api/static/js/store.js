@@ -50,7 +50,7 @@ export const appStore = {
   // Filtros das listas (workspace e project): ficam no store para não se perderem ao navegar.
   // projectIds/subjectIds filtram no servidor (não só a página carregada, como types) —
   // só aparecem na UI de quem tem a árvore pra oferecer as opções (workspace e project).
-  filters: { q: '', types: [], subtypes: [], projectIds: [], subjectIds: [] },
+  filters: { q: '', types: [], tags: [], projectIds: [], subjectIds: [] },
   filtersWs: null,
 
   // Tags gerenciadas da conexão: [{ name, count }] (count 0 = só no vocabulário).
@@ -160,7 +160,7 @@ export const appStore = {
     if (conn && conn !== this.connId) await this.selectConnection(conn);
     if (r.params.ws !== this.filtersWs) {
       this.filtersWs = r.params.ws || null;
-      this.filters = { q: '', types: [], subtypes: [], projectIds: [], subjectIds: [] };
+      this.filters = { q: '', types: [], tags: [], projectIds: [], subjectIds: [] };
     }
     if (r.params.ws && !this.trees[r.params.ws] && this.workspaces.length) {
       await this.loadTree(r.params.ws);
@@ -367,7 +367,7 @@ export const appStore = {
       id: item.id,
       title: item.title,
       type: item.type,
-      subtype: item.subtype || null,
+      tags: item.tags || [],
       conn: this.connId,
       ws: item.workspace_id,
       pj: item.project_id,

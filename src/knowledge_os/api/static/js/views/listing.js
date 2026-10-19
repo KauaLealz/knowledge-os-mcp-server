@@ -1,9 +1,9 @@
 // Shared logic for item listings (Workspace, Project and Subject pages): paged loading,
-// type and subtype chips (multi-select), server search and project/subject filters. Filter
-// state lives in Alpine.store('app').filters (survives navigation). Items in `review` are
-// marked ⚠ and listed after the others (as search does).
+// type and tag chips (multi-select), server search and project/subject filters. Filter state
+// lives in Alpine.store('app').filters (survives navigation). v6: no scope/status — reach is by
+// hierarchy, and nuance/lifecycle live in tags.
 import { api } from '../api.js';
-import { TYPE_ORDER, isReview, parseDate, subtypeLabel, subtypesOf, typeLabel } from '../util.js';
+import { TYPE_ORDER, isFaded, parseDate, typeLabel } from '../util.js';
 
 export const PAGE_SIZE = 50; // items per page (same size as search)
 const SEARCH_LIMIT = 50; // max accepted by search
@@ -52,7 +52,7 @@ export function listingMixin(Alpine) {
       return (
         this.searchMode ||
         this.filters.types.length > 0 ||
-        this.filters.subtypes.length > 0 ||
+        this.filters.tags.length > 0 ||
         this.filters.projectIds.length > 0 ||
         this.filters.subjectIds.length > 0
       );
@@ -60,7 +60,7 @@ export function listingMixin(Alpine) {
 
     initListing() {
       this.$watch(
-        () => this.filters.q + '|' + this.filters.types.join(',') + '|' + this.filters.subtypes.join(',') + '|' + JSON.stringify(this.scope()),
+        () => this.filters.q + '|' + this.filters.types.join(',') + '|' + this.filters.tags.join(',') + '|' + JSON.stringify(this.scope()),
         () => this.runSearch(),
       );
       // project/subject filter on the server (not just the loaded page, like type does) —
@@ -129,7 +129,7 @@ export function listingMixin(Alpine) {
         try {
           const q = { ...this.scope(), query: this.query, limit: SEARCH_LIMIT };
           if (this.filters.types.length) q.types = this.filters.types.join(',');
-          if (this.filters.subtypes.length) q.subtypes = this.filters.subtypes.join(',');
+          if (this.filters.tags.length) q.tags = this.filters.tags.join(',');
           if (this.filters.projectIds.length) q.project_id = this.filters.projectIds.join(',');
           if (this.filters.subjectIds.length) q.subject_id = this.filters.subjectIds.join(',');
           const res = await api('GET', '/items/search', { query: q });
@@ -149,18 +149,16 @@ export function listingMixin(Alpine) {
     toggleType(t) {
       const cur = this.filters.types;
       this.filters.types = cur.includes(t) ? cur.filter((x) => x !== t) : [...cur, t];
-      // subtipo de um tipo que saiu do filtro não faz mais sentido
-      const keep = new Set(this.filters.types.flatMap((x) => subtypesOf(x)));
-      if (this.filters.types.length) this.filters.subtypes = this.filters.subtypes.filter((x) => keep.has(x));
     },
-    toggleSubtype(st) {
-      const cur = this.filters.subtypes;
-      this.filters.subtypes = cur.includes(st) ? cur.filter((x) => x !== st) : [...cur, st];
+    // ---- tag chips (replace the old subtype chips) ----
+    toggleTag(tag) {
+      const cur = this.filters.tags;
+      this.filters.tags = cur.includes(tag) ? cur.filter((x) => x !== tag) : [...cur, tag];
     },
     clearFilters() {
       this.filters.q = '';
       this.filters.types = [];
-      this.filters.subtypes = [];
+      this.filters.tags = [];
       this.filters.projectIds = [];
       this.filters.subjectIds = [];
     },
@@ -180,10 +178,8 @@ export function listingMixin(Alpine) {
       if (this.scope().project_id) return [];
       return (this.app.tree?.projects || []).map((p) => ({ id: p.id, name: p.name }));
     },
-    /** Workspace: subjects across all projects, with the project name alongside (to tell
-     * apart a "Credentials" subject from one project vs. another's). Project: only that
-     * project's subjects, no need to repeat its name. Subject: none — already a single
-     * subject, a filter there would be redundant with the page itself. */
+    /** Workspace: subjects across all projects, with the project name alongside. Project: only
+     * that project's subjects. Subject: none. */
     get subjectFilterOptions() {
       if (this.scope().subject_id) return [];
       const pid = this.scope().project_id;
@@ -196,8 +192,7 @@ export function listingMixin(Alpine) {
       }
       return out;
     },
-    /** Chips: with a count in the listing; in search mode, every type (the count comes
-     * from the result groups). */
+    /** Type chips: with a count in the listing; in search mode, every type. */
     get chipTypes() {
       const counts = {};
       for (const it of this.items) counts[it.type] = (counts[it.type] || 0) + 1;
@@ -210,31 +205,26 @@ export function listingMixin(Alpine) {
       }));
     },
 
-    /** Subtype chips: the subtypes of the chosen types (or of every type present), with a
-     * count in the listing. */
-    get chipSubtypes() {
-      const types = this.filters.types.length ? this.filters.types : TYPE_ORDER;
+    /** Tag chips: the tags present in the loaded items (plus any chosen), with a count. */
+    get chipTags() {
       const counts = {};
-      for (const it of this.items) if (it.subtype) counts[it.subtype] = (counts[it.subtype] || 0) + 1;
-      const all = [...new Set(types.flatMap((t) => subtypesOf(t)))];
-      const shown = this.searchMode ? all : all.filter((st) => counts[st] || this.filters.subtypes.includes(st));
-      return shown.map((st) => ({ subtype: st, label: subtypeLabel(st), count: this.searchMode ? null : counts[st] || 0 }));
+      for (const it of this.items) for (const tag of it.tags || []) counts[tag] = (counts[tag] || 0) + 1;
+      const names = new Set([...Object.keys(counts), ...this.filters.tags]);
+      return [...names].sort().map((tag) => ({ tag, label: tag, count: this.searchMode ? null : counts[tag] || 0 }));
     },
 
     // ---- displayed list: a single flat list, sorted — no grouping by type ----
     get visible() {
       if (this.searchMode) return this.remote;
       const sel = this.filters.types;
-      const sub = this.filters.subtypes;
+      const tags = this.filters.tags;
       let list = sel.length ? this.items.filter((i) => sel.includes(i.type)) : this.items.slice();
-      if (sub.length) list = list.filter((i) => sub.includes(i.subtype));
-      const byReview = (a, b) => Number(isReview(a)) - Number(isReview(b));
-      if (this.sort === 'recent') return list.sort((a, b) => byReview(a, b) || time(b) - time(a));
-      return list.sort((a, b) => byReview(a, b) || a.title.localeCompare(b.title));
+      if (tags.length) list = list.filter((i) => tags.every((t) => (i.tags || []).includes(t)));
+      const byFaded = (a, b) => Number(isFaded(a)) - Number(isFaded(b));
+      if (this.sort === 'recent') return list.sort((a, b) => byFaded(a, b) || time(b) - time(a));
+      return list.sort((a, b) => byFaded(a, b) || a.title.localeCompare(b.title));
     },
-    /** Which project the item lives in (only the workspace page shows it: there the list mixes
-     * projects). The listing row brings `project`; a search result only `where`
-     * ("Workspace/Project") — the workspace part would repeat the page, so it is dropped. */
+    /** Which project the item lives in (only the workspace page shows it). */
     where(it) {
       return it.project || this.app.tree?.projects?.find((p) => p.id === it.project_id)?.name
         || String(it.where || '').split('/').pop() || '';

@@ -2,8 +2,7 @@
 import Alpine from '../vendor/alpine.esm.js';
 import { appStore } from './store.js';
 import {
-  connectionBadges, isFaded, itemBadges, itemMeta, kindLabel, originLabel, scopeBadges, scopeLabel,
-  subtypeLabel, typeLabel, typeClass, timeAgo,
+  connectionBadges, isFaded, itemBadges, itemMeta, kindLabel, typeLabel, typeClass, timeAgo,
 } from './util.js';
 import { register as registerSidebar } from './views/sidebar.js';
 import { register as registerWorkspace } from './views/workspace.js';
@@ -21,15 +20,11 @@ window.Alpine = Alpine;
 Alpine.magic('ago', () => timeAgo);
 Alpine.magic('tlabel', () => typeLabel);
 Alpine.magic('tc', () => typeClass);
-// v2: "Tipo · Subtipo" e a origem do item (texto do editor).
+// v6: just the type label (nuance is a tag, shown separately).
 Alpine.magic('kind', () => kindLabel);
-Alpine.magic('stlabel', () => subtypeLabel);
-Alpine.magic('scopelabel', () => scopeLabel);
-Alpine.magic('origin', () => originLabel);
-// Sistema único de badges (type, state, scope) e do metadado muted (onde, origem, tempo):
-// todo template percorre estas listas com o mesmo trecho de markup.
+// Single badge system (type + lifecycle tag) and the muted metadata (where, time): every
+// template walks these lists with the same bit of markup.
 Alpine.magic('badges', () => itemBadges);
-Alpine.magic('scopebadges', () => scopeBadges);
 Alpine.magic('connbadges', () => connectionBadges);
 Alpine.magic('meta', () => itemMeta);
 Alpine.magic('faded', () => isFaded);

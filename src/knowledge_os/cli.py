@@ -18,7 +18,7 @@ from typing import Any
 from knowledge_os import __version__
 from knowledge_os.exceptions import NoConnectionError, ValidationError
 
-BRAIN_COMMANDS = ("context", "recent", "report", "pending", "link", "run")
+BRAIN_COMMANDS = ("context", "recent", "report", "pending", "link", "run", "migrate")
 PENDING_NAME = "pending.jsonl"  # no home do cérebro, fora de qualquer repositório
 LEGACY_PENDING = Path(".plumb") / "pending-brain.jsonl"  # versões antigas do Plumb
 HOOK_BUDGET = 1200
@@ -47,6 +47,11 @@ def _parser() -> argparse.ArgumentParser:
 
     rep = sub.add_parser("report", help="o que revisar no cérebro (para o plumb-dream)")
     rep.add_argument("--json", action="store_true", help="saída em JSON")
+
+    mig = sub.add_parser("migrate", help="migra os dados de uma conexão do formato antigo p/ o v6")
+    mig.add_argument("--connection", help="id da conexão (padrão: a padrão)")
+    mig.add_argument("--dry-run", action="store_true", help="só mostra o que mudaria")
+    mig.add_argument("--json", action="store_true", help="saída em JSON")
 
     pen = sub.add_parser("pending", help="grava a fila offline (<home>/pending.jsonl)")
     pen.add_argument("--repo", default=".", help="pasta do projeto (padrão: atual)")
@@ -493,6 +498,26 @@ def _run(args: argparse.Namespace) -> int:
     return run(cmd, values, stdin_value)
 
 
+def _migrate(args: argparse.Namespace) -> int:
+    _init()
+    from knowledge_os.services.migrate import migrate_connection
+
+    out = migrate_connection(args.connection, dry_run=args.dry_run)
+    if args.json:
+        print(json.dumps(out, ensure_ascii=False, indent=2))
+        return 0
+    verbo = "mudariam" if args.dry_run else "migrados"
+    if not out["changed"]:
+        print("Nada a migrar: a conexão já está no formato v6.")
+        return 0
+    print(f"{out['migrated']} arquivo(s) {verbo}:")
+    for rel in out["changed"]:
+        print(f"- {rel}")
+    if args.dry_run:
+        print("\n(dry-run: nada foi gravado; rode sem --dry-run para aplicar.)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["--version"]:
@@ -508,7 +533,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         return {"context": _context, "recent": _recent, "report": _report, "pending": _pending,
-                "link": _link, "run": _run}[args.command](args)
+                "link": _link, "run": _run, "migrate": _migrate}[args.command](args)
     except Exception as exc:  # noqa: BLE001
         print(f"Erro: {exc}", file=sys.stderr)
         return 1
