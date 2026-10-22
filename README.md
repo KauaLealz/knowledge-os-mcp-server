@@ -16,6 +16,28 @@ As **31 tools** se agrupam em:
 | Repositório | `repo` (`link`/`list`/`unlink`/`sync`) | Ligar o repo em que você trabalha a um workspace/project. |
 | Conexão & saúde | `connection_create/list/delete`, `health_check` | Criar/listar a pasta git de dados e checar o estado do servidor. |
 
+## Taxonomia dos itens
+
+| Tipo | Guarda |
+|---|---|
+| `rule` | o que deve ser seguido + o porquê (convenção, decisão, regra de negócio) |
+| `howto` | passos repetíveis ou diagnóstico (sintoma/causa/solução) |
+| `context` | pano de fundo: produto, mapa, stack, glossário, ambiente |
+| `work` | o trabalho: plano/spec + decisões (o porquê durável); ciclo por tag |
+| `secret` | referência a um segredo (sem o valor) |
+
+| Campo | Valores |
+|---|---|
+| tags de ciclo | `draft`, `active`, `done`, `archived` |
+| tags de nuance (base, extensível) | `decision`, `troubleshoot`, `security`, `pattern`, `map`, `glossary`, `product`, `environment`, `business`, `process` |
+| link item→item (`rel`) | `depends_on`, `relates_to` |
+
+Key: `<tipo>/<nome>` (nome em minúsculas com `-`); fora do padrão grava com aviso, e a key de um item existente nunca muda.
+
+Alcance: o item vale onde mora na hierarquia (workspace → project → subject) e abaixo. Não há `scope`, `status`, `subtype`, `origin` nem expiração — a nuance e o ciclo vão em `tags`.
+
+`links` (unificado): `{item, rel}` liga a outro item; `{url[, title]}` a uma URL; `{path}` a um arquivo/glob do repositório.
+
 ## Requisitos
 
 - **Python 3.12+**.
