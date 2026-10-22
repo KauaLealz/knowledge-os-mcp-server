@@ -100,7 +100,8 @@ def test_ui_de_verdade_responde_sem_token_e_recusa_escrita_de_outra_origem(tmp_p
     try:
         assert URL_RE.search(proc.stdout.readline()), "URL não impressa"
         base = f"http://127.0.0.1:{port}"
-        assert _status(f"{base}/api/workspaces") == 200
+        # Espera o servidor aceitar conexão (no CI o uvicorn sobe depois de imprimir a URL).
+        assert _wait_status(f"{base}/api/workspaces") == 200
         assert _status(f"{base}/api/workspaces", "POST", origin="http://evil.test") == 403
     finally:
         watchdog.cancel()

@@ -32,8 +32,13 @@ _CMD_META = re.compile(r'["%&|<>^!\r\n]')
 
 
 def _encodings() -> list[str]:
-    """Como o filho pode escrever o valor: UTF-8, a codepage ANSI, a OEM (Windows) e UTF-16."""
-    found = ["utf-8", locale.getpreferredencoding(False)]
+    """Como o filho pode escrever o valor: UTF-8, a codepage ANSI, a OEM (Windows) e UTF-16.
+
+    `cp1252` entra sempre (não só quando é o locale do host): o filho pode gravar em
+    Windows-ANSI mesmo quando o redactor roda em Linux, e a redação não pode depender do
+    locale de quem executa.
+    """
+    found = ["utf-8", locale.getpreferredencoding(False), "cp1252"]
     if sys.platform == "win32":
         import ctypes
 

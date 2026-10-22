@@ -134,7 +134,7 @@ def test_wheel_inclui_instructions_e_static(tmp_path):
         ["uv", "build", "--wheel", "-o", str(out), str(proj)],
         check=True, capture_output=True, text=True, timeout=300, env=env,
     )
-    (wheel,) = out.glob("knowledge_mcp-*.whl")
+    (wheel,) = out.glob("knowledge_os_mcp_server-*.whl")
     names = set(zipfile.ZipFile(wheel).namelist())
     assert "knowledge_os/mcp/INSTRUCTIONS.md" in names
     pkg = ROOT / "src" / "knowledge_os"
