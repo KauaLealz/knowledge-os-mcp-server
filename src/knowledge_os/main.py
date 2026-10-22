@@ -216,7 +216,9 @@ def main(argv: list[str] | None = None) -> int:
             _background_ui = BackgroundUI()
             _background_ui.start()
         register_all_tools()
-        mcp.run()
+        # show_banner=False corta o banner do FastMCP e a checagem de update por rede,
+        # que atrasavam o handshake stdio (cliente MCP desiste em ~30 s).
+        mcp.run(show_banner=False)
         return 0
     except KeyboardInterrupt:
         print("Encerrando...", file=sys.stderr)
